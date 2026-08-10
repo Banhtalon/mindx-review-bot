@@ -27,6 +27,11 @@ export type DispatchConfig = {
   cronWorkspaceId: string;
 };
 
+export type AuthenticatedUser = {
+  userId: string;
+  accessToken?: string;
+};
+
 export type EnqueuedJob = {
   jobId: string;
   workspaceId: string;
@@ -38,8 +43,12 @@ export type EnqueuedJob = {
 };
 
 export type DispatchDependencies = {
-  authenticateUser: (accessToken: string) => Promise<{ userId: string } | null>;
-  authorizeOwner: (userId: string, workspaceId: string) => Promise<boolean>;
+  authenticateUser: (accessToken: string) => Promise<AuthenticatedUser | null>;
+  authorizeOwner: (
+    userId: string,
+    workspaceId: string,
+    accessToken?: string,
+  ) => Promise<boolean>;
   enqueueJob: (input: {
     workspaceId: string;
     type: JobType;
@@ -176,7 +185,7 @@ export async function handleDispatch(
     if (user === null || !isUuid(user.userId)) {
       return { status: 401, body: { error_code: "AUTH_FAILED" } };
     }
-    if (!(await dependencies.authorizeOwner(user.userId, request.workspaceId))) {
+    if (!(await dependencies.authorizeOwner(user.userId, request.workspaceId, user.accessToken))) {
       return { status: 403, body: { error_code: "OWNER_REQUIRED" } };
     }
     requestedBy = user.userId;
