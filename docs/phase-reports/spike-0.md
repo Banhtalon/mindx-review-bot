@@ -1,5 +1,7 @@
 # Phase Spike 0 result
 
+- Implementation commit: `dc6dc3b`
+
 ## Scope completed
 
 - Bootstrapped the React/Vite shell with explicit synthetic-only copy.
