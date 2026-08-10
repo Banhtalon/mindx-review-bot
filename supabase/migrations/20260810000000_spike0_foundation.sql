@@ -20,7 +20,10 @@ create table public.automation_jobs (
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   type text not null check (type in ('sync_teaching', 'read_lms_pending')),
   status text not null default 'queued'
-    check (status in ('queued', 'dispatched', 'running', 'succeeded', 'failed')),
+    check (status in (
+      'queued', 'dispatching', 'dispatched', 'running', 'succeeded',
+      'partial', 'dispatch_failed', 'failed', 'cancelled'
+    )),
   idempotency_key text not null,
   requested_by uuid not null references auth.users(id),
   payload_json jsonb not null default '{}'::jsonb,

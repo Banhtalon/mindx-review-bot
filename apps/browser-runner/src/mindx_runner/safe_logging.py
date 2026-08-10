@@ -8,9 +8,10 @@ SAFE_ENUM_VALUES: dict[str, frozenset[str]] = {
             "dispatched",
             "running",
             "succeeded",
-            "failed",
             "partial",
-            "blocked",
+            "dispatch_failed",
+            "failed",
+            "cancelled",
         }
     ),
     "jobType": frozenset({"sync_teaching", "read_lms_pending"}),

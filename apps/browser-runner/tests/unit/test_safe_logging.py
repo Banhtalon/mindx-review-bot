@@ -35,7 +35,7 @@ def test_safe_logger_keeps_only_typed_values_for_allowlisted_keys() -> None:
     safe = sanitize_log_metadata(
         {
             "job_id": "00000000-0000-0000-0000-000000000001",
-            "status": "Synthetic Student Alpha",
+            "status": "dispatch_failed",
             "job_type": "sync_teaching",
             "error_code": "AUTH_EXPIRED",
             "records_read": "1",
@@ -45,6 +45,7 @@ def test_safe_logger_keeps_only_typed_values_for_allowlisted_keys() -> None:
 
     assert safe == {
         "job_id": "00000000-0000-0000-0000-000000000001",
+        "status": "dispatch_failed",
         "job_type": "sync_teaching",
         "error_code": "AUTH_EXPIRED",
         "duration_ms": 42,

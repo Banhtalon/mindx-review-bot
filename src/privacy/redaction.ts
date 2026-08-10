@@ -31,7 +31,7 @@ const SAFE_EVIDENCE_IDS = new Set([
   "V4-S0-10-fixture",
 ]);
 const RESIDUAL_PERSONAL_MARKERS = [
-  /(?:\b(?:student|parent)\s+[A-Z][A-Za-zÀ-ỹ'-]+|\b(?:học viên|phụ huynh)\s+[A-ZÀ-Ỹ][\p{L}'-]+|@|\b(?:\+?84|0)\d{8,10}\b)/iu,
+  /(?:\b[Ss]tudent\s+\p{Lu}[\p{L}'-]+|\b[Pp]arent\s+\p{Lu}[\p{L}'-]+|\b(?:học viên|phụ huynh)\s+\p{Lu}[\p{L}'-]+|@|\b(?:\+?84|0)\d{8,10}\b)/u,
   /(?<![\p{L}'])\p{Lu}[\p{L}'-]{2,}(?:\s+\p{Lu}[\p{L}'-]{2,})+(?![\p{L}'])/u,
 ];
 
@@ -71,7 +71,8 @@ function redactPerformance(input: ModelInput): string {
   output = output
     .replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g, "[REDACTED]")
     .replace(/\b(?:\+?84|0)\d{8,10}\b/g, "[REDACTED]");
-  if (RESIDUAL_PERSONAL_MARKERS.some((pattern) => pattern.test(output))) {
+  const markerText = output.normalize("NFC");
+  if (RESIDUAL_PERSONAL_MARKERS.some((pattern) => pattern.test(markerText))) {
     throw new Error("Performance text contains unredacted personal data");
   }
   return output;

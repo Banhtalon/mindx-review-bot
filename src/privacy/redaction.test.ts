@@ -69,4 +69,21 @@ describe("model payload redaction", () => {
       evidenceId: "V4-S0-10-fixture",
     })).toThrow("Performance text contains unredacted personal data");
   });
+
+  it("allows role words in ordinary performance feedback", () => {
+    const payload = buildSafeModelPayload({
+      studentName: "Synthetic Student Alpha",
+      parentName: "Synthetic Parent",
+      email: "student@example.invalid",
+      phone: "0900000000",
+      address: "Synthetic address",
+      healthNote: "Synthetic health note",
+      performance: "Student demonstrated good progress. Parent reported improvement.",
+      evidenceId: "V4-S0-10-fixture",
+    });
+
+    expect(payload.performance).toBe(
+      "Student demonstrated good progress. Parent reported improvement.",
+    );
+  });
 });

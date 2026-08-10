@@ -38,7 +38,7 @@ describe("safe log metadata", () => {
   it("keeps only typed values for allowlisted metadata keys", () => {
     const safe = sanitizeLogMetadata({
       jobId: "00000000-0000-0000-0000-000000000001",
-      status: "Synthetic Student Alpha",
+      status: "dispatch_failed",
       jobType: "sync_teaching",
       errorCode: "AUTH_EXPIRED",
       recordsRead: "1",
@@ -47,6 +47,7 @@ describe("safe log metadata", () => {
 
     expect(safe).toEqual({
       jobId: "00000000-0000-0000-0000-000000000001",
+      status: "dispatch_failed",
       jobType: "sync_teaching",
       errorCode: "AUTH_EXPIRED",
       durationMs: 42,
