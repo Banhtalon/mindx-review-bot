@@ -18,7 +18,7 @@ Fresh verification results:
 
 - PASS `npm run lint`
 - PASS `npm run typecheck`
-- PASS `npm run test` — 6 files, 17 tests
+- PASS `npm run test` — 6 files, 18 tests
 - PASS `npm run build`
 - PASS `npm run verify:no-secrets`
 - PASS `npm run verify:no-live-write`

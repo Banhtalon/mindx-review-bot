@@ -15,6 +15,8 @@ export type SafeModelPayload = {
   evidenceId: string;
 };
 
+const SAFE_EVIDENCE_ID = /^V4-[A-Z0-9]+-\d{2}(?:-[a-z0-9]+)*$/;
+
 function anonymousId(): string {
   const values = new Uint32Array(3);
   globalThis.crypto.getRandomValues(values);
@@ -53,7 +55,14 @@ function redactPerformance(input: ModelInput): string {
     .replace(/\b(?:\+?84|0)\d{8,10}\b/g, "[REDACTED_PHONE]");
 }
 
+function assertSafeEvidenceId(evidenceId: string): void {
+  if (!SAFE_EVIDENCE_ID.test(evidenceId)) {
+    throw new Error("Evidence ID is not safe");
+  }
+}
+
 export function buildSafeModelPayload(input: ModelInput): SafeModelPayload {
+  assertSafeEvidenceId(input.evidenceId);
   return {
     anonymousId: anonymousId(),
     performance: redactPerformance(input),

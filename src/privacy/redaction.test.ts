@@ -43,4 +43,17 @@ describe("model payload redaction", () => {
     expect(payload.performance).not.toContain("student@example.invalid");
     expect(payload.performance).not.toContain("0900000000");
   });
+
+  it("rejects an evidence id that is not a synthetic evidence key", () => {
+    expect(() => buildSafeModelPayload({
+      studentName: "Synthetic Student Alpha",
+      parentName: "Synthetic Parent",
+      email: "student@example.invalid",
+      phone: "0900000000",
+      address: "Synthetic address",
+      healthNote: "Synthetic health note",
+      performance: "good",
+      evidenceId: "Student Alpha private note",
+    })).toThrow("Evidence ID is not safe");
+  });
 });
