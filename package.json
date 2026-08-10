@@ -1,0 +1,26 @@
+{
+  "name": "mindx-review-bot",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:rls": "supabase test db",
+    "test:functions": "node scripts/test_functions.mjs",
+    "test:e2e": "node scripts/test_e2e.mjs",
+    "verify:no-secrets": "node scripts/verify_no_secrets.mjs",
+    "verify:no-live-write": "node scripts/verify_no_live_write.mjs"
+  },
+  "devDependencies": {
+    "supabase": "^2.113.0"
+  },
+  "dependencies": {
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}
