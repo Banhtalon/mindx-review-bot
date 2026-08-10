@@ -1,4 +1,6 @@
-from mindx_runner.parser import parse_student_rows, resolve_student
+import unicodedata
+
+from mindx_runner.parser import StudentRow, parse_student_rows, resolve_student
 
 
 def test_parser_extracts_synthetic_student_rows_without_row_identity() -> None:
@@ -32,3 +34,30 @@ def test_duplicate_synthetic_names_without_discriminator_are_unresolvable() -> N
         assert str(error) == "Student identity is unresolvable"
     else:
         raise AssertionError("expected duplicate name to be unresolvable")
+
+
+def test_parser_keeps_text_after_nested_row_markup() -> None:
+    html = """
+    <div data-student-id="syn-03">
+      Student <div class="name-part">Gamma</div> after
+    </div>
+    """
+
+    rows = parse_student_rows(html)
+
+    assert rows == [
+        StudentRow(
+            student_id="syn-03",
+            full_name="Student Gamma after",
+            discriminator=None,
+        )
+    ]
+
+
+def test_resolve_student_normalizes_unicode_to_nfc() -> None:
+    rows = parse_student_rows(
+        '<div data-student-id="syn-04">Nguyễn Ánh</div>'
+    )
+    decomposed_query = unicodedata.normalize("NFD", "Nguyễn Ánh")
+
+    assert resolve_student(rows, full_name=decomposed_query).student_id == "syn-04"

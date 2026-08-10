@@ -15,7 +15,6 @@ const IGNORED_DIRECTORIES = new Set([
   ".pytest_cache",
   ".mypy_cache",
   ".ruff_cache",
-  "scripts",
   ".temp",
 ]);
 

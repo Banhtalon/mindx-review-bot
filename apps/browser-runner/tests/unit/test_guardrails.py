@@ -23,6 +23,15 @@ def test_lms_write_flag_is_rejected() -> None:
         raise AssertionError("expected LMS read-only guard to reject mutation")
 
 
+def test_malformed_lms_write_flag_is_rejected() -> None:
+    try:
+        assert_lms_read_only("true")  # type: ignore[arg-type]
+    except RuntimeError as error:
+        assert str(error) == "LMS read-only guard violated"
+    else:
+        raise AssertionError("expected malformed LMS write flag to be rejected")
+
+
 def test_production_hosts_are_explicit() -> None:
     assert ALLOWED_PRODUCTION_HOSTS == frozenset(
         {"teachingmindx.top", "lms.mindx.edu.vn"}

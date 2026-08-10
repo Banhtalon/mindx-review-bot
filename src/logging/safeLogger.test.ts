@@ -34,4 +34,22 @@ describe("safe log metadata", () => {
 
     expect(safe).toEqual({ status: "failed" });
   });
+
+  it("keeps only typed values for allowlisted metadata keys", () => {
+    const safe = sanitizeLogMetadata({
+      jobId: "00000000-0000-0000-0000-000000000001",
+      status: "Synthetic Student Alpha",
+      jobType: "sync_teaching",
+      errorCode: "AUTH_EXPIRED",
+      recordsRead: "1",
+      durationMs: 42,
+    });
+
+    expect(safe).toEqual({
+      jobId: "00000000-0000-0000-0000-000000000001",
+      jobType: "sync_teaching",
+      errorCode: "AUTH_EXPIRED",
+      durationMs: 42,
+    });
+  });
 });

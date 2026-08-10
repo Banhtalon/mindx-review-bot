@@ -7,12 +7,18 @@ import { dirname, join, relative, resolve } from "node:path";
 const SOURCE_DIRECTORIES = ["src", "apps/browser-runner/src", "supabase/functions"];
 const IGNORED_DIRECTORIES = new Set([".git", ".venv", "node_modules", "__pycache__"]);
 const MUTATION_PATTERNS = [
-  ["write-flag", /\bMVP_LMS_WRITE_ENABLED\s*(?:=|:)\s*true\b/i],
+  [
+    "write-flag",
+    /\bMVP_LMS_WRITE_ENABLED\s*(?:=|:)\s*(?:true|"true"|'true')\b/i,
+  ],
   [
     "save-or-submit-click",
-    /(?=.*\b(?:save|submit)\b)(?=.*\.(?:click|fill|type|press)\s*\()/i,
+    /(?:\b(?:save|submit)\b[\s\S]{0,240}\.(?:click|fill|type|press)\s*\(|\b(?:save|submit)[A-Za-z0-9_]*\b\s*\.\s*(?:click|fill|type|press)\s*\()/i,
   ],
-  ["save-or-submit-call", /\b(?:save|submit)(?:Comment|Review|Feedback)?\s*\(/i],
+  [
+    "save-or-submit-call",
+    /\b(?:save|submit)(?:[A-Za-z0-9_]*(?:Comment|Review|Feedback)?)\s*\(/i,
+  ],
 ];
 
 function parseRoot(argv) {
@@ -40,14 +46,14 @@ function findViolations(root) {
     const directory = join(root, sourceDirectory);
     if (!existsSync(directory)) continue;
     for (const file of collectFiles(root, directory)) {
-      const lines = readFileSync(file, "utf8").split("\n");
-      lines.forEach((line, index) => {
-        for (const [kind, pattern] of MUTATION_PATTERNS) {
-          if (pattern.test(line)) {
-            violations.push({ file: relative(root, file), kind, line: index + 1 });
-          }
+      const content = readFileSync(file, "utf8");
+      for (const [kind, pattern] of MUTATION_PATTERNS) {
+        const match = pattern.exec(content);
+        if (match && match.index !== undefined) {
+          const line = content.slice(0, match.index).split("\n").length;
+          violations.push({ file: relative(root, file), kind, line });
         }
-      });
+      }
     }
   }
   return violations;

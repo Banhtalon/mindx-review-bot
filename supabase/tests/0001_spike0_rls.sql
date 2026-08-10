@@ -1,11 +1,18 @@
 begin;
 
-select plan(15);
+select plan(22);
 
 select has_table('public', 'workspaces', 'workspaces table exists');
 select has_table('public', 'workspace_members', 'workspace_members table exists');
 select has_table('public', 'automation_jobs', 'automation_jobs table exists');
 select has_table('public', 'automation_runs', 'automation_runs table exists');
+select is(
+  (select attnotnull from pg_attribute
+    where attrelid = 'public.automation_jobs'::regclass
+      and attname = 'requested_by'),
+  true,
+  'automation job attribution is not nullable'
+);
 
 select is(
   (select relrowsecurity from pg_class where oid = 'public.workspaces'::regclass),
@@ -18,6 +25,16 @@ select is(
   true,
   'automation_jobs has RLS enabled'
 );
+select is(
+  (select relrowsecurity from pg_class where oid = 'public.workspace_members'::regclass),
+  true,
+  'workspace_members has RLS enabled'
+);
+select is(
+  (select relrowsecurity from pg_class where oid = 'public.automation_runs'::regclass),
+  true,
+  'automation_runs has RLS enabled'
+);
 
 select policies_are('public', 'workspaces', array['workspaces_select_member'], 'workspaces policies exist');
 select policies_are(
@@ -25,6 +42,18 @@ select policies_are(
   'automation_jobs',
   array['automation_jobs_insert_owner', 'automation_jobs_select_member'],
   'job policies exist'
+);
+select policies_are(
+  'public',
+  'workspace_members',
+  array['workspace_members_select_member'],
+  'workspace member policies exist'
+);
+select policies_are(
+  'public',
+  'automation_runs',
+  array['automation_runs_select_member'],
+  'automation run policies exist'
 );
 
 insert into auth.users (id, aud, role, email, encrypted_password, email_confirmed_at)
@@ -60,6 +89,20 @@ select throws_ok(
   '23505',
   null,
   'duplicate idempotency key is rejected'
+);
+select throws_ok(
+  $$insert into public.automation_jobs (workspace_id, type, idempotency_key, requested_by)
+    values ('00000000-0000-0000-0000-0000000000aa', 'sync_teaching', 'synthetic-key-wrong-attribution', '00000000-0000-0000-0000-0000000000b1')$$,
+  '42501',
+  null,
+  'owner A cannot attribute a job to another user'
+);
+select throws_ok(
+  $$insert into public.automation_jobs (workspace_id, type, idempotency_key, requested_by)
+    values ('00000000-0000-0000-0000-0000000000aa', 'sync_teaching', 'synthetic-key-null-attribution', null)$$,
+  '42501',
+  null,
+  'job attribution cannot be omitted'
 );
 
 select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-0000000000b1', true);

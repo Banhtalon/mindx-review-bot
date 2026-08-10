@@ -11,7 +11,7 @@ def can_run_automation(enabled: bool) -> bool:
 
 
 def assert_lms_read_only(write_enabled: bool) -> None:
-    if write_enabled is True:
+    if write_enabled is not False:
         raise RuntimeError("LMS read-only guard violated")
 
 

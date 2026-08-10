@@ -20,6 +20,12 @@ describe("runtime safety guards", () => {
     );
   });
 
+  it("rejects malformed write configuration instead of failing open", () => {
+    expect(() => assertLmsReadOnly({
+      lmsWriteEnabled: "true" as unknown as boolean,
+    })).toThrow("LMS read-only guard violated");
+  });
+
   it("allows only production or synthetic fixture domains", () => {
     expect(() => assertAllowedDomain("https://lms.mindx.edu.vn/class"))
       .not.toThrow();

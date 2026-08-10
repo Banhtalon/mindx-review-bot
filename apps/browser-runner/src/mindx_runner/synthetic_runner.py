@@ -13,12 +13,26 @@ class SyntheticRunResult:
     agent_received_roster: bool
 
 
-def run_synthetic_fixture(*, navigation_html: str, roster_html: str) -> SyntheticRunResult:
+def run_synthetic_fixture(
+    *,
+    navigation_html: str,
+    roster_html: str,
+    expected_class_code: str,
+    expected_session_number: int,
+) -> SyntheticRunResult:
     agent_page = assert_agent_page_safe(navigation_html)
-    class_match = re.search(r'data-class-code="([^"]+)"', agent_page)
-    session_match = re.search(r'data-session-number="([0-9]+)"', agent_page)
-    if class_match is None or session_match is None:
-        raise RuntimeError("Synthetic navigation fixture is incomplete")
+    class_matches = re.findall(r'data-class-code="([^"]+)"', agent_page)
+    session_matches = re.findall(r'data-session-number="([0-9]+)"', agent_page)
+    if len(class_matches) != 1 or len(session_matches) != 1:
+        raise RuntimeError("Synthetic navigation identity is unresolvable")
+
+    class_code = class_matches[0]
+    session_number = int(session_matches[0])
+    if (
+        class_code != expected_class_code
+        or session_number != expected_session_number
+    ):
+        raise RuntimeError("Synthetic navigation identity mismatch")
 
     rows = parse_student_rows(roster_html)
     student_ids = tuple(row.student_id for row in rows)
@@ -26,8 +40,8 @@ def run_synthetic_fixture(*, navigation_html: str, roster_html: str) -> Syntheti
         raise RuntimeError("Synthetic roster is missing stable identifiers")
 
     return SyntheticRunResult(
-        class_code=class_match.group(1),
-        session_number=int(session_match.group(1)),
+        class_code=class_code,
+        session_number=session_number,
         student_ids=tuple(student_id for student_id in student_ids if student_id is not None),
         agent_received_roster=False,
     )

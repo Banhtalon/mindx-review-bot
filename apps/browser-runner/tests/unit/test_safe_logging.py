@@ -29,3 +29,23 @@ def test_safe_logger_drops_unknown_fields_that_could_hide_personal_text() -> Non
     )
 
     assert safe == {"status": "failed"}
+
+
+def test_safe_logger_keeps_only_typed_values_for_allowlisted_keys() -> None:
+    safe = sanitize_log_metadata(
+        {
+            "job_id": "00000000-0000-0000-0000-000000000001",
+            "status": "Synthetic Student Alpha",
+            "job_type": "sync_teaching",
+            "error_code": "AUTH_EXPIRED",
+            "records_read": "1",
+            "duration_ms": 42,
+        }
+    )
+
+    assert safe == {
+        "job_id": "00000000-0000-0000-0000-000000000001",
+        "job_type": "sync_teaching",
+        "error_code": "AUTH_EXPIRED",
+        "duration_ms": 42,
+    }

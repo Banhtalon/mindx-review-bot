@@ -1,4 +1,5 @@
 import re
+import unicodedata
 from dataclasses import dataclass
 from html.parser import HTMLParser
 
@@ -11,27 +12,61 @@ class StudentRow:
 
 
 class _StudentRowParser(HTMLParser):
+    _VOID_TAGS = frozenset(
+        {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }
+    )
+
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.rows: list[StudentRow] = []
         self._active: dict[str, str | None] | None = None
+        self._active_tag: str | None = None
+        self._active_depth = 0
         self._text: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
-        if "data-student-id" in attributes or "data-discriminator" in attributes:
+        normalized_tag = tag.lower()
+        if self._active is None and (
+            "data-student-id" in attributes or "data-discriminator" in attributes
+        ):
             self._active = {
                 "student_id": attributes.get("data-student-id"),
                 "discriminator": attributes.get("data-discriminator"),
             }
+            self._active_tag = normalized_tag
+            self._active_depth = 0
             self._text = []
+        elif self._active is not None and normalized_tag not in self._VOID_TAGS:
+            self._active_depth += 1
 
     def handle_data(self, data: str) -> None:
         if self._active is not None:
             self._text.append(data)
 
     def handle_endtag(self, tag: str) -> None:
-        if self._active is None or tag not in {"div", "li", "tr"}:
+        if self._active is None:
+            return
+        normalized_tag = tag.lower()
+        if self._active_depth > 0:
+            self._active_depth -= 1
+            return
+        if normalized_tag != self._active_tag:
             return
         full_name = re.sub(r"\s+", " ", "".join(self._text)).strip()
         if full_name:
@@ -43,6 +78,8 @@ class _StudentRowParser(HTMLParser):
                 )
             )
         self._active = None
+        self._active_tag = None
+        self._active_depth = 0
         self._text = []
 
 
@@ -54,7 +91,8 @@ def parse_student_rows(html: str) -> list[StudentRow]:
 
 
 def _normalize(value: str) -> str:
-    return re.sub(r"\s+", " ", value).strip().casefold()
+    normalized = unicodedata.normalize("NFC", value)
+    return re.sub(r"\s+", " ", normalized).strip().casefold()
 
 
 def resolve_student(

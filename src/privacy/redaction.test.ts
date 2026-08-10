@@ -53,7 +53,20 @@ describe("model payload redaction", () => {
       address: "Synthetic address",
       healthNote: "Synthetic health note",
       performance: "good",
-      evidenceId: "Student Alpha private note",
+      evidenceId: "V4-S0-07-studentalpha",
     })).toThrow("Evidence ID is not safe");
+  });
+
+  it("rejects residual personal markers that were not supplied as known values", () => {
+    expect(() => buildSafeModelPayload({
+      studentName: "Synthetic Student Alpha",
+      parentName: "Synthetic Parent",
+      email: "student@example.invalid",
+      phone: "0900000000",
+      address: "Synthetic address",
+      healthNote: "Synthetic health note",
+      performance: "Student Beta contacted beta@example.invalid at 0912345678",
+      evidenceId: "V4-S0-10-fixture",
+    })).toThrow("Performance text contains unredacted personal data");
   });
 });

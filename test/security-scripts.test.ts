@@ -60,4 +60,18 @@ describe("repository safety checks", () => {
 
     expect(result.status).not.toBe(0);
   });
+
+  it("rejects multiline save actions in production source", () => {
+    const result = runScript("verify_no_live_write.mjs", {
+      "src/navigation.ts": [
+        "const saveButton = page.getByRole(",
+        '  "button",',
+        '  { name: "Save" },',
+        ");",
+        "await saveButton.click();",
+      ].join("\n"),
+    });
+
+    expect(result.status).not.toBe(0);
+  });
 });

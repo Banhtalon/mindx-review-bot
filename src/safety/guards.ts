@@ -16,7 +16,7 @@ export function canRunAutomation(config: AutomationConfig): boolean {
 }
 
 export function assertLmsReadOnly(config: LmsWriteConfig): void {
-  if (config.lmsWriteEnabled === true) {
+  if (config.lmsWriteEnabled !== false) {
     throw new Error("LMS read-only guard violated");
   }
 }

@@ -22,7 +22,7 @@ create table public.automation_jobs (
   status text not null default 'queued'
     check (status in ('queued', 'dispatched', 'running', 'succeeded', 'failed')),
   idempotency_key text not null,
-  requested_by uuid references auth.users(id),
+  requested_by uuid not null references auth.users(id),
   payload_json jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   unique (workspace_id, idempotency_key)
@@ -107,7 +107,10 @@ using (public.is_workspace_member(workspace_id));
 create policy automation_jobs_insert_owner
 on public.automation_jobs
 for insert to authenticated
-with check (public.has_workspace_role(workspace_id, array['owner']));
+with check (
+  public.has_workspace_role(workspace_id, array['owner'])
+  and requested_by = auth.uid()
+);
 
 create policy automation_runs_select_member
 on public.automation_runs
