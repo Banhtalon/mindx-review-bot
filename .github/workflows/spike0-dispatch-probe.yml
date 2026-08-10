@@ -1,0 +1,56 @@
+name: spike0-dispatch-probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Synthetic automation job UUID
+        required: true
+        type: string
+      job_type:
+        description: Synthetic read-only job type
+        required: true
+        type: choice
+        options:
+          - sync_teaching
+          - read_lms_pending
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mindx-spike0-${{ inputs.job_id }}
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate synthetic dispatch input
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+          JOB_TYPE: ${{ inputs.job_type }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          import re
+          import sys
+
+          job_id = os.environ["JOB_ID"]
+          job_type = os.environ["JOB_TYPE"]
+          uuid_pattern = (
+              r"[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-"
+              r"[89ab][0-9a-f]{3}-[0-9a-f]{12}"
+          )
+
+          if re.fullmatch(uuid_pattern, job_id) is None:
+              print("invalid synthetic job id", file=sys.stderr)
+              sys.exit(1)
+          if job_type not in {"sync_teaching", "read_lms_pending"}:
+              print("invalid synthetic job type", file=sys.stderr)
+              sys.exit(1)
+
+          print("Spike 0 dispatch probe accepted", job_id, job_type)
+          PY
