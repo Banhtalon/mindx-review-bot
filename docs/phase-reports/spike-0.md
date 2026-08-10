@@ -1,6 +1,7 @@
 # Phase Spike 0 result
 
-- Implementation commits: `dc6dc3b`, `0dbf585`
+- Implementation commits: `dc6dc3b`, `80ae593`, `0dbf585`, `8e7aa1b`,
+  `5de0d93`
 
 ## Scope completed
 
@@ -18,13 +19,13 @@ Fresh verification results:
 
 - PASS `npm run lint`
 - PASS `npm run typecheck`
-- PASS `npm run test` — 6 files, 18 tests
+- PASS `npm run test` — 6 files, 22 tests
 - PASS `npm run build`
 - PASS `npm run verify:no-secrets`
 - PASS `npm run verify:no-live-write`
 - PASS `cd apps/browser-runner && uv run ruff check .`
 - PASS `cd apps/browser-runner && uv run mypy src`
-- PASS `cd apps/browser-runner && uv run pytest` — 12 tests
+- PASS `cd apps/browser-runner && uv run pytest` — 19 tests
 - BLOCKED `npm run test:rls` — local Postgres `127.0.0.1:54322` refused the
   connection because Docker was unavailable.
 

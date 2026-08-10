@@ -1,6 +1,6 @@
 metric,scope,value,unit,status,notes
-web_unit_tests,synthetic,18,tests,PASS,"Vitest suite; no live data"
-python_unit_tests,synthetic,12,tests,PASS,"pytest suite; no live data"
+web_unit_tests,synthetic,22,tests,PASS,"Vitest suite; no live data"
+python_unit_tests,synthetic,19,tests,PASS,"pytest suite; no live data"
 browser_use_version,dependency,0.13.6,version,PASS,"Exact pin in apps/browser-runner/pyproject.toml"
 teaching_cold_runs,live,not-run,runs,BLOCKED,"No production credentials or live browser probe in this workspace"
 teaching_warm_runs,live,not-run,runs,BLOCKED,"No production credentials or live browser probe in this workspace"
