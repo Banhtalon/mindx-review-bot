@@ -1,7 +1,7 @@
 {
   "version": 4,
   "phase": "spike-0",
-  "commit": "dc6dc3b..5de0d93",
+  "commit": "dc6dc3b..1810450",
   "items": [
     {"id": "V4-S0-01", "requirement": "Supabase anonymous access denied", "path": "spike-0/V4-S0-01.md", "status": "BLOCKED"},
     {"id": "V4-S0-02", "requirement": "Supabase cross-workspace access denied", "path": "spike-0/V4-S0-02.md", "status": "BLOCKED"},
