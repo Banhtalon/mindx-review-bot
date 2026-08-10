@@ -3,7 +3,7 @@ import {
   type DispatchConfig,
   type DispatchDependencies,
   type DispatchRequest,
-} from "./dispatch";
+} from "./dispatch.ts";
 
 function jsonResponse(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {

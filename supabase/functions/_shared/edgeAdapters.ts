@@ -3,7 +3,7 @@ import type {
   EnqueuedJob,
   JobStatus,
   JobType,
-} from "./dispatch";
+} from "./dispatch.ts";
 
 export type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
