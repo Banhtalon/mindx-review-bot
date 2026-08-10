@@ -7,6 +7,7 @@ import {
 import { createDispatchHttpHandler } from "../supabase/functions/_shared/http";
 
 const USER_ID = "00000000-0000-0000-0000-0000000000c1";
+const CRON_ACTOR_ID = "00000000-0000-0000-0000-0000000000c2";
 const WORKSPACE_ID = "00000000-0000-0000-0000-0000000000cc";
 const JOB_ID = "00000000-0000-0000-0000-0000000000d1";
 
@@ -32,6 +33,22 @@ function request(): Request {
     method: "POST",
     headers: {
       Authorization: "Bearer synthetic-access-token",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      workspace_id: WORKSPACE_ID,
+      type: "sync_teaching",
+      idempotency_key: "synthetic-dispatch-001",
+      payload: {},
+    }),
+  });
+}
+
+function cronRequest(): Request {
+  return new Request("http://edge.local/dispatch-job", {
+    method: "POST",
+    headers: {
+      "X-Cron-Dispatch-Secret": "synthetic-cron-secret",
       "content-type": "application/json",
     },
     body: JSON.stringify({
@@ -120,6 +137,26 @@ describe("dispatch Edge Function adapters", () => {
       Authorization: "Bearer synthetic-github-token",
     });
     expect(JSON.stringify(githubCall?.init)).not.toContain("synthetic-access-token");
+  });
+
+  it("uses the configured Cron actor without querying user Auth or membership", async () => {
+    const { fetcher, calls } = fakeFetch();
+    const dependencies = createDispatchDependencies(CONFIG, fetcher);
+    const handler = createDispatchHttpHandler(dependencies, {
+      cronSecret: "synthetic-cron-secret",
+      cronActorUserId: CRON_ACTOR_ID,
+      cronWorkspaceId: WORKSPACE_ID,
+    });
+
+    const result = await handler(cronRequest());
+
+    expect(result.status).toBe(202);
+    expect(calls.some((call) => call.url.endsWith("/auth/v1/user"))).toBe(false);
+    expect(calls.some((call) => call.url.includes("/rest/v1/workspace_members"))).toBe(false);
+    const enqueueCall = calls.find((call) => call.url.endsWith("/rpc/enqueue_automation_job"));
+    expect(JSON.parse(String(enqueueCall?.init?.body))).toMatchObject({
+      target_requested_by: CRON_ACTOR_ID,
+    });
   });
 
   it("returns 502 and marks the job failed when GitHub rejects dispatch", async () => {
