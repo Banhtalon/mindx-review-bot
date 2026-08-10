@@ -1,0 +1,2 @@
+-- Spike 0 intentionally has no persistent seed data.
+-- RLS fixtures create synthetic users and workspaces inside the pgTAP test transaction.
