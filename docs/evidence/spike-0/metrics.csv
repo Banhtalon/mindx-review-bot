@@ -1,7 +1,8 @@
 metric,scope,value,unit,status,notes
 web_unit_tests,synthetic,39,tests,PASS,"Vitest suite; no live data"
 dispatch_contract_tests,synthetic,16,tests,PASS,"Dispatch, adapter and workflow contract tests; mocked GitHub only"
-dispatch_pg_tap_assertions,synthetic,16,assertions,BLOCKED,"Assertions are present but local Postgres could not start because Docker was unavailable"
+dispatch_pg_tap_assertions,synthetic,16,assertions,PASS,"Dispatch pgTAP assertions; local Postgres on port 55022"
+supabase_rls_tests,synthetic,38,tests,PASS,"pgTAP: 2 SQL files, 0 failures"
 python_unit_tests,synthetic,19,tests,PASS,"pytest suite; no live data"
 browser_use_version,dependency,0.13.6,version,PASS,"Exact pin in apps/browser-runner/pyproject.toml"
 teaching_cold_runs,live,not-run,runs,BLOCKED,"No production credentials or live browser probe in this workspace"

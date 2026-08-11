@@ -1,12 +1,12 @@
 {
   "version": 4,
   "phase": "spike-0",
-  "commit": "80aff44..974b81b",
+  "commit": "80aff44..61afe2c",
   "items": [
-    {"id": "V4-S0-01", "requirement": "Supabase anonymous access denied", "path": "spike-0/V4-S0-01.md", "status": "BLOCKED"},
-    {"id": "V4-S0-02", "requirement": "Supabase cross-workspace access denied", "path": "spike-0/V4-S0-02.md", "status": "BLOCKED"},
+    {"id": "V4-S0-01", "requirement": "Supabase anonymous access denied", "path": "spike-0/V4-S0-01.md", "status": "PASS"},
+    {"id": "V4-S0-02", "requirement": "Supabase cross-workspace access denied", "path": "spike-0/V4-S0-02.md", "status": "PASS"},
     {"id": "V4-S0-03", "requirement": "Edge dispatch probe", "path": "spike-0/V4-S0-03.md", "status": "BLOCKED"},
-    {"id": "V4-S0-04", "requirement": "Job idempotency and atomic claim", "path": "spike-0/V4-S0-04.md", "status": "BLOCKED"},
+    {"id": "V4-S0-04", "requirement": "Job idempotency and atomic claim", "path": "spike-0/V4-S0-04.md", "status": "PASS"},
     {"id": "V4-S0-05", "requirement": "Teaching cold/warm metrics", "path": "spike-0/V4-S0-05.md", "status": "BLOCKED"},
     {"id": "V4-S0-06", "requirement": "LMS cold/warm metrics", "path": "spike-0/V4-S0-06.md", "status": "BLOCKED"},
     {"id": "V4-S0-07", "requirement": "Exact class/session/student assertions", "path": "spike-0/V4-S0-07.md", "status": "PASS"},

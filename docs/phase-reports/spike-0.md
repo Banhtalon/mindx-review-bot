@@ -31,19 +31,18 @@ Fresh verification results:
 - PASS `cd apps/browser-runner && uv run mypy src`
 - PASS `cd apps/browser-runner && uv run pytest` — 19 tests
 - PASS focused dispatch/adapter/workflow suite — 3 files, 16 tests
-- BLOCKED `npm run test:rls` — local Postgres `127.0.0.1:54322` refused the
-  connection because Docker was unavailable.
+- PASS `npm run test:rls` — 2 SQL files, 38 tests, 0 failures after remapping
+  local Supabase ports outside the Windows excluded range.
 
 Synthetic web and Python suite counts are recorded in
 `docs/evidence/spike-0/metrics.csv`.
 
 ## Evidence IDs
 
-- Synthetic PASS: `V4-S0-07`, `V4-S0-08`, `V4-S0-10`, plus the implementation
-  and mocked tests recorded in `V4-S0-03` and `V4-S0-04`.
-- Infrastructure/live BLOCKED: `V4-S0-01` through `V4-S0-06`, `V4-S0-09`,
-  `V4-S0-11`; `V4-S0-03` remains blocked for real cloud dispatch and
-  `V4-S0-04` remains blocked for pgTAP execution.
+- Synthetic PASS: `V4-S0-01`, `V4-S0-02`, `V4-S0-04`, `V4-S0-07`, `V4-S0-08`,
+  `V4-S0-10`, plus the mocked Edge dispatch tests in `V4-S0-03`.
+- Infrastructure/live BLOCKED: `V4-S0-03` remains blocked for real cloud
+  dispatch, plus `V4-S0-05`, `V4-S0-06`, `V4-S0-09`, and `V4-S0-11`.
 
 ## Security/privacy review
 
@@ -70,10 +69,8 @@ Synthetic web and Python suite counts are recorded in
 
 ## Known limitations
 
-- Supabase pgTAP assertions have not executed in this environment because the
-  local Postgres endpoint was unavailable.
-- The Docker daemon was unavailable, and the Deno CLI was not installed, so no
-  local Edge runtime smoke test was possible.
+- The Deno CLI was not installed, so no local Edge runtime smoke test was
+  possible; the mocked Edge adapter suite remains green.
 - Teaching/LMS cold/warm runs, CAPTCHA/anti-bot observation, browser telemetry
   capture and GitHub billed-minute measurement are not available without
   owner-controlled infrastructure and credentials.
