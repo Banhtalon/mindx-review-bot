@@ -1,9 +1,11 @@
 metric,scope,value,unit,status,notes
-web_unit_tests,synthetic,23,tests,PASS,"Vitest suite; no live data"
+web_unit_tests,synthetic,39,tests,PASS,"Vitest suite; no live data"
+dispatch_contract_tests,synthetic,16,tests,PASS,"Dispatch, adapter and workflow contract tests; mocked GitHub only"
+dispatch_pg_tap_assertions,synthetic,16,assertions,BLOCKED,"Assertions are present but local Postgres could not start because Docker was unavailable"
 python_unit_tests,synthetic,19,tests,PASS,"pytest suite; no live data"
 browser_use_version,dependency,0.13.6,version,PASS,"Exact pin in apps/browser-runner/pyproject.toml"
 teaching_cold_runs,live,not-run,runs,BLOCKED,"No production credentials or live browser probe in this workspace"
 teaching_warm_runs,live,not-run,runs,BLOCKED,"No production credentials or live browser probe in this workspace"
 lms_cold_runs,live,not-run,runs,BLOCKED,"No production credentials or live browser probe in this workspace"
 lms_warm_runs,live,not-run,runs,BLOCKED,"No production credentials or live browser probe in this workspace"
-github_billed_minutes,cloud,not-measured,minutes,BLOCKED,"No GitHub workflow dispatch in Spike 0 bootstrap"
+github_billed_minutes,cloud,not-measured,minutes,BLOCKED,"Synthetic workflow contract only; no owner-controlled cloud dispatch"
