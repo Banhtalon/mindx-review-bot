@@ -48,6 +48,15 @@ def test_wrong_key_fails_closed_without_exposing_plaintext() -> None:
     assert str(error.value) == STORAGE_STATE_DECRYPT_FAILED
 
 
+def test_wrong_key_version_fails_closed() -> None:
+    envelope = BrowserStateCipher(KEY, key_version=1).encrypt(STATE, site="lms")
+
+    with pytest.raises(BrowserStateError) as error:
+        BrowserStateCipher(KEY, key_version=2).decrypt(envelope, site="lms")
+
+    assert error.value.code == STORAGE_STATE_DECRYPT_FAILED
+
+
 def test_tampered_ciphertext_fails_closed() -> None:
     cipher = BrowserStateCipher(KEY, key_version=1)
     envelope = cipher.encrypt(STATE, site="lms")
@@ -56,6 +65,28 @@ def test_tampered_ciphertext_fails_closed() -> None:
 
     with pytest.raises(BrowserStateError) as error:
         cipher.decrypt(tampered, site="lms")
+
+    assert error.value.code == STORAGE_STATE_DECRYPT_FAILED
+
+
+def test_tampered_gcm_tag_fails_closed() -> None:
+    cipher = BrowserStateCipher(KEY, key_version=1)
+    envelope = cipher.encrypt(STATE, site="lms")
+    tampered_tag = bytes([envelope.tag[0] ^ 1]) + envelope.tag[1:]
+
+    with pytest.raises(BrowserStateError) as error:
+        cipher.decrypt(replace(envelope, tag=tampered_tag), site="lms")
+
+    assert error.value.code == STORAGE_STATE_DECRYPT_FAILED
+
+
+def test_tampered_state_hash_fails_closed() -> None:
+    cipher = BrowserStateCipher(KEY, key_version=1)
+    envelope = cipher.encrypt(STATE, site="lms")
+    tampered_hash = "0" + envelope.state_hash[1:]
+
+    with pytest.raises(BrowserStateError) as error:
+        cipher.decrypt(replace(envelope, state_hash=tampered_hash), site="lms")
 
     assert error.value.code == STORAGE_STATE_DECRYPT_FAILED
 

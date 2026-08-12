@@ -151,6 +151,8 @@ class BrowserStateCipher:
     def decrypt(self, envelope: EncryptedStateEnvelope, *, site: str) -> bytes:
         if not isinstance(envelope, EncryptedStateEnvelope):
             _fail()
+        if envelope.key_version != self.key_version:
+            _fail()
         try:
             plaintext = AESGCM(self._key).decrypt(
                 envelope.iv,
