@@ -1,9 +1,15 @@
 import unicodedata
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .lms_models import LmsRosterRow
+from .lms_context import (
+    ExpectedLmsContext,
+    LmsContextAssertion,
+    assert_lms_context,
+    can_process_lms_roster,
+)
+from .lms_models import LmsPageExtract, LmsRosterRow
 
 StudentResolutionStatus = Literal["resolved", "unresolvable", "ambiguous"]
 
@@ -60,6 +66,21 @@ class StudentResolution(BaseModel):
     internal_id: str | None = Field(default=None, max_length=200)
     status: StudentResolutionStatus
     reason_code: str = Field(min_length=1, max_length=200)
+
+
+class ContextualStudentResolution(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    context_assertion: LmsContextAssertion
+    student_resolution: StudentResolution | None
+
+    @model_validator(mode="after")
+    def validate_context_gate(self) -> "ContextualStudentResolution":
+        context_allows_resolution = can_process_lms_roster(self.context_assertion)
+        has_resolution = self.student_resolution is not None
+        if context_allows_resolution != has_resolution:
+            raise ValueError("student resolution must follow a matched LMS context")
+        return self
 
 
 def _resolved(internal_id: str, reason_code: str) -> StudentResolution:
@@ -128,10 +149,28 @@ def resolve_lms_student(
         return _unresolvable()
 
     candidates = [row for row in rows if _name_key(row.full_name) == _name_key(expected.full_name)]
-    stable_candidates = [row for row in candidates if _has_stable_identity(row)]
 
-    if len(stable_candidates) == 1:
+    if len(candidates) == 1 and _has_stable_identity(candidates[0]):
         return _resolved(expected.internal_id, "LMS_STUDENT_NAME_MATCH")
-    if len(candidates) > 1 and stable_candidates:
+    if len(candidates) > 1 and any(_has_stable_identity(row) for row in candidates):
         return _ambiguous()
     return _unresolvable()
+
+
+def resolve_lms_student_in_context(
+    *,
+    expected_context: ExpectedLmsContext,
+    observed: LmsPageExtract,
+    expected_student: ExpectedStudent,
+) -> ContextualStudentResolution:
+    context_assertion = assert_lms_context(expected_context, observed)
+    if not can_process_lms_roster(context_assertion):
+        return ContextualStudentResolution(
+            context_assertion=context_assertion,
+            student_resolution=None,
+        )
+
+    return ContextualStudentResolution(
+        context_assertion=context_assertion,
+        student_resolution=resolve_lms_student(expected_student, observed.rows),
+    )

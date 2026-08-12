@@ -1,3 +1,4 @@
+import traceback
 from datetime import date, time
 from pathlib import Path
 
@@ -194,6 +195,66 @@ def test_parser_ignores_decoy_rows_outside_the_active_context_block() -> None:
             attendance="online",
         ),
     )
+
+
+def test_parser_tracks_same_tag_context_nesting_without_losing_later_rows() -> None:
+    page = parse_lms_page(read_fixture("same-tag-nested.html"))
+
+    assert tuple(row.student_id for row in page.rows) == (
+        "std-041",
+        "std-042",
+        "std-043",
+    )
+    assert all(row.student_id != "decoy-041" for row in page.rows)
+
+
+def test_parser_rejects_valid_context_with_empty_semantic_roster() -> None:
+    empty_roster_html = """
+    <main
+      data-lms-context="true"
+      data-class-code="SYN-CLASS-01"
+      data-session-number="9"
+      data-scheduled-date="2026-08-23"
+      data-start-time="09:00"
+      data-end-time="10:30"
+      data-lesson="Synthetic empty roster"
+    ></main>
+    """
+
+    with pytest.raises(LmsParserError, match="LMS_DATA_INVALID") as caught:
+        parse_lms_page(empty_roster_html)
+
+    assert caught.value.code == "LMS_DATA_INVALID"
+
+
+def test_parser_public_error_does_not_retain_source_values_or_raw_html() -> None:
+    source_marker = "SOURCE_VALUE_MUST_NOT_SURVIVE"
+    invalid_html = read_fixture("normal-session.html").replace(
+        'data-session-number="3"',
+        f'data-session-number="{source_marker}"',
+        1,
+    )
+
+    try:
+        parse_lms_page(invalid_html)
+    except LmsParserError as error:
+        public_traceback = "".join(
+            traceback.TracebackException.from_exception(error).format(chain=True)
+        )
+        parser_traceback_locals = "\n".join(
+            repr(frame.f_locals)
+            for frame, _ in traceback.walk_tb(error.__traceback__)
+            if Path(frame.f_code.co_filename).name == "lms_parser.py"
+        )
+        assert str(error) == "LMS_DATA_INVALID"
+        assert error.__cause__ is None
+        assert error.__context__ is None
+        assert source_marker not in public_traceback
+        assert invalid_html not in public_traceback
+        assert source_marker not in parser_traceback_locals
+        assert invalid_html not in parser_traceback_locals
+    else:
+        raise AssertionError("expected invalid source data to be rejected")
 
 
 def test_parser_rejects_invalid_session_number_with_safe_code() -> None:

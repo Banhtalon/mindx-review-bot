@@ -1,4 +1,5 @@
 from datetime import date, time
+from pathlib import Path
 
 import pytest
 
@@ -8,7 +9,16 @@ from mindx_runner.lms_context import (
     assert_lms_context,
     can_process_lms_roster,
 )
+from mindx_runner.lms_identity import (
+    ContextualStudentResolution,
+    ExpectedStudent,
+    StudentResolution,
+    resolve_lms_student_in_context,
+)
 from mindx_runner.lms_models import LmsPageExtract, LmsRosterRow
+from mindx_runner.lms_parser import parse_lms_page
+
+FIXTURE_DIR = Path(__file__).parents[1] / "fixtures" / "lms"
 
 
 def build_observed_context(
@@ -157,16 +167,27 @@ def test_assert_lms_context_returns_safe_fallback_on_mismatch(
     )
 
 
-def test_assert_lms_context_requires_source_id_to_match_exactly_when_present() -> None:
+@pytest.mark.parametrize(
+    ("expected_source_session_id", "observed_source_session_id"),
+    [
+        (None, "lms-sess-001"),
+        ("lms-sess-001", None),
+        (None, None),
+    ],
+)
+def test_assert_lms_context_compares_source_id_only_when_present_on_both_sides(
+    expected_source_session_id: str | None,
+    observed_source_session_id: str | None,
+) -> None:
     result = assert_lms_context(
-        build_expected_context(source_session_id=None),
-        build_observed_context(source_session_id="lms-sess-001"),
+        build_expected_context(source_session_id=expected_source_session_id),
+        build_observed_context(source_session_id=observed_source_session_id),
     )
 
     assert result == LmsContextAssertion(
-        matched=False,
-        reason_code="LMS_SOURCE_ID_MISMATCH",
-        manual_fallback=True,
+        matched=True,
+        reason_code="LMS_CONTEXT_MATCH",
+        manual_fallback=False,
     )
 
 
@@ -186,3 +207,59 @@ def test_context_mismatch_blocks_roster_processing_contract() -> None:
     assert assertion.matched is False
     assert assertion.manual_fallback is True
     assert processed_rows == []
+
+
+def test_parse_assert_resolve_contract_blocks_identity_on_context_mismatch() -> None:
+    observed = parse_lms_page(
+        (FIXTURE_DIR / "normal-session.html").read_text(encoding="utf-8")
+    )
+
+    result = resolve_lms_student_in_context(
+        expected_context=build_expected_context(class_code="SYN-CLASS-010"),
+        observed=observed,
+        expected_student=ExpectedStudent(
+            internal_id="internal-context-blocked",
+            student_id="std-001",
+            discriminator="disc-001",
+            full_name="Nguyễn Ánh",
+        ),
+    )
+
+    assert result == ContextualStudentResolution(
+        context_assertion=LmsContextAssertion(
+            matched=False,
+            reason_code="LMS_CLASS_MISMATCH",
+            manual_fallback=True,
+        ),
+        student_resolution=None,
+    )
+
+
+def test_parse_assert_resolve_contract_resolves_after_context_match() -> None:
+    observed = parse_lms_page(
+        (FIXTURE_DIR / "normal-session.html").read_text(encoding="utf-8")
+    )
+
+    result = resolve_lms_student_in_context(
+        expected_context=build_expected_context(),
+        observed=observed,
+        expected_student=ExpectedStudent(
+            internal_id="internal-context-matched",
+            student_id="std-001",
+            discriminator="disc-001",
+            full_name="Nguyễn Ánh",
+        ),
+    )
+
+    assert result == ContextualStudentResolution(
+        context_assertion=LmsContextAssertion(
+            matched=True,
+            reason_code="LMS_CONTEXT_MATCH",
+            manual_fallback=False,
+        ),
+        student_resolution=StudentResolution(
+            internal_id="internal-context-matched",
+            status="resolved",
+            reason_code="LMS_STUDENT_ID_MATCH",
+        ),
+    )

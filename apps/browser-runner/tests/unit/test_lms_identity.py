@@ -126,6 +126,50 @@ def test_resolves_by_exact_name_only_when_one_candidate_has_stable_identity() ->
     )
 
 
+def test_name_fallback_rejects_mixed_identity_duplicate_candidates() -> None:
+    result = resolve_lms_student(
+        ExpectedStudent(
+            internal_id="internal-003a",
+            student_id=None,
+            discriminator=None,
+            full_name="Student Alpha",
+        ),
+        (
+            row(student_id="std-031", discriminator=None, full_name="Student Alpha"),
+            row(student_id=None, discriminator=None, full_name="Student Alpha"),
+        ),
+    )
+
+    assert result == StudentResolution(
+        internal_id=None,
+        status="ambiguous",
+        reason_code="LMS_STUDENT_IDENTITY_AMBIGUOUS",
+    )
+
+
+def test_mixed_identity_duplicate_name_is_row_order_invariant() -> None:
+    expected = ExpectedStudent(
+        internal_id="internal-003b",
+        student_id=None,
+        discriminator=None,
+        full_name="Student Alpha",
+    )
+    rows = (
+        row(student_id="std-032", discriminator=None, full_name="Student Alpha"),
+        row(student_id=None, discriminator=None, full_name="Student Alpha"),
+    )
+
+    first = resolve_lms_student(expected, rows)
+    reordered = resolve_lms_student(expected, tuple(reversed(rows)))
+
+    assert first == StudentResolution(
+        internal_id=None,
+        status="ambiguous",
+        reason_code="LMS_STUDENT_IDENTITY_AMBIGUOUS",
+    )
+    assert reordered == first
+
+
 def test_does_not_fuzzy_match_similar_names() -> None:
     result = resolve_lms_student(
         ExpectedStudent(

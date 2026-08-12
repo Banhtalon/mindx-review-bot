@@ -70,7 +70,11 @@ def assert_lms_context(
             manual_fallback=True,
         )
 
-    if expected.source_session_id != observed.source_session_id:
+    if (
+        expected.source_session_id is not None
+        and observed.source_session_id is not None
+        and expected.source_session_id != observed.source_session_id
+    ):
         return LmsContextAssertion(
             matched=False,
             reason_code="LMS_SOURCE_ID_MISMATCH",
