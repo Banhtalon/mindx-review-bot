@@ -1,7 +1,9 @@
 metric,scope,value,unit,status,notes
-web_unit_tests,synthetic,39,tests,PASS,"Vitest suite; no live data"
-dispatch_contract_tests,synthetic,16,tests,PASS,"Dispatch, adapter and workflow contract tests; mocked GitHub only"
+web_unit_tests,synthetic,46,tests,PASS,"Vitest suite; 11 files, no live data"
+dispatch_contract_tests,synthetic,23,tests,PASS,"Dispatch, adapter, workflow, environment and config contract tests"
 dispatch_pg_tap_assertions,synthetic,16,assertions,PASS,"Dispatch pgTAP assertions; local Postgres on port 55022"
+hosted_edge_dispatches,cloud,1,runs,PASS,"Owner-observed synthetic Cron request returned HTTP 202 and status dispatched"
+github_workflow_runs,cloud,1,runs,PASS,"spike0-dispatch-probe #1 on main completed successfully in 9 seconds"
 supabase_rls_tests,synthetic,38,tests,PASS,"pgTAP: 2 SQL files, 0 failures"
 python_unit_tests,synthetic,19,tests,PASS,"pytest suite; no live data"
 browser_use_version,dependency,0.13.6,version,PASS,"Exact pin in apps/browser-runner/pyproject.toml"
