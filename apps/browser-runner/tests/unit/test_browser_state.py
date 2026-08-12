@@ -89,7 +89,7 @@ def test_lifecycle_saves_and_loads_state_without_plaintext_in_object() -> None:
     lifecycle = BrowserStateLifecycle(store)
     cipher = BrowserStateCipher(KEY, key_version=1)
 
-    version = lifecycle.save(WORKSPACE_ID, "lms", STATE, cipher)
+    version = lifecycle.persist(WORKSPACE_ID, "lms", STATE, cipher)
 
     assert version.status == "active"
     assert version.key_version == 1
@@ -104,8 +104,8 @@ def test_saving_new_state_revokes_previous_active_version() -> None:
     lifecycle = BrowserStateLifecycle(store)
     cipher = BrowserStateCipher(KEY, key_version=1)
 
-    previous = lifecycle.save(WORKSPACE_ID, "teaching", STATE, cipher)
-    current = lifecycle.save(WORKSPACE_ID, "teaching", b'{"synthetic":2}', cipher)
+    previous = lifecycle.persist(WORKSPACE_ID, "teaching", STATE, cipher)
+    current = lifecycle.persist(WORKSPACE_ID, "teaching", b'{"synthetic":2}', cipher)
 
     assert lifecycle.get_version(previous.version_id).status == "revoked"
     assert lifecycle.get_version(current.version_id).status == "active"
@@ -116,8 +116,8 @@ def test_key_rotation_activates_a_new_key_version() -> None:
     store = InMemoryObjectStore()
     lifecycle = BrowserStateLifecycle(store)
 
-    lifecycle.save(WORKSPACE_ID, "lms", STATE, BrowserStateCipher(KEY, key_version=1))
-    rotated = lifecycle.save(
+    lifecycle.persist(WORKSPACE_ID, "lms", STATE, BrowserStateCipher(KEY, key_version=1))
+    rotated = lifecycle.persist(
         WORKSPACE_ID,
         "lms",
         STATE,
@@ -136,7 +136,7 @@ def test_reset_revokes_version_deletes_object_and_forces_fresh_login() -> None:
     store = InMemoryObjectStore()
     lifecycle = BrowserStateLifecycle(store)
     cipher = BrowserStateCipher(KEY, key_version=1)
-    version = lifecycle.save(WORKSPACE_ID, "lms", STATE, cipher)
+    version = lifecycle.persist(WORKSPACE_ID, "lms", STATE, cipher)
 
     lifecycle.reset(WORKSPACE_ID, "lms")
 
@@ -151,7 +151,7 @@ def test_tampered_stored_envelope_fails_closed() -> None:
     store = InMemoryObjectStore()
     lifecycle = BrowserStateLifecycle(store)
     cipher = BrowserStateCipher(KEY, key_version=1)
-    version = lifecycle.save(WORKSPACE_ID, "lms", STATE, cipher)
+    version = lifecycle.persist(WORKSPACE_ID, "lms", STATE, cipher)
     stored = bytearray(store.get(version.object_path))
     stored[-2] = ord("0") if stored[-2] != ord("0") else ord("1")
     store.put(version.object_path, bytes(stored))
@@ -169,6 +169,6 @@ def test_lifecycle_rejects_unknown_sites_and_non_uuid_workspaces() -> None:
 
     assert ALLOWED_STATE_SITES == frozenset({"teaching", "lms"})
     with pytest.raises(BrowserStateError):
-        lifecycle.save("not-a-uuid", "lms", STATE, cipher)
+        lifecycle.persist("not-a-uuid", "lms", STATE, cipher)
     with pytest.raises(BrowserStateError):
-        lifecycle.save(WORKSPACE_ID, "unknown", STATE, cipher)
+        lifecycle.persist(WORKSPACE_ID, "unknown", STATE, cipher)

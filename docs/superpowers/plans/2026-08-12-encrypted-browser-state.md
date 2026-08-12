@@ -108,7 +108,7 @@
 **Interfaces:**
 - `ObjectStore` protocol with `put(path, value)`, `get(path)`, and `delete(path)`.
 - `InMemoryObjectStore` for synthetic tests.
-- `BrowserStateLifecycle.save(workspace_id, site, state, cipher) -> BrowserStateVersion`
+- `BrowserStateLifecycle.persist(workspace_id, site, state, cipher) -> BrowserStateVersion`
 - `BrowserStateLifecycle.load(workspace_id, site, cipher) -> bytes`
 - `BrowserStateLifecycle.reset(workspace_id, site) -> None`
 - `BrowserStateVersion.status` values `active` and `revoked`.

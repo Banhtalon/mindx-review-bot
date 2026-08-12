@@ -219,7 +219,7 @@ class BrowserStateLifecycle:
         self._store = store
         self._versions: dict[tuple[str, str], list[BrowserStateVersion]] = {}
 
-    def save(
+    def persist(
         self,
         workspace_id: str,
         site: str,
