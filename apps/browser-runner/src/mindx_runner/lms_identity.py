@@ -105,6 +105,15 @@ def resolve_lms_student(
     if _has_duplicate_non_null(tuple(row.discriminator for row in rows)):
         return _ambiguous()
 
+    if expected.student_id is not None and expected.discriminator is not None:
+        for row in rows:
+            if (
+                row.student_id == expected.student_id
+                and row.discriminator == expected.discriminator
+            ):
+                return _resolved(expected.internal_id, "LMS_STUDENT_ID_MATCH")
+        return _unresolvable()
+
     if expected.student_id is not None:
         for row in rows:
             if row.student_id == expected.student_id:
