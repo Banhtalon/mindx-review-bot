@@ -1,0 +1,11 @@
+metric,scope,value,unit,status,notes
+guard_privacy_parser_tests,synthetic,51,tests,PASS,"Focused pytest suite for network guard, privacy boundary, and LMS parser fixtures"
+phase4a_core_tests,synthetic,28,tests,PASS,"Focused pytest suite for pending selection, exact context, and deterministic identity"
+python_unit_tests,synthetic,183,tests,PASS,"uv run pytest from apps/browser-runner"
+python_lint_checks,synthetic,1,commands,PASS,"uv run ruff check . from apps/browser-runner"
+python_type_checks,synthetic,20,source-files,PASS,"uv run mypy src from apps/browser-runner"
+web_unit_tests,synthetic,46,tests,PASS,"Vitest suite; 11 files"
+supabase_db_reset,synthetic-local,1,runs,PASS,"npx supabase db reset from the worktree root before RLS verification"
+supabase_rls_tests,synthetic-local,67,tests,PASS,"Second post-reset attempt passed after one immediate connection-terminated race"
+live_lms_runs,live,not-run,runs,BLOCKED,"Synthetic-only phase; live selectors and owner-approved smoke are deferred"
+lms_cold_warm_metrics,live,not-measured,runs,BLOCKED,"No owner-approved live run in Phase 4A"
