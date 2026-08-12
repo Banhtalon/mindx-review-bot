@@ -47,7 +47,8 @@ def test_wrong_key_fails_closed_without_exposing_plaintext() -> None:
 def test_tampered_ciphertext_fails_closed() -> None:
     cipher = BrowserStateCipher(KEY, key_version=1)
     envelope = cipher.encrypt(STATE, site="lms")
-    tampered = replace(envelope, ciphertext=bytes([envelope.ciphertext[0] ^ 1]) + envelope.ciphertext[1:])
+    tampered_ciphertext = bytes([envelope.ciphertext[0] ^ 1]) + envelope.ciphertext[1:]
+    tampered = replace(envelope, ciphertext=tampered_ciphertext)
 
     with pytest.raises(BrowserStateError) as error:
         cipher.decrypt(tampered, site="lms")
