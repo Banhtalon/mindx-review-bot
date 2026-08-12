@@ -18,6 +18,7 @@ def test_parser_extracts_normal_week_into_validated_records() -> None:
     assert len(batch.sessions) == 2
     assert batch.sessions[0].class_code == "SYN-ROBOTICS-01"
     assert batch.sessions[0].source_session_id == "teach-sess-001"
+    assert batch.sessions[0].verified_internal_id is None
     assert batch.sessions[0].session_number == 3
     assert batch.sessions[0].session_type == "regular"
     assert batch.sessions[0].scheduled_date == date(2026, 8, 17)
@@ -33,6 +34,27 @@ def test_parser_reports_a_real_empty_week_without_error() -> None:
 
     assert batch.sessions == []
     assert batch.warnings == ["TEACHING_SCHEDULE_EMPTY"]
+
+
+def test_parser_rejects_an_unmarked_empty_page() -> None:
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule('<main data-teaching-schedule="true"></main>')
+
+
+def test_parser_rejects_truncated_session_markup() -> None:
+    truncated = read_fixture("normal-week.html").replace(
+        "</article>", "", 1
+    )
+
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(truncated)
+
+
+def test_parser_rejects_a_class_code_outside_the_supplied_catalog() -> None:
+    with pytest.raises(TeachingParserError, match="TEACHING_UNKNOWN_CLASS_CODE"):
+        parse_teaching_schedule(
+            read_fixture("normal-week.html"), allowed_class_codes={"SYN-OTHER-01"}
+        )
 
 
 def test_parser_rejects_login_page_instead_of_treating_it_as_empty() -> None:
@@ -82,6 +104,15 @@ def test_parser_rejects_source_ids_that_only_differ_by_whitespace() -> None:
 def test_parser_rejects_a_session_that_ends_before_it_starts() -> None:
     invalid_html = read_fixture("normal-week.html").replace(
         'data-end-time="10:30"', 'data-end-time="08:30"', 1
+    )
+
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(invalid_html)
+
+
+def test_parser_rejects_a_blank_required_class_code() -> None:
+    invalid_html = read_fixture("normal-week.html").replace(
+        'data-class-code=" syn-robotics-01 "', 'data-class-code="   "', 1
     )
 
     with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):

@@ -1,11 +1,14 @@
 import hashlib
 import re
+from collections.abc import Collection
 from datetime import date, time
 from html.parser import HTMLParser
 
 from pydantic import ValidationError
 
 from .teaching_models import TeachingBatchExtract, TeachingSessionExtract
+
+DEFAULT_SYNTHETIC_CLASS_CODES = frozenset({"SYN-ROBOTICS-01", "SYN-JS-02"})
 
 
 class TeachingParserError(RuntimeError):
@@ -26,6 +29,7 @@ class _TeachingSessionParser(HTMLParser):
         self.schedule_marker = False
         self.empty_marker = False
         self.login_marker = False
+        self.incomplete_session = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         attributes = dict(attrs)
@@ -97,6 +101,10 @@ class _TeachingSessionParser(HTMLParser):
         self._active_depth = 0
         self._text = []
 
+    def close(self) -> None:
+        super().close()
+        self.incomplete_session = self._active is not None
+
 
 def _required(record: dict[str, str | None], name: str) -> str:
     value = record.get(name)
@@ -112,7 +120,11 @@ def _optional_int(record: dict[str, str | None], name: str) -> int | None:
     return int(value)
 
 
-def parse_teaching_schedule(html: str) -> TeachingBatchExtract:
+def parse_teaching_schedule(
+    html: str,
+    *,
+    allowed_class_codes: Collection[str] = DEFAULT_SYNTHETIC_CLASS_CODES,
+) -> TeachingBatchExtract:
     source_page_hash = hashlib.sha256(html.encode("utf-8")).hexdigest()
     parser = _TeachingSessionParser()
     parser.feed(html)
@@ -120,8 +132,11 @@ def parse_teaching_schedule(html: str) -> TeachingBatchExtract:
 
     if parser.login_marker or parser.page_state == "login":
         raise TeachingParserError("TEACHING_LOGIN_REQUIRED")
-    if not parser.schedule_marker:
+    if parser.incomplete_session or not parser.schedule_marker:
         raise TeachingParserError("TEACHING_DATA_INVALID")
+    allowed_codes = {code.strip().upper() for code in allowed_class_codes}
+    if not allowed_codes:
+        raise TeachingParserError("TEACHING_CLASS_CATALOG_UNAVAILABLE")
 
     sessions: list[TeachingSessionExtract] = []
     source_ids: set[str] = set()
@@ -137,6 +152,8 @@ def parse_teaching_schedule(html: str) -> TeachingBatchExtract:
                 end_time=time.fromisoformat(_required(record, "end-time")),
                 teacher_name=record.get("teacher-name"),
             )
+            if session.class_code not in allowed_codes:
+                raise TeachingParserError("TEACHING_UNKNOWN_CLASS_CODE")
             source_id = session.source_session_id
             if source_id is not None and source_id in source_ids:
                 raise TeachingParserError("TEACHING_DUPLICATE_SOURCE_ID")
@@ -148,6 +165,8 @@ def parse_teaching_schedule(html: str) -> TeachingBatchExtract:
     except (TypeError, ValueError, ValidationError) as error:
         raise TeachingParserError("TEACHING_DATA_INVALID") from error
 
+    if not sessions and not parser.empty_marker:
+        raise TeachingParserError("TEACHING_DATA_INVALID")
     warnings = ["TEACHING_SCHEDULE_EMPTY"] if not sessions else []
     if parser.empty_marker and sessions:
         raise TeachingParserError("TEACHING_DATA_INVALID")
