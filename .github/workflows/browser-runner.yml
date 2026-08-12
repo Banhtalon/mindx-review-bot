@@ -1,0 +1,73 @@
+name: browser-runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      job_id:
+        description: Automation job UUID
+        required: true
+        type: string
+      job_type:
+        description: Read-only job type
+        required: true
+        type: choice
+        options:
+          - sync_teaching
+          - read_lms_pending
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mindx-browser-${{ inputs.job_id }}
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.12"
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install locked runner
+        run: uv sync --locked --project apps/browser-runner
+
+      - name: Install Chromium
+        run: uv run --project apps/browser-runner browser-use install
+
+      - name: Execute Teaching read-only runner
+        if: inputs.job_type == 'sync_teaching'
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+          JOB_TYPE: ${{ inputs.job_type }}
+          AUTOMATION_ENABLED: true
+          MVP_LMS_WRITE_ENABLED: false
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          TEACHING_USERNAME: ${{ secrets.TEACHING_USERNAME }}
+          TEACHING_PASSWORD: ${{ secrets.TEACHING_PASSWORD }}
+          BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
+        run: uv run --project apps/browser-runner mindx-runner run "$JOB_ID"
+
+      - name: Execute LMS read-only runner
+        if: inputs.job_type == 'read_lms_pending'
+        env:
+          JOB_ID: ${{ inputs.job_id }}
+          JOB_TYPE: ${{ inputs.job_type }}
+          AUTOMATION_ENABLED: true
+          MVP_LMS_WRITE_ENABLED: false
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          LMS_USERNAME: ${{ secrets.LMS_USERNAME }}
+          LMS_PASSWORD: ${{ secrets.LMS_PASSWORD }}
+          BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
+        run: uv run --project apps/browser-runner mindx-runner run "$JOB_ID"

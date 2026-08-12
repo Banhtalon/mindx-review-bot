@@ -1,7 +1,7 @@
 {
   "version": 4,
   "phase": "spike-0",
-  "commit": "80aff44..cf17a44",
+  "commit": "a5a381a..HEAD",
   "items": [
     {"id": "V4-S0-01", "requirement": "Supabase anonymous access denied", "path": "spike-0/V4-S0-01.md", "status": "PASS"},
     {"id": "V4-S0-02", "requirement": "Supabase cross-workspace access denied", "path": "spike-0/V4-S0-02.md", "status": "PASS"},
@@ -13,6 +13,7 @@
     {"id": "V4-S0-08", "requirement": "No LMS mutation", "path": "spike-0/V4-S0-08.md", "status": "PASS"},
     {"id": "V4-S0-09", "requirement": "Encrypted browser state lifecycle", "path": "spike-0/V4-S0-09.md", "status": "PASS"},
     {"id": "V4-S0-10", "requirement": "Synthetic privacy and LLM boundary", "path": "spike-0/V4-S0-10.md", "status": "PASS"},
-    {"id": "V4-S0-11", "requirement": "Pinned dependency and minute estimate", "path": "spike-0/V4-S0-11.md", "status": "BLOCKED"}
+    {"id": "V4-S0-11", "requirement": "Pinned dependency and minute estimate", "path": "spike-0/V4-S0-11.md", "status": "BLOCKED"},
+    {"id": "V4-S0-05-RUNNER", "requirement": "Guarded live runner contract", "path": "spike-0/V4-S0-05-live-runner-contract.md", "status": "BLOCKED"}
   ]
 }

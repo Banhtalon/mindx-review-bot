@@ -21,6 +21,9 @@
   from Supabase through GitHub Actions.
 - Added AES-256-GCM browser-state envelope crypto and a synthetic
   save/load/reset lifecycle with key rotation and fail-closed tamper checks.
+- Added a guarded live-runner contract: service-only claim/finish lifecycle,
+  private browser-state metadata/storage boundary, headless Browser Use and CDP
+  Fetch interception that fails closed on LMS mutations.
 - Added ADRs, evidence index, synthetic metrics and this phase report.
 
 ## Tests
@@ -35,9 +38,9 @@ Verification results for the current implementation:
 - PASS `npm run verify:no-live-write`
 - PASS `cd apps/browser-runner && uv run ruff check .`
 - PASS `cd apps/browser-runner && uv run mypy src`
-- PASS `cd apps/browser-runner && uv run pytest` — 35 tests
-- PASS focused dispatch/adapter/workflow/environment/config suite — 5 files, 23 tests
-- PASS `npm run test:rls` — 2 SQL files, 38 tests, 0 failures after remapping
+- PASS `cd apps/browser-runner && uv run pytest` — 92 tests
+- PASS focused live-runner/CLI/browser/workflow suite — 4 files, 30 tests
+- PASS `npm run test:rls` — 3 SQL files, 67 tests, 0 failures after remapping
   local Supabase ports outside the Windows excluded range.
 
 Synthetic web and Python suite counts are recorded in
@@ -47,10 +50,13 @@ Synthetic web and Python suite counts are recorded in
 
 - PASS: `V4-S0-01`, `V4-S0-02`, `V4-S0-03`, `V4-S0-04`, `V4-S0-07`,
   `V4-S0-08`, `V4-S0-09`, and `V4-S0-10`.
-- Infrastructure/live BLOCKED: `V4-S0-05`, `V4-S0-06`, and `V4-S0-11` remain
+- Infrastructure/live BLOCKED: `V4-S0-05`, `V4-S0-06`, `V4-S0-11`, and
+  `V4-S0-05-RUNNER` remain
   blocked because no live Teaching/LMS probes or billed-minute measurement was
   performed. V4-S0-09 is PASS only for the synthetic crypto/lifecycle gate;
-  live Storage and browser login are not represented as passed.
+  live Storage and browser login are not represented as passed. The guarded
+  runner contract has local Chromium startup and target-creation smoke evidence,
+  but it still does not include a live site adapter or request probe.
 
 ## Security/privacy review
 
@@ -87,6 +93,9 @@ Synthetic web and Python suite counts are recorded in
   owner-controlled infrastructure and credentials.
 - Live Supabase Storage wiring and browser-state login/reuse remain before any
   production job can run.
+- The live workflow intentionally stops before claim with
+  `SITE_ADAPTER_NOT_CONFIGURED` until verified site-specific selectors and
+  deterministic adapters are reviewed.
 
 ## Exit gate
 
