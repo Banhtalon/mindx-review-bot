@@ -69,6 +69,14 @@ async def run_job(
     claimed = client.claim_job_run(config.job_id)
     if not claimed.claimed:
         raise RunnerError("JOB_ALREADY_CLAIMED")
+    if claimed.job_type != config.job_type:
+        client.finish_job_run(
+            claimed.run_id,
+            "failed",
+            records_read=0,
+            error_code="JOB_TYPE_MISMATCH",
+        )
+        raise RunnerError("JOB_TYPE_MISMATCH")
 
     browser = (
         ReadonlyBrowserSession()

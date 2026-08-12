@@ -27,11 +27,16 @@ SAFE_ERROR_CODES = frozenset(
         "STUDENT_MAPPING_UNRESOLVABLE",
         "PRIVACY_GUARD_BLOCKED",
         "JOB_ALREADY_CLAIMED",
+        "JOB_TYPE_MISMATCH",
         "JOB_LEASE_EXPIRED",
+        "LIVE_CONFIG_INVALID",
         "SUPABASE_UNAVAILABLE",
         "STORAGE_STATE_DECRYPT_FAILED",
         "STORAGE_PATH_INVALID",
+        "BROWSER_NETWORK_GUARD_UNAVAILABLE",
         "QUOTA_GUARD_BLOCKED",
+        "RUNNER_RESULT_INVALID",
+        "SITE_ADAPTER_NOT_CONFIGURED",
         "RUNNER_FAILED",
     }
 )
@@ -112,11 +117,16 @@ def _json_value(body: bytes) -> object:
 
 def _object_path(path: str, bucket: str) -> str:
     prefix = f"{bucket}/"
+    state_path = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
     if (
         not path.startswith(prefix)
         or "\\" in path
         or "\x00" in path
         or any(part in {"", ".", ".."} for part in path[len(prefix) :].split("/"))
+        or re.fullmatch(
+            rf"{re.escape(bucket)}/{state_path}/(?:teaching|lms)/{state_path}\.json",
+            path,
+        ) is None
     ):
         raise SupabaseClientError(STORAGE_PATH_INVALID)
     return path[len(prefix) :]

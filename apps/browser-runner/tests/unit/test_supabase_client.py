@@ -161,3 +161,14 @@ def test_storage_object_store_rejects_path_traversal() -> None:
 
     assert error.value.code == "STORAGE_PATH_INVALID"
     assert transport.requests == []
+
+
+def test_storage_object_store_rejects_unscoped_state_path() -> None:
+    transport = FakeTransport([])
+    store = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport).object_store
+
+    with pytest.raises(SupabaseClientError) as error:
+        store.get("browser-state/other-folder/state.json")
+
+    assert error.value.code == "STORAGE_PATH_INVALID"
+    assert transport.requests == []

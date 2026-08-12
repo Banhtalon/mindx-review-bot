@@ -23,6 +23,9 @@ where status = 'active';
 alter table public.browser_state_versions enable row level security;
 revoke all on public.browser_state_versions from public, anon, authenticated;
 grant select, insert, update on public.browser_state_versions to service_role;
+-- Supabase enables RLS on storage tables; deliberately create no public policies.
+grant select on storage.buckets to service_role;
+grant select, insert, update, delete on storage.objects to service_role;
 grant select, insert, update on public.automation_runs to service_role;
 grant update on public.automation_jobs to service_role;
 
@@ -67,16 +70,29 @@ begin
   limit 1;
 
   if found then
-    return query
-    select
-      false,
-      existing_run.id,
-      target_job.id,
-      target_job.workspace_id,
-      target_job.type,
-      target_job.payload_json,
-      existing_run.attempt;
-    return;
+    if existing_run.started_at > now() - interval '20 minutes' then
+      return query
+      select
+        false,
+        existing_run.id,
+        target_job.id,
+        target_job.workspace_id,
+        target_job.type,
+        target_job.payload_json,
+        existing_run.attempt;
+      return;
+    end if;
+
+    update public.automation_runs
+    set status = 'failed',
+        error_code = 'JOB_LEASE_EXPIRED',
+        finished_at = now()
+    where public.automation_runs.id = existing_run.id;
+
+    update public.automation_jobs
+    set status = 'failed'
+    where public.automation_jobs.id = target_job.id;
+    target_job.status := 'failed';
   end if;
 
   if target_job.status not in ('dispatched', 'failed', 'partial') then

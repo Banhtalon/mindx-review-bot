@@ -78,3 +78,16 @@ def test_login_body_is_never_in_decision_repr() -> None:
     )
 
     assert secret.decode() not in repr(decision)
+
+
+def test_mutation_like_body_is_blocked_even_on_allowlisted_login_path() -> None:
+    decision = classify_request(
+        "POST",
+        "https://lms.mindx.edu.vn/auth/login",
+        body=b'{"comment":"must never be submitted"}',
+        content_type="application/json",
+        login_paths=("/auth/login",),
+    )
+
+    assert decision.allowed is False
+    assert decision.code == "LMS_MUTATION_BLOCKED"

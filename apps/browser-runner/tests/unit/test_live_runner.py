@@ -55,13 +55,15 @@ def test_load_live_config_rejects_unsafe_values(name: str, value: str) -> None:
 
 
 def test_load_live_config_rejects_missing_required_secret() -> None:
-    environment = {key: value for key, value in BASE_ENV.items() if key != "LMS_PASSWORD"}
+    environment = {
+        key: value for key, value in BASE_ENV.items() if key != "TEACHING_PASSWORD"
+    }
 
     with pytest.raises(LiveConfigError) as error:
         load_live_config(environment)
 
     assert error.value.code == "LIVE_CONFIG_INVALID"
-    assert "LMS_PASSWORD" in str(error.value)
+    assert "TEACHING_PASSWORD" in str(error.value)
 
 
 def test_validate_job_id_accepts_uuid_and_rejects_other_values() -> None:
@@ -71,6 +73,48 @@ def test_validate_job_id_accepts_uuid_and_rejects_other_values() -> None:
         validate_job_id("not-a-uuid")
 
 
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://example.supabase.co/rest/v1",
+        "https://example.supabase.co:443",
+        "https://example.supabase.co:not-a-port",
+        "https://user:password@example.supabase.co",
+        "https://example.supabase.co?query=1",
+        "https://example.supabase.co#fragment",
+    ],
+)
+def test_load_live_config_rejects_non_origin_supabase_url(value: str) -> None:
+    with pytest.raises(LiveConfigError):
+        load_live_config({**BASE_ENV, "SUPABASE_URL": value})
+
+
+def test_load_live_config_only_requires_credentials_for_job_type() -> None:
+    teaching_env = {
+        key: value
+        for key, value in BASE_ENV.items()
+        if key not in {"LMS_USERNAME", "LMS_PASSWORD"}
+    }
+    lms_env = {
+        **BASE_ENV,
+        "JOB_TYPE": "read_lms_pending",
+        "TEACHING_USERNAME": "",
+        "TEACHING_PASSWORD": "",
+    }
+    lms_env.pop("TEACHING_USERNAME")
+    lms_env.pop("TEACHING_PASSWORD")
+
+    assert load_live_config(teaching_env).lms_username == ""
+    assert load_live_config(lms_env).teaching_username == ""
+
+
 def test_safe_error_code_does_not_return_arbitrary_exception_text() -> None:
     assert safe_error_code(LiveConfigError("hidden-value")) == "LIVE_CONFIG_INVALID"
     assert safe_error_code(RuntimeError("password=hidden")) == "RUNNER_FAILED"
+
+
+def test_safe_error_code_rejects_unknown_uppercase_codes() -> None:
+    class UnknownCodeError(RuntimeError):
+        code = "PII_VALUE"
+
+    assert safe_error_code(UnknownCodeError()) == "RUNNER_FAILED"

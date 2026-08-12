@@ -1,4 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -52,6 +54,11 @@ class FakeClient:
 @dataclass
 class FakeSession:
     closed: bool = False
+    cdp_client: Any = field(default_factory=lambda: FakeCdp())
+    session_manager: Any = field(default_factory=lambda: FakeSessionManager())
+
+    def __post_init__(self) -> None:
+        self.session_manager.cdp_client = self.cdp_client
 
     async def start(self) -> None:
         pass
@@ -61,6 +68,62 @@ class FakeSession:
 
     async def stop(self) -> None:
         self.closed = True
+
+    async def get_or_create_cdp_session(self, target_id: str, *, focus: bool = False) -> Any:
+        return SimpleNamespace(cdp_client=self.cdp_client, session_id=target_id)
+
+
+class FakeFetch:
+    async def enable(self, **_: object) -> None:
+        pass
+
+
+class FakeTarget:
+    async def setAutoAttach(self, **_: object) -> None:
+        pass
+
+
+class FakeFetchRegistration:
+    def requestPaused(self, _callback: object) -> None:
+        pass
+
+
+class FakeTargetRegistration:
+    def attachedToTarget(self, _callback: object) -> None:
+        pass
+
+
+class FakeRegistry:
+    def __init__(self) -> None:
+        self._handlers: dict[str, object] = {
+            "Target.attachedToTarget": lambda *_: None,
+        }
+
+    def get_registered_methods(self) -> list[str]:
+        return list(self._handlers)
+
+    def register(self, method: str, callback: object) -> None:
+        self._handlers[method] = callback
+
+
+class FakeCdp:
+    def __init__(self) -> None:
+        self._event_registry = FakeRegistry()
+        self.register = SimpleNamespace(
+            Fetch=FakeFetchRegistration(),
+            Target=FakeTargetRegistration(),
+        )
+        self.send = SimpleNamespace(Fetch=FakeFetch(), Target=FakeTarget())
+
+
+class FakeSessionManager:
+    cdp_client: Any = None
+
+    def get_all_sessions(self) -> dict[str, object]:
+        return {}
+
+    def get_all_targets(self) -> dict[str, object]:
+        return {}
 
 
 @pytest.mark.asyncio
@@ -102,3 +165,26 @@ async def test_run_job_finishes_failed_and_closes_browser_when_adapter_errors() 
     assert error.value.code == "LMS_SELECTOR_CHANGED"
     assert client.finished == [(RUN_ID, "failed", 0, "LMS_SELECTOR_CHANGED")]
     assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_job_rejects_job_type_mismatch_after_claim() -> None:
+    client = FakeClient([])
+    session = FakeSession()
+
+    async def adapter(*_: object) -> int:
+        return 0
+
+    environment = {**ENVIRONMENT, "JOB_TYPE": "read_lms_pending"}
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            environment,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "JOB_TYPE_MISMATCH"
+    assert client.finished == [(RUN_ID, "failed", 0, "JOB_TYPE_MISMATCH")]
+    assert session.closed is False
