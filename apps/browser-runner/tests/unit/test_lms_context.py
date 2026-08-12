@@ -6,6 +6,7 @@ from mindx_runner.lms_context import (
     ExpectedLmsContext,
     LmsContextAssertion,
     assert_lms_context,
+    can_process_lms_roster,
 )
 from mindx_runner.lms_models import LmsPageExtract, LmsRosterRow
 
@@ -84,6 +85,25 @@ def test_assert_lms_context_normalizes_class_code_with_trim_and_uppercase_only()
 
 
 @pytest.mark.parametrize(
+    "observed_class_code",
+    ["SYN-CLASS-010", "SYN-CLASS-01-EXTRA"],
+)
+def test_assert_lms_context_rejects_similar_class_codes_without_prefix_matching(
+    observed_class_code: str,
+) -> None:
+    result = assert_lms_context(
+        build_expected_context(class_code="SYN-CLASS-01"),
+        build_observed_context(class_code=observed_class_code),
+    )
+
+    assert result == LmsContextAssertion(
+        matched=False,
+        reason_code="LMS_CLASS_MISMATCH",
+        manual_fallback=True,
+    )
+
+
+@pytest.mark.parametrize(
     ("field_name", "expected_kwargs", "observed_kwargs", "reason_code"),
     [
         (
@@ -148,3 +168,21 @@ def test_assert_lms_context_requires_source_id_to_match_exactly_when_present() -
         reason_code="LMS_SOURCE_ID_MISMATCH",
         manual_fallback=True,
     )
+
+
+def test_context_mismatch_blocks_roster_processing_contract() -> None:
+    assertion = assert_lms_context(
+        build_expected_context(class_code="SYN-CLASS-01"),
+        build_observed_context(class_code="SYN-CLASS-010"),
+    )
+    processed_rows: list[str] = []
+
+    def process_roster() -> None:
+        processed_rows.append("processed")
+
+    if can_process_lms_roster(assertion):
+        process_roster()
+
+    assert assertion.matched is False
+    assert assertion.manual_fallback is True
+    assert processed_rows == []

@@ -1,4 +1,4 @@
-from datetime import date, time
+﻿from datetime import date, time
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -30,8 +30,10 @@ class LmsContextAssertion(BaseModel):
     manual_fallback: bool
 
 
+
 def _normalize_class_code(value: str) -> str:
     return value.strip().upper()
+
 
 
 def assert_lms_context(
@@ -80,3 +82,8 @@ def assert_lms_context(
         reason_code="LMS_CONTEXT_MATCH",
         manual_fallback=False,
     )
+
+
+
+def can_process_lms_roster(assertion: LmsContextAssertion) -> bool:
+    return assertion.matched and not assertion.manual_fallback
