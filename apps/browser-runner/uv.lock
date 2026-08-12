@@ -812,6 +812,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "browser-use" },
+    { name = "cryptography" },
 ]
 
 [package.dev-dependencies]
@@ -823,7 +824,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "browser-use", specifier = "==0.13.6" }]
+requires-dist = [
+    { name = "browser-use", specifier = "==0.13.6" },
+    { name = "cryptography", specifier = ">=50,<51" },
+]
 
 [package.metadata.requires-dev]
 dev = [
