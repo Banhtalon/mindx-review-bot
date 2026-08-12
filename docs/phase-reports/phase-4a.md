@@ -75,10 +75,10 @@ worktree-root PASS results.
 
 ## Review status
 
-- A read-only manual diff review found no remaining Critical or Important
-  issue in `3976018..2e23910`.
-- No independent reviewer/subagent tool was callable in this harness; the
-  controller's scoped re-review remains the independent review gate.
+- Whole-branch review identified 1 Critical, 5 Important, and 1 Minor finding;
+  the consolidated fix wave in `3976018..10ca572` addressed all seven.
+- Independent scoped re-review confirmed all seven findings addressed and found
+  no new Critical or Important issue.
 
 ## Deferred work
 
