@@ -1,0 +1,6 @@
+metric,scope,value,unit,status,notes
+teaching_fixture_parser_tests,synthetic,33,tests,PASS,"Focused deterministic Teaching parser/reconciliation fixtures; no live site data"
+python_unit_tests,synthetic,125,tests,PASS,"Full pytest suite; includes 33 Phase 3 fixture tests"
+web_unit_tests,synthetic,46,tests,PASS,"Vitest suite; 11 files, no live data"
+live_teaching_runs,live,not-run,runs,BLOCKED,"No verified selectors or owner-controlled live smoke"
+teaching_cold_warm_metrics,live,not-measured,runs,BLOCKED,"Live timing and production persistence deferred"

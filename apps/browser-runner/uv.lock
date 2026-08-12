@@ -813,6 +813,7 @@ source = { editable = "." }
 dependencies = [
     { name = "browser-use" },
     { name = "cryptography" },
+    { name = "pydantic" },
 ]
 
 [package.dev-dependencies]
@@ -827,6 +828,7 @@ dev = [
 requires-dist = [
     { name = "browser-use", specifier = "==0.13.6" },
     { name = "cryptography", specifier = ">=50,<51" },
+    { name = "pydantic", specifier = ">=2.12,<3" },
 ]
 
 [package.metadata.requires-dev]

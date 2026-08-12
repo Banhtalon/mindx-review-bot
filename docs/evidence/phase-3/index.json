@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "phase": "phase-3",
+  "commit": "fb6cf73",
+  "items": [
+    {
+      "id": "V4-P3-01",
+      "requirement": "Teaching fixture parser and deterministic reconciliation",
+      "path": "V4-P3-01-teaching-fixtures.md",
+      "status": "PASS"
+    }
+  ]
+}

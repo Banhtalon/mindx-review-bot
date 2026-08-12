@@ -6,7 +6,7 @@ hosted_edge_dispatches,cloud,1,runs,PASS,"Owner-observed synthetic Cron request 
 github_workflow_runs,cloud,1,runs,PASS,"spike0-dispatch-probe #1 on main completed successfully in 9 seconds"
 supabase_rls_tests,synthetic,67,tests,PASS,"pgTAP: 3 SQL files, 0 failures"
 browser_state_crypto_tests,synthetic,16,tests,PASS,"AES-GCM and save/load/reset lifecycle; no real browser state"
-python_unit_tests,synthetic,92,tests,PASS,"pytest suite; no live data"
+python_unit_tests,synthetic,92,tests,PASS,"Spike 0 baseline before Phase 3; no live data"
 browser_use_version,dependency,0.13.6,version,PASS,"Exact pin in apps/browser-runner/pyproject.toml"
 teaching_cold_runs,live,not-run,runs,BLOCKED,"No production credentials or live browser probe in this workspace"
 teaching_warm_runs,live,not-run,runs,BLOCKED,"No production credentials or live browser probe in this workspace"
