@@ -1,7 +1,7 @@
 # Evidence V4-P4A-01 — LMS pending reader contract
 
 - Date: 2026-08-12
-- Commit: `7538591..HEAD`
+- Commit: `ea66f5f`
 - Environment: worktree `codex/phase4a-lms-reader`; Node/Vitest/Vite; local Supabase CLI; `uv` app-scoped Python environment under `apps/browser-runner`
 - Data class: synthetic
 - Requirement: deterministic pending-session selection, exact LMS context and student identity, preserved read-only mutation guard, preserved navigation privacy boundary, and source-hash-only parser output.
