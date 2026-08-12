@@ -165,5 +165,63 @@ def test_parser_rejects_invalid_attendance_values_with_safe_code() -> None:
         parse_lms_page(invalid_html)
 
 
+def test_parser_rejects_blank_but_present_student_id() -> None:
+    invalid_html = read_fixture("normal-session.html").replace(
+        'data-student-id=" std-001 "', 'data-student-id="   "', 1
+    )
+
+    with pytest.raises(LmsParserError, match="LMS_DATA_INVALID"):
+        parse_lms_page(invalid_html)
+
+
+def test_parser_rejects_blank_but_present_discriminator() -> None:
+    invalid_html = read_fixture("normal-session.html").replace(
+        'data-discriminator=" disc-001 "', 'data-discriminator="   "', 1
+    )
+
+    with pytest.raises(LmsParserError, match="LMS_DATA_INVALID"):
+        parse_lms_page(invalid_html)
+
+
+def test_parser_ignores_decoy_rows_outside_the_active_context_block() -> None:
+    page = parse_lms_page(read_fixture("outside-context-decoy.html"))
+
+    assert page.rows == (
+        LmsRosterRow(
+            student_id="std-030",
+            discriminator="disc-030",
+            full_name="Student Inside",
+            attendance="online",
+        ),
+    )
+
+
+def test_parser_rejects_invalid_session_number_with_safe_code() -> None:
+    invalid_html = read_fixture("normal-session.html").replace(
+        'data-session-number="3"', 'data-session-number="not-a-number"', 1
+    )
+
+    with pytest.raises(LmsParserError, match="LMS_DATA_INVALID"):
+        parse_lms_page(invalid_html)
+
+
+def test_parser_rejects_invalid_scheduled_date_with_safe_code() -> None:
+    invalid_html = read_fixture("normal-session.html").replace(
+        'data-scheduled-date="2026-08-17"', 'data-scheduled-date="2026-99-17"', 1
+    )
+
+    with pytest.raises(LmsParserError, match="LMS_DATA_INVALID"):
+        parse_lms_page(invalid_html)
+
+
+def test_parser_rejects_invalid_time_values_with_safe_code() -> None:
+    invalid_html = read_fixture("normal-session.html").replace(
+        'data-start-time="09:00"', 'data-start-time="25:61"', 1
+    )
+
+    with pytest.raises(LmsParserError, match="LMS_DATA_INVALID"):
+        parse_lms_page(invalid_html)
+
+
 def test_default_allowlist_is_the_single_synthetic_class_from_the_brief() -> None:
     assert DEFAULT_SYNTHETIC_CLASS_CODES == frozenset({"SYN-CLASS-01"})

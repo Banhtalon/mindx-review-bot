@@ -42,6 +42,7 @@ class _LmsPageParser(HTMLParser):
         self.page_state: str | None = None
         self.context_marker = False
         self.incomplete_context = False
+        self.invalid_row_identity = False
         self._context_tag: str | None = None
         self._context_depth = 0
 
@@ -81,10 +82,21 @@ class _LmsPageParser(HTMLParser):
             self._context_depth = 0
             return
 
-        if self._active_row is None and attributes.get("data-lms-student") == "true":
+        if (
+            self._active_row is None
+            and self._context_tag is not None
+            and attributes.get("data-lms-student") == "true"
+        ):
+            student_id = attributes.get("data-student-id")
+            discriminator = attributes.get("data-discriminator")
+            if ("data-student-id" in attributes and not _has_non_blank_value(student_id)) or (
+                "data-discriminator" in attributes and not _has_non_blank_value(discriminator)
+            ):
+                self.invalid_row_identity = True
+                return
             self._active_row = {
-                "student-id": attributes.get("data-student-id"),
-                "discriminator": attributes.get("data-discriminator"),
+                "student-id": student_id,
+                "discriminator": discriminator,
                 "attendance": attributes.get("data-attendance"),
             }
             self._row_tag = normalized_tag
@@ -138,6 +150,10 @@ def _required(record: dict[str, str | None], name: str) -> str:
     return value
 
 
+def _has_non_blank_value(value: str | None) -> bool:
+    return value is not None and bool(value.strip())
+
+
 def _optional_int(record: dict[str, str | None], name: str) -> int | None:
     value = record.get(name)
     if value is None or not value.strip():
@@ -171,6 +187,7 @@ def parse_lms_page(
         or parser.context is None
         or parser.incomplete_context
         or parser.incomplete_row
+        or parser.invalid_row_identity
     ):
         raise LmsParserError("LMS_DATA_INVALID")
 
