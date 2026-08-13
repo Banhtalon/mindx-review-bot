@@ -216,6 +216,30 @@ def test_resolver_rejects_ambiguous_earliest_next_event() -> None:
     assert result.current is None
 
 
+def test_resolver_treats_same_start_time_as_ambiguous_even_with_different_end_times() -> None:
+    current = teaching_session()
+    first = teaching_session(
+        session_number=4,
+        scheduled_date=date(2026, 8, 24),
+        end_time=time(10, 30),
+    )
+    overlapping = teaching_session(
+        session_number=5,
+        scheduled_date=date(2026, 8, 24),
+        end_time=time(11, 0),
+    )
+
+    result = resolve_lesson_context(
+        current,
+        (current, first, overlapping),
+        lms_class(),
+    )
+
+    assert result.status == "manual_fallback"
+    assert result.reason_code == "NEXT_SESSION_AMBIGUOUS"
+    assert result.current is None
+
+
 def test_resolver_retains_current_lesson_when_no_next_event_exists() -> None:
     current = teaching_session()
 

@@ -77,6 +77,10 @@ def _teaching_schedule_key(
     return session.scheduled_date, session.start_time, session.end_time
 
 
+def _teaching_start_key(session: TeachingSessionExtract) -> tuple[date, time]:
+    return session.scheduled_date, session.start_time
+
+
 def _manual_fallback(reason_code: LessonContextReasonCode) -> LessonContextResolution:
     return LessonContextResolution(
         status="manual_fallback",
@@ -100,12 +104,12 @@ def _next_session(
     current: TeachingSessionExtract,
     teaching_schedule: Sequence[TeachingSessionExtract],
 ) -> TeachingSessionExtract | None | Literal["ambiguous"]:
-    current_key = _teaching_schedule_key(current)
+    current_key = _teaching_start_key(current)
     candidates = [
         session
         for session in teaching_schedule
         if _normalize_class_code(session.class_code) == _normalize_class_code(current.class_code)
-        and _teaching_schedule_key(session) > current_key
+        and _teaching_start_key(session) > current_key
     ]
     candidates.sort(
         key=lambda session: (
@@ -118,9 +122,9 @@ def _next_session(
     if not candidates:
         return None
 
-    earliest_key = _teaching_schedule_key(candidates[0])
+    earliest_key = _teaching_start_key(candidates[0])
     earliest = [
-        session for session in candidates if _teaching_schedule_key(session) == earliest_key
+        session for session in candidates if _teaching_start_key(session) == earliest_key
     ]
     if len(earliest) > 1:
         return "ambiguous"
