@@ -38,4 +38,32 @@ describe("Bootstrap shell", () => {
 
     expect(continueButton).toBeEnabled();
   });
+
+  it("shows the selected synthetic lesson and actual next session", () => {
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: "Curriculum and session context" })).toBeVisible();
+    expect(screen.getByText("Synthetic read-only")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Current lesson" })).toBeVisible();
+    expect(screen.getByText("Robotics session three synthetic lesson")).toBeVisible();
+    expect(screen.getByRole("heading", { name: "Next actual session" })).toBeVisible();
+    expect(screen.getByText(/Session 5/)).toBeVisible();
+  });
+
+  it("shows a final-session warning without inventing a next lesson", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /select SYN-ROBOTICS-01 session 5/i }));
+
+    expect(screen.getByText("No next lesson is scheduled")).toBeVisible();
+    expect(screen.queryByRole("heading", { name: "Next actual session" })).not.toBeInTheDocument();
+  });
+
+  it("shows a missing-curriculum warning for an incomplete synthetic session", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: /select SYN-PYTHON-02 session 2/i }));
+
+    expect(screen.getByText("Curriculum unavailable")).toBeVisible();
+  });
 });

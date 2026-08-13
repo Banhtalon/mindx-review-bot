@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { PHASE5_COURSE_CATALOGS, PHASE5_SESSIONS } from "./fixtures/phase5Curriculum";
 import {
   assertLmsContext,
   assignStudent,
@@ -7,6 +8,7 @@ import {
   type LmsContext,
   type LmsRosterRow,
 } from "./lms/manualMapping";
+import { resolveLessonContext } from "./session/lessonContext";
 
 type InternalStudent = {
   internalId: string;
@@ -53,15 +55,161 @@ const LMS_ROWS: LmsRosterRow[] = [
 ];
 
 const ALLOWED_INTERNAL_IDS = new Set(INTERNAL_STUDENTS.map((student) => student.internalId));
+const SESSION_NUMBER_WORDS: Record<number, string> = {
+  1: "one",
+  2: "two",
+  3: "three",
+  4: "four",
+  5: "five",
+};
 
 function formatContext(context: LmsContext): string {
   return `${context.scheduledDate} · ${context.startTime}–${context.endTime}`;
+}
+
+function formatSyntheticSession(session: { scheduledDate: string; startTime: string; endTime: string }): string {
+  return `${session.scheduledDate} · ${session.startTime}–${session.endTime}`;
+}
+
+function formatSyntheticLessonSummary(
+  catalog: { courseName: string } | undefined,
+  session: { courseCode: string; sessionNumber: number },
+): string {
+  const courseLabel = (catalog?.courseName ?? session.courseCode)
+    .replace(/^Synthetic\s+/u, "")
+    .replace(/\s+Foundation$/u, "");
+  const sessionNumber = SESSION_NUMBER_WORDS[session.sessionNumber] ?? String(session.sessionNumber);
+
+  return `${courseLabel} session ${sessionNumber} synthetic lesson`;
 }
 
 function statusLabel(status: ReturnType<typeof getMappingStatus>): string {
   if (status === "resolved") return "Resolved";
   if (status === "ambiguous") return "Ambiguous";
   return "Unresolvable";
+}
+
+function Phase5ContextSurface() {
+  const [selectedPhase5SessionId, setSelectedPhase5SessionId] = useState(PHASE5_SESSIONS[0].id);
+
+  const selectedSession = useMemo(
+    () => PHASE5_SESSIONS.find((session) => session.id === selectedPhase5SessionId) ?? PHASE5_SESSIONS[0],
+    [selectedPhase5SessionId],
+  );
+  const lessonContext = useMemo(
+    () => resolveLessonContext(selectedSession, PHASE5_SESSIONS, PHASE5_COURSE_CATALOGS),
+    [selectedSession],
+  );
+  const selectedCatalog = useMemo(
+    () => PHASE5_COURSE_CATALOGS.find((catalog) => catalog.courseCode === selectedSession.courseCode),
+    [selectedSession],
+  );
+
+  return (
+    <section className="panel curriculum-panel" aria-labelledby="curriculum-and-session-context">
+      <div className="panel-heading">
+        <div>
+          <h2 id="curriculum-and-session-context">Curriculum and session context</h2>
+          <p className="muted">
+            Read-only synthetic curriculum context for the selected manual-mapping demo session.
+          </p>
+        </div>
+        <span className="readonly-badge">Synthetic read-only</span>
+      </div>
+
+      <div className="curriculum-layout">
+        <div className="curriculum-session-list" role="group" aria-label="Synthetic sessions">
+          {PHASE5_SESSIONS.map((session) => {
+            const isSelected = session.id === selectedSession.id;
+
+            return (
+              <button
+                key={session.id}
+                type="button"
+                className={isSelected ? "session-option selected" : "session-option"}
+                aria-pressed={isSelected}
+                aria-label={`Select ${session.classCode} session ${session.sessionNumber}`}
+                onClick={() => setSelectedPhase5SessionId(session.id)}
+              >
+                <strong>{session.classCode} · S#{session.sessionNumber}</strong>
+                <span>{formatSyntheticSession(session)}</span>
+                <span>{session.workflowStatus}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="curriculum-context">
+          <div className="context-metadata-grid">
+            <div className="context-box">
+              <span className="context-label">Selected session</span>
+              <strong>{selectedSession.classCode} · Session {selectedSession.sessionNumber}</strong>
+              <span>{formatSyntheticSession(selectedSession)}</span>
+            </div>
+            <div className="context-box">
+              <span className="context-label">Course catalog</span>
+              <strong>{selectedCatalog?.courseName ?? selectedSession.courseCode}</strong>
+              <span>{selectedCatalog?.totalSessions ?? "Unknown"} total synthetic sessions</span>
+            </div>
+          </div>
+
+          <div className="lesson-card-grid">
+            {lessonContext.currentLesson && (
+              <article className="lesson-card">
+                <span className="context-label">Current card</span>
+                <h3>Current lesson</h3>
+                <p className="lesson-title">{formatSyntheticLessonSummary(selectedCatalog, selectedSession)}</p>
+                <p className="muted">{lessonContext.currentLesson.lessonTitle}</p>
+                <ul className="lesson-content-list">
+                  {lessonContext.currentLesson.lessonContent.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+                {lessonContext.currentLesson.homeworkTitle && (
+                  <p className="muted">Homework: {lessonContext.currentLesson.homeworkTitle}</p>
+                )}
+              </article>
+            )}
+
+            {lessonContext.nextSession && (
+              <article className="lesson-card">
+                <span className="context-label">Next card</span>
+                <h3>Next actual session</h3>
+                <p className="lesson-title">
+                  {lessonContext.nextSession.classCode} · Session {lessonContext.nextSession.sessionNumber}
+                </p>
+                <p className="muted">{formatSyntheticSession(lessonContext.nextSession)}</p>
+                {lessonContext.nextLesson ? (
+                  <ul className="lesson-content-list">
+                    <li>{lessonContext.nextLesson.lessonTitle}</li>
+                    {lessonContext.nextLesson.homeworkTitle ? (
+                      <li>Homework: {lessonContext.nextLesson.homeworkTitle}</li>
+                    ) : null}
+                  </ul>
+                ) : (
+                  <p className="muted">Next curriculum entry is intentionally unavailable.</p>
+                )}
+              </article>
+            )}
+          </div>
+
+          {lessonContext.status === "no_next_session" && (
+            <div className="alert context-warning" role="status">
+              <strong>No next lesson is scheduled</strong>
+              <span>The selected synthetic session is the latest actual session in this read-only fixture.</span>
+            </div>
+          )}
+
+          {lessonContext.status === "curriculum_missing" && (
+            <div className="alert context-warning" role="status">
+              <strong>Curriculum unavailable</strong>
+              <span>The selected synthetic session has no current lesson entry in the immutable fixture catalog.</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
 }
 
 export default function App() {
@@ -107,6 +255,8 @@ export default function App() {
         </div>
         <span className="readonly-badge">Read-only · synthetic demo</span>
       </header>
+
+      <Phase5ContextSurface />
 
       <nav className="workflow" aria-label="Review progress">
         <span className="workflow-step active">1. Chọn pending session</span>
