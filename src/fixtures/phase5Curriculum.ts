@@ -1,6 +1,22 @@
 import type { CourseCatalog, SyntheticSession } from "../curriculum/contracts";
 
-export const PHASE5_COURSE_CATALOGS: readonly CourseCatalog[] = [
+function deepFreeze<T>(value: T): T {
+  if (typeof value !== "object" || value === null || Object.isFrozen(value)) {
+    return value;
+  }
+
+  const nestedValues = Array.isArray(value)
+    ? value
+    : Object.values(value as Record<string, unknown>);
+
+  for (const nestedValue of nestedValues) {
+    deepFreeze(nestedValue);
+  }
+
+  return Object.freeze(value);
+}
+
+export const PHASE5_COURSE_CATALOGS: readonly CourseCatalog[] = deepFreeze([
   {
     courseCode: "SYN-ROBOTICS-FOUNDATION",
     courseName: "Synthetic Robotics Foundation",
@@ -60,9 +76,9 @@ export const PHASE5_COURSE_CATALOGS: readonly CourseCatalog[] = [
       },
     ],
   },
-];
+]);
 
-export const PHASE5_SESSIONS: readonly SyntheticSession[] = [
+export const PHASE5_SESSIONS: readonly SyntheticSession[] = deepFreeze([
   {
     id: "synthetic-robotics-session-3",
     classCode: "SYN-ROBOTICS-01",
@@ -93,4 +109,4 @@ export const PHASE5_SESSIONS: readonly SyntheticSession[] = [
     endTime: "19:30",
     workflowStatus: "context_pending",
   },
-];
+]);

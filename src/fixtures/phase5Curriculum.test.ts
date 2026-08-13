@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { CourseCatalog, SyntheticSession } from "../curriculum/contracts";
 import { validateCourseCatalog } from "../curriculum/validator";
 import {
   PHASE5_COURSE_CATALOGS,
@@ -80,5 +81,51 @@ describe("phase 5 synthetic curriculum fixtures", () => {
         workflowStatus: "context_pending",
       }),
     );
+  });
+
+  it("freezes exported fixture arrays and nested values at runtime", () => {
+    const roboticsCatalog = PHASE5_COURSE_CATALOGS[0];
+    const roboticsEntry = roboticsCatalog.entries[0];
+    const roboticsSession = PHASE5_SESSIONS[0];
+
+    expect(Object.isFrozen(PHASE5_COURSE_CATALOGS)).toBe(true);
+    expect(Object.isFrozen(roboticsCatalog)).toBe(true);
+    expect(Object.isFrozen(roboticsCatalog.entries)).toBe(true);
+    expect(Object.isFrozen(roboticsEntry)).toBe(true);
+    expect(Object.isFrozen(roboticsEntry.lessonContent)).toBe(true);
+    expect(Object.isFrozen(PHASE5_SESSIONS)).toBe(true);
+    expect(Object.isFrozen(roboticsSession)).toBe(true);
+
+    expect(() => {
+      (PHASE5_COURSE_CATALOGS as CourseCatalog[]).push(roboticsCatalog);
+    }).toThrow(TypeError);
+
+    expect(() => {
+      (roboticsCatalog as { courseName: string }).courseName = "Mutated";
+    }).toThrow(TypeError);
+
+    expect(() => {
+      (roboticsCatalog.entries as typeof roboticsCatalog.entries & { 0: typeof roboticsEntry })[0] = {
+        ...roboticsEntry,
+        sessionNumber: 99,
+      };
+    }).toThrow(TypeError);
+
+    expect(() => {
+      (roboticsEntry as { lessonTitle: string }).lessonTitle = "Mutated";
+    }).toThrow(TypeError);
+
+    expect(() => {
+      (roboticsEntry.lessonContent as string[]).push("Mutated");
+    }).toThrow(TypeError);
+
+    expect(() => {
+      (PHASE5_SESSIONS as SyntheticSession[]).push(roboticsSession);
+    }).toThrow(TypeError);
+
+    expect(() => {
+      (roboticsSession as { workflowStatus: SyntheticSession["workflowStatus"] }).workflowStatus =
+        "context_ready";
+    }).toThrow(TypeError);
   });
 });
