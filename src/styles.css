@@ -410,6 +410,97 @@ select {
   padding-top: 0.85rem;
 }
 
+.review-inputs-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.review-inputs-toolbar p {
+  margin-bottom: 0;
+}
+
+.review-input-gate {
+  display: grid;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border-left: 4px solid #d08a00;
+  padding: 0.7rem 0.8rem;
+  color: #6f4a00;
+  background: #fff8e8;
+  font-size: 0.82rem;
+}
+
+.review-input-gate.ready {
+  border-left-color: #18794e;
+  color: #17633f;
+  background: #eefaf4;
+}
+
+.review-inputs-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.review-input-card {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid #dbe3ed;
+  border-radius: 0.75rem;
+  padding: 0.85rem;
+  background: #fbfcff;
+}
+
+.review-input-card legend {
+  padding: 0 0.25rem;
+  color: #174b9b;
+  font-weight: 700;
+}
+
+.review-input-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.review-input-field {
+  display: grid;
+  min-width: 0;
+  gap: 0.35rem;
+  color: #637083;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.review-input-field select,
+.review-input-field textarea {
+  width: 100%;
+  border: 1px solid #b8c5d4;
+  border-radius: 0.45rem;
+  color: #172033;
+  background: white;
+}
+
+.review-input-field textarea {
+  min-height: 5rem;
+  resize: vertical;
+  padding: 0.55rem;
+  font: inherit;
+  font-weight: 400;
+}
+
+.review-input-field select:focus-visible,
+.review-input-field textarea:focus-visible {
+  outline: 3px solid #1769e0;
+  outline-offset: 2px;
+}
+
+.review-input-note {
+  grid-column: 1 / -1;
+}
+
 @media (max-width: 56rem) {
   .curriculum-layout,
   .context-metadata-grid,
@@ -429,6 +520,17 @@ select {
   .context-grid,
   .workflow {
     grid-template-columns: 1fr;
+  }
+
+  .review-inputs-toolbar,
+  .review-input-control-grid {
+    align-items: flex-start;
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .review-input-note {
+    grid-column: auto;
   }
 
   .primary-button {

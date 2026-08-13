@@ -1,6 +1,10 @@
 import { useMemo, useState } from "react";
 import { PHASE5_COURSE_CATALOGS, PHASE5_SESSIONS } from "./fixtures/phase5Curriculum";
 import {
+  createInitialReviewInputs,
+  PHASE5B_SYNTHETIC_LEARNERS,
+} from "./fixtures/phase5bReviewInputs";
+import {
   assertLmsContext,
   assignStudent,
   canContinueReview,
@@ -8,6 +12,13 @@ import {
   type LmsContext,
   type LmsRosterRow,
 } from "./lms/manualMapping";
+import { evaluateReviewInputGate } from "./reviewInputs/gate";
+import type {
+  AttendanceStatus,
+  LearningLevel,
+  SyntheticLearner,
+  SyntheticReviewInput,
+} from "./reviewInputs/contracts";
 import { resolveLessonContext } from "./session/lessonContext";
 import type { CourseCatalog, LessonContextWarningCode, SyntheticSession } from "./curriculum/contracts";
 
@@ -252,6 +263,136 @@ export function Phase5ContextSurface({
   );
 }
 
+type Phase5BReviewInputSurfaceProps = {
+  readonly learners?: readonly SyntheticLearner[];
+};
+
+type ReviewInputPatch = Partial<Pick<SyntheticReviewInput, "attendance" | "level" | "noteDraft">>;
+
+export function Phase5BReviewInputSurface({
+  learners = PHASE5B_SYNTHETIC_LEARNERS,
+}: Phase5BReviewInputSurfaceProps) {
+  const [inputs, setInputs] = useState<readonly SyntheticReviewInput[]>(() =>
+    createInitialReviewInputs(learners),
+  );
+  const gate = useMemo(() => evaluateReviewInputGate(inputs), [inputs]);
+
+  function updateInput(rowKey: string, patch: ReviewInputPatch) {
+    setInputs((current) =>
+      current.map((input) => (input.rowKey === rowKey ? { ...input, ...patch } : input)),
+    );
+  }
+
+  function markAllPresent() {
+    setInputs((current) =>
+      current.map((input) => ({ ...input, attendance: "present" as const })),
+    );
+  }
+
+  return (
+    <section className="panel review-inputs-panel" aria-labelledby="synthetic-review-inputs-heading">
+      <div className="panel-heading">
+        <div>
+          <h2 id="synthetic-review-inputs-heading">Synthetic review inputs</h2>
+          <p className="muted">
+            Local browser-memory draft for the synthetic roster. Reloading intentionally discards these values.
+          </p>
+        </div>
+        <span className="readonly-badge">Synthetic local draft</span>
+      </div>
+
+      <div className="review-inputs-toolbar">
+        <p className="muted">Attendance is required before a later review-generation phase can continue.</p>
+        <button className="secondary-button" type="button" onClick={markAllPresent}>
+          Mark all present
+        </button>
+      </div>
+
+      <div
+        className={`review-input-gate ${gate.ready ? "ready" : "blocked"}`}
+        role="status"
+        aria-live="polite"
+      >
+        <strong>
+          {gate.ready ? "Generation ready: attendance complete" : "Generation blocked: attendance unknown"}
+        </strong>
+        <span>
+          {gate.ready
+            ? `All ${learners.length} synthetic learners have explicit attendance.`
+            : `Reason code: ${gate.reasonCode} · ${gate.unknownAttendanceRowKeys.length} attendance value(s) unresolved.`}
+        </span>
+      </div>
+
+      <div className="review-inputs-list">
+        {learners.map((learner) => {
+          const input = inputs.find((candidate) => candidate.rowKey === learner.rowKey);
+
+          if (!input) return null;
+
+          const attendanceLabel = `${learner.displayName} attendance`;
+          const levelLabel = `${learner.displayName} level`;
+          const noteLabel = `${learner.displayName} draft note`;
+
+          return (
+            <fieldset className="review-input-card" key={learner.rowKey}>
+              <legend>{learner.displayName}</legend>
+              <div className="review-input-control-grid">
+                <label className="review-input-field" htmlFor={`${learner.rowKey}-attendance`}>
+                  <span>Attendance</span>
+                  <select
+                    id={`${learner.rowKey}-attendance`}
+                    aria-label={attendanceLabel}
+                    value={input.attendance}
+                    onChange={(event) =>
+                      updateInput(learner.rowKey, {
+                        attendance: event.currentTarget.value as AttendanceStatus,
+                      })
+                    }
+                  >
+                    <option value="unknown">Unknown</option>
+                    <option value="present">Present</option>
+                    <option value="absent">Absent</option>
+                  </select>
+                </label>
+
+                <label className="review-input-field" htmlFor={`${learner.rowKey}-level`}>
+                  <span>Learning level</span>
+                  <select
+                    id={`${learner.rowKey}-level`}
+                    aria-label={levelLabel}
+                    value={input.level}
+                    onChange={(event) =>
+                      updateInput(learner.rowKey, {
+                        level: event.currentTarget.value as LearningLevel,
+                      })
+                    }
+                  >
+                    <option value="unknown">Unknown</option>
+                    <option value="strong">Strong</option>
+                    <option value="developing">Developing</option>
+                    <option value="needs_support">Needs support</option>
+                  </select>
+                </label>
+
+                <label className="review-input-field review-input-note" htmlFor={`${learner.rowKey}-note`}>
+                  <span>Draft note</span>
+                  <textarea
+                    id={`${learner.rowKey}-note`}
+                    aria-label={noteLabel}
+                    rows={3}
+                    value={input.noteDraft}
+                    onChange={(event) => updateInput(learner.rowKey, { noteDraft: event.currentTarget.value })}
+                  />
+                </label>
+              </div>
+            </fieldset>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const [contextMismatch, setContextMismatch] = useState(false);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
@@ -437,6 +578,8 @@ export default function App() {
           <button className="primary-button" type="button" disabled={!reviewCanContinue}>Tiếp tục khi đã giải quyết</button>
         </footer>
       </section>
+
+      <Phase5BReviewInputSurface />
     </main>
   );
 }

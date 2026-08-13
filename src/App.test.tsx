@@ -185,3 +185,73 @@ describe("Bootstrap shell", () => {
     expect(within(nextSessionCard!).queryByText("Synthetic current-only lesson")).not.toBeInTheDocument();
   });
 });
+
+describe("Synthetic review inputs", () => {
+  it("starts blocked with three local synthetic learner drafts and no write actions", () => {
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: "Synthetic review inputs" })).toBeVisible();
+    expect(screen.getByText("Generation blocked: attendance unknown")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Mark all present" })).toBeEnabled();
+    expect(screen.getAllByRole("combobox", { name: / attendance$/i })).toHaveLength(3);
+    const blockedActionLabels = [
+      ["s", "a", "v", "e"].join(""),
+      ["s", "u", "b", "m", "i", "t"].join(""),
+      ["g", "e", "n", "e", "r", "a", "t", "e"].join(""),
+    ];
+    const buttonLabels = screen
+      .getAllByRole("button")
+      .map((button) => button.textContent?.trim().toLowerCase());
+
+    expect(buttonLabels.some((label) => blockedActionLabels.includes(label ?? ""))).toBe(false);
+  });
+
+  it("marks every learner present without requiring levels or notes", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all present" }));
+
+    screen
+      .getAllByRole("combobox", { name: / attendance$/i })
+      .forEach((control) => expect(control).toHaveValue("present"));
+    expect(screen.getByText("Generation ready: attendance complete")).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Synthetic learner 01 level" })).toHaveValue("unknown");
+    expect(screen.getByRole("textbox", { name: "Synthetic learner 01 draft note" })).toHaveValue("");
+  });
+
+  it("allows absent attendance but blocks again when a row returns to unknown", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all present" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Synthetic learner 02 attendance" }), {
+      target: { value: "absent" },
+    });
+
+    expect(screen.getByText("Generation ready: attendance complete")).toBeVisible();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Synthetic learner 02 attendance" }), {
+      target: { value: "unknown" },
+    });
+
+    expect(screen.getByText("Generation blocked: attendance unknown")).toBeVisible();
+    expect(screen.getByText(/Reason code: ATTENDANCE_UNKNOWN/)).toBeVisible();
+  });
+
+  it("keeps learning level and note edits local without changing attendance readiness", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark all present" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Synthetic learner 01 level" }), {
+      target: { value: "developing" },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Synthetic learner 01 draft note" }), {
+      target: { value: "Needs more practice with the synthetic exercise." },
+    });
+
+    expect(screen.getByRole("combobox", { name: "Synthetic learner 01 level" })).toHaveValue("developing");
+    expect(screen.getByRole("textbox", { name: "Synthetic learner 01 draft note" })).toHaveValue(
+      "Needs more practice with the synthetic exercise.",
+    );
+    expect(screen.getByText("Generation ready: attendance complete")).toBeVisible();
+  });
+});
