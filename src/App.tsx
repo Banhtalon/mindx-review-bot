@@ -9,6 +9,7 @@ import {
   type LmsRosterRow,
 } from "./lms/manualMapping";
 import { resolveLessonContext } from "./session/lessonContext";
+import type { CourseCatalog, LessonContextWarningCode, SyntheticSession } from "./curriculum/contracts";
 
 type InternalStudent = {
   internalId: string;
@@ -89,20 +90,38 @@ function statusLabel(status: ReturnType<typeof getMappingStatus>): string {
   return "Unresolvable";
 }
 
-function Phase5ContextSurface() {
-  const [selectedPhase5SessionId, setSelectedPhase5SessionId] = useState(PHASE5_SESSIONS[0].id);
+function lessonContextWarningCopy(warningCode: LessonContextWarningCode) {
+  switch (warningCode) {
+    case "NEXT_CURRICULUM_MISSING":
+      return {
+        heading: "Next lesson curriculum unavailable",
+        detail: "The actual next synthetic session is shown, but no next lesson content is available in the fixture catalog.",
+      };
+  }
+}
+
+type Phase5ContextSurfaceProps = {
+  readonly sessions?: readonly SyntheticSession[];
+  readonly courseCatalogs?: readonly CourseCatalog[];
+};
+
+export function Phase5ContextSurface({
+  sessions = PHASE5_SESSIONS,
+  courseCatalogs = PHASE5_COURSE_CATALOGS,
+}: Phase5ContextSurfaceProps) {
+  const [selectedPhase5SessionId, setSelectedPhase5SessionId] = useState(sessions[0]!.id);
 
   const selectedSession = useMemo(
-    () => PHASE5_SESSIONS.find((session) => session.id === selectedPhase5SessionId) ?? PHASE5_SESSIONS[0],
-    [selectedPhase5SessionId],
+    () => sessions.find((session) => session.id === selectedPhase5SessionId) ?? sessions[0]!,
+    [selectedPhase5SessionId, sessions],
   );
   const lessonContext = useMemo(
-    () => resolveLessonContext(selectedSession, PHASE5_SESSIONS, PHASE5_COURSE_CATALOGS),
-    [selectedSession],
+    () => resolveLessonContext(selectedSession, sessions, courseCatalogs),
+    [courseCatalogs, selectedSession, sessions],
   );
   const selectedCatalog = useMemo(
-    () => PHASE5_COURSE_CATALOGS.find((catalog) => catalog.courseCode === selectedSession.courseCode),
-    [selectedSession],
+    () => courseCatalogs.find((catalog) => catalog.courseCode === selectedSession.courseCode),
+    [courseCatalogs, selectedSession],
   );
 
   return (
@@ -119,7 +138,7 @@ function Phase5ContextSurface() {
 
       <div className="curriculum-layout">
         <div className="curriculum-session-list" role="group" aria-label="Synthetic sessions">
-          {PHASE5_SESSIONS.map((session) => {
+          {sessions.map((session) => {
             const isSelected = session.id === selectedSession.id;
 
             return (
@@ -206,6 +225,27 @@ function Phase5ContextSurface() {
               <span>The selected synthetic session has no current lesson entry in the immutable fixture catalog.</span>
             </div>
           )}
+
+          {lessonContext.warnings.map((warningCode) => {
+            const warning = lessonContextWarningCopy(warningCode);
+
+            return (
+              <div className="alert context-warning" role="status" key={warningCode}>
+                <h3>{warning.heading}</h3>
+                <strong>{warningCode}</strong>
+                <span>{warning.detail}</span>
+              </div>
+            );
+          })}
+
+          {lessonContext.status === "manual_fallback" && (
+            <div className="alert context-warning" role="status">
+              <h3>Context requires manual review</h3>
+              <strong>{lessonContext.reasonCode}</strong>
+              <span>No next lesson is shown because the synthetic session context is ambiguous or invalid.</span>
+            </div>
+          )}
+
         </div>
       </div>
     </section>

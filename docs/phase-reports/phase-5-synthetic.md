@@ -7,19 +7,20 @@ This phase delivers a synthetic, read-only curriculum/session context UI only.
 - Synthetic fixture inventory: 2 catalogs and 3 sessions
 - Read-only current/next lesson context surface in the local Vite/React app
 - Deterministic validator and resolver behavior surfaced through tests and UI
-- Explicit safe statuses and reason codes instead of guessing missing or ambiguous context
+- Explicit safe statuses, warning cards, and reason codes instead of guessing missing or ambiguous context
+- Task 6 fix: `manual_fallback` and resolver `warnings` now render visibly without inventing next lesson content
 
 ## Verification
 
 Fresh commands run on 2026-08-13 from `E:\mindx-review-bot\.worktrees\phase5-synthetic-ui`:
 
-- `npm run lint` — PASS
-- `npm run typecheck` — PASS
-- `npm run test` — PASS, 15 test files and 79 tests
-- `npm run build` — PASS
-- `npm run verify:no-secrets` — PASS
-- `npm run verify:no-live-write` — PASS
-- `git diff --check` — PASS, clean result
+- `npm run lint` - PASS
+- `npm run typecheck` - PASS
+- `npm run test` - PASS, 15 test files and 81 tests
+- `npm run build` - PASS, generated `dist/assets/index-HacYA75q.css` and `dist/assets/index-CH_LdK51.js`
+- `npm run verify:no-secrets` - PASS
+- `npm run verify:no-live-write` - PASS
+- `git diff --check` - PASS, clean result
 
 Verification evidence is recorded in [docs/evidence/phase-5-synthetic/README.md](/E:/mindx-review-bot/.worktrees/phase5-synthetic-ui/docs/evidence/phase-5-synthetic/README.md).
 
@@ -29,10 +30,28 @@ Verification evidence is recorded in [docs/evidence/phase-5-synthetic/README.md]
 - The UI is read-only.
 - No network, Supabase, Teaching, LMS, browser, Gemini, persistence, mutation, PII, secret, or live data path was used in this verification slice.
 - Safe deterministic reason codes are present for missing or ambiguous context, including `NO_NEXT_SESSION`, `CURRICULUM_MISSING`, and `NEXT_SESSION_AMBIGUOUS`.
+- Resolver warning cards surface `NEXT_CURRICULUM_MISSING` while preserving the actual next session and withholding missing next lesson content.
 - Resolver behavior remains fail-closed and does not map lessons by array order or inferred session increments.
 
-## Paths changed
+## Task 6 tracked paths changed
 
+- `src/App.tsx`
+- `src/App.test.tsx`
+- `docs/evidence/phase-5-synthetic/README.md`
+- `docs/phase-reports/phase-5-synthetic.md`
+
+## Phase 5 implementation path inventory
+
+- `src/curriculum/contracts.ts`
+- `src/curriculum/validator.ts`
+- `src/curriculum/validator.test.ts`
+- `src/session/lessonContext.ts`
+- `src/session/lessonContext.test.ts`
+- `src/fixtures/phase5Curriculum.ts`
+- `src/fixtures/phase5Curriculum.test.ts`
+- `src/App.tsx`
+- `src/App.test.tsx`
+- `src/styles.css`
 - `docs/evidence/phase-5-synthetic/README.md`
 - `docs/phase-reports/phase-5-synthetic.md`
 
