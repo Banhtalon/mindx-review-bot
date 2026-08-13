@@ -74,9 +74,15 @@ export default function App() {
     () => assertLmsContext(EXPECTED_CONTEXT, observedContext),
     [observedContext],
   );
-  const rowStatuses = LMS_ROWS.map((row) => getMappingStatus(row, assignments));
-  const reviewCanContinue = canContinueReview(contextAssertion, rowStatuses);
-  const unresolvedCount = rowStatuses.filter((status) => status !== "resolved").length;
+  const rowStatuses = LMS_ROWS.map((row) => ({
+    row,
+    status: getMappingStatus(row, assignments),
+  }));
+  const reviewCanContinue = canContinueReview(
+    contextAssertion,
+    rowStatuses.map(({ status }) => status),
+  );
+  const unresolvedCount = rowStatuses.filter(({ status }) => status !== "resolved").length;
 
   function handleAssignment(rowKey: string, internalId: string) {
     setAssignments((current) => {
@@ -196,10 +202,14 @@ export default function App() {
               <tr><th>LMS roster</th><th>Stable signal</th><th>Attendance</th><th>Internal student</th><th>Status</th></tr>
             </thead>
             <tbody>
-              {LMS_ROWS.map((row, index) => {
-                const status = rowStatuses[index];
+              {rowStatuses.map(({ row, status }) => {
                 const assignment = assignments[row.rowKey];
                 const selectedStudent = INTERNAL_STUDENTS.find((student) => student.internalId === assignment);
+                const assignedToOtherRow = new Set(
+                  Object.entries(assignments)
+                    .filter(([assignedRowKey]) => assignedRowKey !== row.rowKey)
+                    .map(([, internalId]) => internalId),
+                );
                 return (
                   <tr key={row.rowKey}>
                     <td><strong>{row.fullName}</strong><small>LMS display name</small></td>
@@ -217,7 +227,9 @@ export default function App() {
                           onChange={(event) => handleAssignment(row.rowKey, event.target.value)}
                         >
                           <option value="">Chọn internal student…</option>
-                          {INTERNAL_STUDENTS.map((student) => (
+                          {INTERNAL_STUDENTS.filter((student) =>
+                            student.internalId === assignment || !assignedToOtherRow.has(student.internalId),
+                          ).map((student) => (
                             <option key={student.internalId} value={student.internalId}>{student.fullName} · {student.internalId}</option>
                           ))}
                         </select>

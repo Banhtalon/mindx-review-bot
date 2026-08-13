@@ -81,6 +81,15 @@ describe("Phase 4B manual mapping contract", () => {
       .toThrow("Internal student is not an allowed mapping target");
   });
 
+  it("rejects assigning one internal student to two roster rows", () => {
+    expect(() => assignStudent(
+      { alpha: "internal-002" },
+      "beta",
+      "internal-002",
+      new Set(["internal-002"]),
+    )).toThrow("Internal student is already assigned to another row");
+  });
+
   it("allows continuation only after exact context and every row resolve", () => {
     const assertion = assertLmsContext(expected, expected);
     expect(canContinueReview(assertion, ["resolved", "resolved"])).toBe(true);
