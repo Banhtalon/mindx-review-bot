@@ -1,0 +1,13 @@
+{
+  "version": 4,
+  "phase": "phase-4b",
+  "commit": "25976d6",
+  "items": [
+    {
+      "id": "V4-P4B-01",
+      "requirement": "Synthetic manual mapping and LMS context fallback UI",
+      "path": "V4-P4B-01-manual-mapping-ui.md",
+      "status": "PASS"
+    }
+  ]
+}
