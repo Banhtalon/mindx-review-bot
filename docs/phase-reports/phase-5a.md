@@ -12,8 +12,8 @@
 
 ## Tests
 
-- PASS focused Phase 5A tests — 17 tests.
-- PASS full Python runner suite — 209 tests.
+- PASS focused Phase 5A tests — 18 tests.
+- PASS full Python runner suite — 210 tests.
 - PASS Python Ruff and mypy.
 - PASS full web suite — 57 tests.
 - PASS web lint, typecheck, and build.

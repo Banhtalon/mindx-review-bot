@@ -1,8 +1,8 @@
 metric,scope,value,unit,status,notes
 phase5a_teaching_metadata_tests,synthetic,1,tests,PASS,"Block and special-event extraction"
 phase5a_lms_model_tests,synthetic,6,tests,PASS,"Normalization and invariant checks"
-phase5a_resolver_tests,synthetic,10,tests,PASS,"Exact context, curriculum lookup, next-event and safe failures"
-python_unit_tests,synthetic,209,tests,PASS,"Full browser-runner suite"
+phase5a_resolver_tests,synthetic,11,tests,PASS,"Exact context, curriculum lookup, next-event and safe failures"
+python_unit_tests,synthetic,210,tests,PASS,"Full browser-runner suite"
 python_ruff,synthetic,1,command,PASS,"Ruff check for apps/browser-runner"
 python_mypy,synthetic,22,source_files,PASS,"Mypy source check"
 web_unit_tests,synthetic,57,tests,PASS,"Vitest suite; 12 files"

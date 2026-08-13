@@ -5,6 +5,7 @@
 - Teaching metadata commit: f86da56
 - LMS model commit: 8faebc5
 - Resolver commit: 8cf034e
+- Resolver hardening commit: 132972f
 
 ## Command/steps
 
@@ -28,8 +29,8 @@
 
 - Focused Teaching parser: 14 tests passed.
 - Focused LMS model contract: 6 tests passed.
-- Focused lesson-context resolver: 10 tests passed.
-- Full Python runner suite: 209 tests passed.
+- Focused lesson-context resolver: 11 tests passed.
+- Full Python runner suite: 210 tests passed.
 - Python Ruff: passed.
 - Python mypy: passed for 22 source files.
 - Web lint: passed.
@@ -55,7 +56,7 @@ PASS — synthetic Phase 5A lesson-context contract and verification gates.
   fabricated.
 - Next-session selection uses actual later schedule date/time and preserves
   special-event metadata; it does not use array order or session-number
-  incrementing.
+  incrementing. Same-start-time overlaps fail closed even when end times differ.
 
 ## Known limitations
 
