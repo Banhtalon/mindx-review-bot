@@ -57,6 +57,8 @@ class _TeachingSessionParser(HTMLParser):
                     "scheduled-date",
                     "start-time",
                     "end-time",
+                    "block",
+                    "special-event",
                     "teacher-name",
                 }
             }
@@ -150,6 +152,8 @@ def parse_teaching_schedule(
                 scheduled_date=date.fromisoformat(_required(record, "scheduled-date")),
                 start_time=time.fromisoformat(_required(record, "start-time")),
                 end_time=time.fromisoformat(_required(record, "end-time")),
+                block=record.get("block"),
+                special_event=record.get("special-event"),
                 teacher_name=record.get("teacher-name"),
             )
             if session.class_code not in allowed_codes:

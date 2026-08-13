@@ -125,3 +125,10 @@ def test_parser_hash_is_stable_for_the_same_page_bytes() -> None:
     assert parse_teaching_schedule(html).source_page_hash == parse_teaching_schedule(
         html
     ).source_page_hash
+
+
+def test_parser_preserves_block_and_special_event() -> None:
+    batch = parse_teaching_schedule(read_fixture("special-event.html"))
+
+    assert batch.sessions[0].block == "Coding"
+    assert batch.sessions[0].special_event == "SYN-EVENT-01"
