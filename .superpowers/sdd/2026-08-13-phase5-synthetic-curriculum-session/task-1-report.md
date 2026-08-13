@@ -134,3 +134,71 @@ Results:
 ## Concerns
 
 - None. The implementation matched the Task 1 brief and passed the required web verification commands.
+
+---
+
+## Fix report - Round 1
+
+Date: 2026-08-13
+
+### Root cause
+
+- The previous validator had a special-case branch that treated `sessionNumber: NaN` as valid synthetic incompleteness.
+- The prior test suite reinforced that behavior by asserting a catalog with `Number.NaN` could still validate successfully.
+- That contradicted the approved design rule that every present curriculum entry must use an integer `sessionNumber` in `1..totalSessions`.
+- Incomplete curriculum support belongs to omitted entries, not sentinel values inside an entry.
+
+### Test changes
+
+- Replaced the old acceptance test for `sessionNumber: Number.NaN` with a success test that validates a catalog containing only sessions `1` and `3` out of `totalSessions: 5`.
+- Strengthened the invalid-session test so it now asserts both:
+  - fractional `sessionNumber` is rejected with `SESSION_NUMBER_INVALID`
+  - `sessionNumber: Number.NaN` is rejected with `SESSION_NUMBER_INVALID`
+
+### RED evidence
+
+Command:
+
+```powershell
+npx vitest run src/curriculum/validator.test.ts -t "rejects a non-integer or NaN session number"
+```
+
+Output summary:
+
+- FAIL because the validator still accepted `sessionNumber: NaN` as valid and returned `ok: true`.
+
+### GREEN evidence
+
+Command:
+
+```powershell
+npx vitest run src/curriculum/validator.test.ts
+```
+
+Output summary:
+
+- PASS (`7` tests) after removing the `NaN` special case and requiring every present entry to have an integer session number.
+
+### Verification commands
+
+Commands:
+
+```powershell
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+```
+
+Output summary:
+
+- `npm run lint` PASS
+- `npm run typecheck` PASS
+- `npm run test` PASS (`13` files, `64` tests)
+- `npm run build` PASS
+
+### Result
+
+- Valid catalogs may omit entire session entries.
+- Present entries must now always use integer `sessionNumber` values in range.
+- Missing current/next curriculum entries remain a later resolver concern (`CURRICULUM_MISSING` / `NEXT_CURRICULUM_MISSING`), not a validator escape hatch.

@@ -54,9 +54,7 @@ export function validateCourseCatalog(
     const lessonTitlePath = `entries[${index}].lessonTitle`;
     const lessonContentPath = `entries[${index}].lessonContent`;
 
-    if (Number.isNaN(entry.sessionNumber)) {
-      // Intentionally incomplete synthetic curriculum entries are allowed.
-    } else if (!Number.isInteger(entry.sessionNumber)) {
+    if (!Number.isInteger(entry.sessionNumber)) {
       issues.push({ code: "SESSION_NUMBER_INVALID", path: sessionPath });
     } else if (entry.sessionNumber < 1 || entry.sessionNumber > catalog.totalSessions) {
       issues.push({ code: "SESSION_NUMBER_OUT_OF_RANGE", path: sessionPath });

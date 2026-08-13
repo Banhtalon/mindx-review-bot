@@ -107,8 +107,8 @@ describe("synthetic curriculum catalog validation", () => {
     });
   });
 
-  it("rejects a non-integer session number", () => {
-    const result = validateCourseCatalog({
+  it("rejects a non-integer or NaN session number", () => {
+    expect(validateCourseCatalog({
       courseCode: "JSB",
       courseName: "Synthetic Web Developer Basic",
       totalSessions: 3,
@@ -119,9 +119,25 @@ describe("synthetic curriculum catalog validation", () => {
           lessonContent: ["Synthetic content"],
         },
       ],
+    })).toEqual({
+      ok: false,
+      issues: [
+        { code: "SESSION_NUMBER_INVALID", path: "entries[0].sessionNumber" },
+      ],
     });
 
-    expect(result).toEqual({
+    expect(validateCourseCatalog({
+      courseCode: "JSB",
+      courseName: "Synthetic Web Developer Basic",
+      totalSessions: 3,
+      entries: [
+        {
+          sessionNumber: Number.NaN,
+          lessonTitle: "Synthetic lesson two",
+          lessonContent: ["Synthetic content"],
+        },
+      ],
+    })).toEqual({
       ok: false,
       issues: [
         { code: "SESSION_NUMBER_INVALID", path: "entries[0].sessionNumber" },
@@ -152,16 +168,21 @@ describe("synthetic curriculum catalog validation", () => {
     });
   });
 
-  it("allows an intentionally incomplete catalog without inventing entries", () => {
+  it("allows an incomplete catalog by omitting absent session entries", () => {
     const result = validateCourseCatalog({
       courseCode: "JSB",
       courseName: "Synthetic Web Developer Basic",
-      totalSessions: 3,
+      totalSessions: 5,
       entries: [
         {
-          sessionNumber: Number.NaN,
-          lessonTitle: "Synthetic placeholder lesson",
-          lessonContent: ["Synthetic placeholder content"],
+          sessionNumber: 1,
+          lessonTitle: "Synthetic session one",
+          lessonContent: ["Synthetic content one"],
+        },
+        {
+          sessionNumber: 3,
+          lessonTitle: "Synthetic session three",
+          lessonContent: ["Synthetic content three"],
         },
       ],
     });
@@ -171,12 +192,17 @@ describe("synthetic curriculum catalog validation", () => {
       catalog: {
         courseCode: "JSB",
         courseName: "Synthetic Web Developer Basic",
-        totalSessions: 3,
+        totalSessions: 5,
         entries: [
           {
-            sessionNumber: Number.NaN,
-            lessonTitle: "Synthetic placeholder lesson",
-            lessonContent: ["Synthetic placeholder content"],
+            sessionNumber: 1,
+            lessonTitle: "Synthetic session one",
+            lessonContent: ["Synthetic content one"],
+          },
+          {
+            sessionNumber: 3,
+            lessonTitle: "Synthetic session three",
+            lessonContent: ["Synthetic content three"],
           },
         ],
       },
