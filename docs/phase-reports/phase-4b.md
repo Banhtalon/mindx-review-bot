@@ -1,6 +1,6 @@
 # Phase 4B result — Manual mapping and session/context fallback UI
 
-- Implementation commits: `22b1f10`, `741672b`, `25976d6`
+- Implementation commits: `22b1f10`, `741672b`, `25976d6`, `e58e5f2`, `37873d5`
 - Evidence: `V4-P4B-01`
 - Branch: `codex/phase4b-manual-mapping`
 
@@ -17,9 +17,9 @@
 
 ## Tests
 
-- PASS focused contract tests — 8 tests.
+- PASS focused contract tests — 9 tests.
 - PASS focused UI tests — 3 tests.
-- PASS full web suite — 12 files, 56 tests.
+- PASS full web suite — 12 files, 57 tests.
 - PASS `npm run lint`.
 - PASS `npm run typecheck`.
 - PASS `npm run build`.

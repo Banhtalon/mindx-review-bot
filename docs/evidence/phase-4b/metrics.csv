@@ -1,7 +1,7 @@
 metric,scope,value,unit,status,notes
-phase4b_contract_tests,synthetic,8,tests,PASS,"Exact context, mismatch reason, assignment validation, gate, and row-order invariance"
+phase4b_contract_tests,synthetic,9,tests,PASS,"Exact context, mismatch reason, assignment validation, duplicate guard, gate, and row-order invariance"
 phase4b_ui_tests,synthetic,3,tests,PASS,"Synthetic-only screen, manual fallback, and explicit mapping flow"
-web_unit_tests,synthetic,56,tests,PASS,"Vitest suite; 12 files"
+web_unit_tests,synthetic,57,tests,PASS,"Vitest suite; 12 files"
 web_lint,synthetic,1,command,PASS,"npm run lint"
 web_typecheck,synthetic,1,command,PASS,"npm run typecheck"
 web_build,synthetic,1,command,PASS,"npm run build"

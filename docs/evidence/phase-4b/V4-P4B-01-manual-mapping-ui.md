@@ -2,6 +2,7 @@
 
 - Implementation contract commit: `741672b`
 - UI commit: `25976d6`
+- Mapping hardening commit: `e58e5f2`
 - Scope: synthetic React review screen only
 
 ## Command/steps
@@ -23,9 +24,9 @@
 
 ## Actual
 
-- `npm run test -- src/lms/manualMapping.test.ts`: 8 tests passed.
+- `npm run test -- src/lms/manualMapping.test.ts`: 9 tests passed.
 - `npm run test -- src/App.test.tsx`: 3 tests passed.
-- `npm run test`: 12 files, 56 tests passed.
+- `npm run test`: 12 files, 57 tests passed.
 - `npm run typecheck`: passed.
 - `npm run lint`: passed.
 - `npm run build`: passed.
