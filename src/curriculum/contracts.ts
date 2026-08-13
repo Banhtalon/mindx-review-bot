@@ -26,6 +26,44 @@ export type CourseCatalog = {
   readonly entries: readonly CurriculumEntry[];
 };
 
+export type SyntheticSession = {
+  readonly id: string;
+  readonly classCode: string;
+  readonly courseCode: string;
+  readonly sessionNumber: number;
+  readonly scheduledDate: string;
+  readonly startTime: string;
+  readonly endTime: string;
+  readonly workflowStatus: "context_pending" | "context_ready";
+};
+
+export type LessonContextStatus =
+  | "matched"
+  | "no_next_session"
+  | "curriculum_missing"
+  | "manual_fallback";
+
+export type LessonContextReasonCode =
+  | "LESSON_CONTEXT_MATCH"
+  | "NO_NEXT_SESSION"
+  | "CURRICULUM_MISSING"
+  | "COURSE_NOT_FOUND"
+  | "COURSE_AMBIGUOUS"
+  | "SESSION_CONTEXT_INVALID"
+  | "NEXT_SESSION_AMBIGUOUS";
+
+export type LessonContextWarningCode = "NEXT_CURRICULUM_MISSING";
+
+export type LessonContextResolution = {
+  readonly status: LessonContextStatus;
+  readonly reasonCode: LessonContextReasonCode;
+  readonly session: SyntheticSession;
+  readonly currentLesson?: CurriculumEntry;
+  readonly nextSession?: SyntheticSession;
+  readonly nextLesson?: CurriculumEntry;
+  readonly warnings: readonly LessonContextWarningCode[];
+};
+
 export type CurriculumIssueCode =
   | "COURSE_CODE_REQUIRED"
   | "COURSE_NAME_REQUIRED"
