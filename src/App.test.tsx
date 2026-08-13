@@ -199,11 +199,12 @@ describe("Synthetic review inputs", () => {
       ["s", "u", "b", "m", "i", "t"].join(""),
       ["g", "e", "n", "e", "r", "a", "t", "e"].join(""),
     ];
+    const blockedActionPattern = new RegExp(blockedActionLabels.join("|"), "i");
     const buttonLabels = screen
       .getAllByRole("button")
       .map((button) => button.textContent?.trim().toLowerCase());
 
-    expect(buttonLabels.some((label) => blockedActionLabels.includes(label ?? ""))).toBe(false);
+    expect(buttonLabels.some((label) => blockedActionPattern.test(label ?? ""))).toBe(false);
   });
 
   it("marks every learner present without requiring levels or notes", () => {
