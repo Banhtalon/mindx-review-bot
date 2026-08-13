@@ -143,3 +143,153 @@ Results:
 ## Concerns
 
 - None.
+
+---
+
+## Fix report - Round 1
+
+Date: 2026-08-13
+
+### Review finding addressed
+
+- Same-slot duplicates were being classified as "later" because the resolver used `scheduledDate|startTime|endTime|id` to decide whether a session came after the selected session.
+- That allowed a session with the same `scheduledDate + startTime` but different `endTime` or `id` to become `nextSession`, which violates the fail-closed design.
+
+### Root cause
+
+- The resolver mixed two separate concepts:
+  - slot identity: `scheduledDate + startTime`
+  - deterministic ordering among truly later sessions
+- Using `endTime` and `id` inside the "later than selected" comparison turned same-slot duplicates into apparently later sessions instead of ambiguous context.
+
+### Test additions
+
+- Added direct coverage for:
+  - `COURSE_NOT_FOUND`
+  - `COURSE_AMBIGUOUS`
+  - `CURRICULUM_MISSING`
+- Added a regression test proving a same-slot duplicate with a different `id`/`endTime` cannot resolve as the next actual session.
+
+### RED evidence
+
+#### RED 1: same-slot duplicate bug reproduction
+
+Command:
+
+```powershell
+npx vitest run src/session/lessonContext.test.ts -t "returns course_not_found when no normalized catalog matches|returns course_ambiguous when more than one normalized catalog matches|returns curriculum_missing when the selected session has no curriculum entry|fails closed when a same-slot duplicate differs only by end time or id"
+```
+
+Output summary:
+
+- FAIL (`1 failed, 3 passed`) because:
+  - `fails closed when a same-slot duplicate differs only by end time or id`
+  - expected `NEXT_SESSION_AMBIGUOUS`
+  - received `LESSON_CONTEXT_MATCH` with `NEXT_CURRICULUM_MISSING`
+
+#### RED 2: direct fail-first proof for COURSE_NOT_FOUND
+
+Temporary mutation:
+
+- changed the zero-match branch to return `COURSE_AMBIGUOUS`
+
+Command:
+
+```powershell
+npx vitest run src/session/lessonContext.test.ts -t "returns course_not_found when no normalized catalog matches"
+```
+
+Output summary:
+
+- FAIL because expected `COURSE_NOT_FOUND` but received `COURSE_AMBIGUOUS`
+
+#### RED 3: direct fail-first proof for COURSE_AMBIGUOUS
+
+Temporary mutation:
+
+- changed the multi-match branch to return `COURSE_NOT_FOUND`
+
+Command:
+
+```powershell
+npx vitest run src/session/lessonContext.test.ts -t "returns course_ambiguous when more than one normalized catalog matches"
+```
+
+Output summary:
+
+- FAIL because expected `COURSE_AMBIGUOUS` but received `COURSE_NOT_FOUND`
+
+#### RED 4: direct fail-first proof for CURRICULUM_MISSING
+
+Temporary mutation:
+
+- changed the missing-current-entry branch to return `status: "manual_fallback"`
+
+Command:
+
+```powershell
+npx vitest run src/session/lessonContext.test.ts -t "returns curriculum_missing when the selected session has no curriculum entry"
+```
+
+Output summary:
+
+- FAIL because expected `status: "curriculum_missing"` but received `status: "manual_fallback"`
+
+### GREEN changes
+
+- Added `sessionSlotKey()` for slot identity using only `scheduledDate + startTime`.
+- Kept `sessionOrderKey()` for deterministic ordering among truly later sessions.
+- Added an early fail-closed check: if another exact class/course session has the same slot but a different `id`, return `NEXT_SESSION_AMBIGUOUS`.
+- Changed later-session filtering to require a strictly later slot key instead of comparing `endTime` and `id` against the selected slot.
+- Preserved previous behavior for:
+  - non-consecutive next-session selection
+  - final-session `NO_NEXT_SESSION`
+  - `NEXT_CURRICULUM_MISSING`
+  - malformed session context
+  - earliest-later-slot ambiguity
+
+### GREEN evidence
+
+Command:
+
+```powershell
+npx vitest run src/session/lessonContext.test.ts
+```
+
+Output summary:
+
+- PASS (`10` tests) after restoring the temporary mutations and applying the resolver fix.
+
+### Self-review
+
+- The fix stays inside Task 2 files only.
+- Reason-code behavior remains explicit and fail-closed.
+- Same-slot duplicates now never become `nextSession`.
+- Existing direct behaviors now have explicit tests in the suite, not just implicit branch coverage.
+
+### Verification commands
+
+Commands run fresh after the final code change:
+
+```powershell
+npm run lint
+npm run typecheck
+npm run test
+npm run build
+npm run verify:no-secrets
+npm run verify:no-live-write
+```
+
+Results:
+
+- `npm run lint` PASS
+- `npm run typecheck` PASS
+- `npm run test` PASS
+- `npm run build` PASS
+- `npm run verify:no-secrets` PASS
+- `npm run verify:no-live-write` PASS
+
+### Result
+
+- Same-slot duplicate session rows now fail closed as ambiguous instead of being misclassified as the next actual session.
+- `COURSE_NOT_FOUND`, `COURSE_AMBIGUOUS`, and `CURRICULUM_MISSING` now each have direct test coverage in `src/session/lessonContext.test.ts`.

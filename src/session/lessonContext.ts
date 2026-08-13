@@ -48,6 +48,14 @@ function hasValidSessionContext(session: SyntheticSession): boolean {
     && isValidTime(session.endTime);
 }
 
+function sessionSlotKey(session: SyntheticSession): string {
+  return `${session.scheduledDate}|${session.startTime}`;
+}
+
+function sessionOrderKey(session: SyntheticSession): string {
+  return `${session.scheduledDate}|${session.startTime}|${session.endTime}|${session.id}`;
+}
+
 function buildResult(
   session: SyntheticSession,
   reasonCode: LessonContextReasonCode,
@@ -103,15 +111,21 @@ export function resolveLessonContext(
     return buildResult(selectedSession, "SESSION_CONTEXT_INVALID");
   }
 
+  const selectedSlotKey = sessionSlotKey(selectedSession);
+  const sameSlotDuplicates = matchingSessions.filter(
+    (session) => session.id !== selectedSession.id && sessionSlotKey(session) === selectedSlotKey,
+  );
+
+  if (sameSlotDuplicates.length > 0) {
+    return buildResult(selectedSession, "NEXT_SESSION_AMBIGUOUS", {
+      currentLesson,
+    });
+  }
+
   const laterSessions = matchingSessions
-    .filter((session) => (
-      `${session.scheduledDate}|${session.startTime}|${session.endTime}|${session.id}`
-        > `${selectedSession.scheduledDate}|${selectedSession.startTime}|${selectedSession.endTime}|${selectedSession.id}`
-    ))
+    .filter((session) => sessionSlotKey(session) > selectedSlotKey)
     .sort((left, right) => {
-      const leftKey = `${left.scheduledDate}|${left.startTime}|${left.endTime}|${left.id}`;
-      const rightKey = `${right.scheduledDate}|${right.startTime}|${right.endTime}|${right.id}`;
-      return leftKey.localeCompare(rightKey);
+      return sessionOrderKey(left).localeCompare(sessionOrderKey(right));
     });
 
   if (laterSessions.length === 0) {

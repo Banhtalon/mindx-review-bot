@@ -46,6 +46,51 @@ describe("synthetic lesson context resolution", () => {
     expect(result.currentLesson?.lessonTitle).toBe("Synthetic session three");
   });
 
+  it("returns course_not_found when no normalized catalog matches", () => {
+    const result = resolveLessonContext(
+      { ...selectedSession, courseCode: "PYB" },
+      [selectedSession],
+      catalogs,
+    );
+
+    expect(result).toMatchObject({
+      status: "manual_fallback",
+      reasonCode: "COURSE_NOT_FOUND",
+      warnings: [],
+    });
+  });
+
+  it("returns course_ambiguous when more than one normalized catalog matches", () => {
+    const result = resolveLessonContext(selectedSession, [selectedSession], [
+      catalogs[0],
+      {
+        ...catalogs[0],
+        courseCode: " jsb ",
+        courseName: "Synthetic Web Developer Basic Duplicate",
+      },
+    ]);
+
+    expect(result).toMatchObject({
+      status: "manual_fallback",
+      reasonCode: "COURSE_AMBIGUOUS",
+      warnings: [],
+    });
+  });
+
+  it("returns curriculum_missing when the selected session has no curriculum entry", () => {
+    const result = resolveLessonContext(
+      { ...selectedSession, sessionNumber: 2 },
+      [{ ...selectedSession, sessionNumber: 2 }],
+      catalogs,
+    );
+
+    expect(result).toMatchObject({
+      status: "curriculum_missing",
+      reasonCode: "CURRICULUM_MISSING",
+      warnings: [],
+    });
+  });
+
   it("chooses the earliest later actual session even when the number is non-consecutive", () => {
     const sessions: readonly SyntheticSession[] = [
       selectedSession,
@@ -164,6 +209,36 @@ describe("synthetic lesson context resolution", () => {
       reasonCode: "NEXT_SESSION_AMBIGUOUS",
       warnings: [],
     });
+  });
+
+  it("fails closed when a same-slot duplicate differs only by end time or id", () => {
+    const sessions: readonly SyntheticSession[] = [
+      selectedSession,
+      {
+        ...selectedSession,
+        id: "session-003-duplicate",
+        sessionNumber: 4,
+        endTime: "21:00",
+      },
+      {
+        ...selectedSession,
+        id: "session-005",
+        sessionNumber: 5,
+        scheduledDate: "2026-08-15",
+        startTime: "18:30",
+        endTime: "20:00",
+      },
+    ];
+
+    const result = resolveLessonContext(selectedSession, sessions, catalogs);
+
+    expect(result).toMatchObject({
+      status: "manual_fallback",
+      reasonCode: "NEXT_SESSION_AMBIGUOUS",
+      warnings: [],
+    });
+    expect(result.nextSession).toBeUndefined();
+    expect(result.nextLesson).toBeUndefined();
   });
 
   it("rejects malformed date or time context", () => {
