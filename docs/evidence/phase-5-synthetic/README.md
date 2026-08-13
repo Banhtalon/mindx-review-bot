@@ -47,6 +47,7 @@
 | `npm run build` | 0 | PASS — Vite production bundle built |
 | `npm run verify:no-secrets` | 0 | PASS — `Secrets check passed.` |
 | `npm run verify:no-live-write` | 0 | PASS — `Live LMS write check passed.` |
+| `git diff --check` | 0 | PASS — clean result |
 
 ### Build output details
 

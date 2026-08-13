@@ -19,6 +19,7 @@ Fresh commands run on 2026-08-13 from `E:\mindx-review-bot\.worktrees\phase5-syn
 - `npm run build` — PASS
 - `npm run verify:no-secrets` — PASS
 - `npm run verify:no-live-write` — PASS
+- `git diff --check` — PASS, clean result
 
 Verification evidence is recorded in [docs/evidence/phase-5-synthetic/README.md](/E:/mindx-review-bot/.worktrees/phase5-synthetic-ui/docs/evidence/phase-5-synthetic/README.md).
 
