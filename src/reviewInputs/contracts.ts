@@ -25,3 +25,27 @@ export type ReviewInputGate =
       readonly reasonCode: "ATTENDANCE_UNKNOWN";
       readonly unknownAttendanceRowKeys: readonly string[];
     };
+
+export type SyntheticReviewDraftSnapshot = {
+  readonly sessionKey: string;
+  readonly revision: number;
+  readonly inputs: readonly SyntheticReviewInput[];
+};
+
+export type CommitDraftResult =
+  | {
+      readonly status: "saved";
+      readonly snapshot: SyntheticReviewDraftSnapshot;
+    }
+  | {
+      readonly status: "conflict";
+      readonly current: SyntheticReviewDraftSnapshot;
+    };
+
+export interface SyntheticReviewDraftStore {
+  read(): SyntheticReviewDraftSnapshot;
+  commitDraft(
+    expectedRevision: number,
+    inputs: readonly SyntheticReviewInput[],
+  ): CommitDraftResult;
+}
