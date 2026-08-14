@@ -6,12 +6,18 @@ import type { AuthGateway, AuthSession, WorkspaceRole } from "./contracts";
 
 const WORKSPACE_ID = "00000000-0000-0000-0000-0000000000a1";
 
+type FakeAuthGatewayOptions = {
+  readonly rejectRoleLookup?: boolean;
+  readonly notifyOnSignIn?: boolean;
+};
+
 class FakeAuthGateway implements AuthGateway {
   private listeners = new Set<(session: AuthSession | null) => void>();
 
   constructor(
     private session: AuthSession | null,
     private readonly role: WorkspaceRole | null,
+    private readonly options: FakeAuthGatewayOptions = {},
   ) {}
 
   async getSession(): Promise<AuthSession | null> {
@@ -21,7 +27,7 @@ class FakeAuthGateway implements AuthGateway {
   async signIn(email: string, password: string): Promise<AuthSession> {
     void password;
     this.session = { user: { id: "synthetic-user", email } };
-    this.notify();
+    if (this.options.notifyOnSignIn !== false) this.notify();
     return this.session;
   }
 
@@ -38,6 +44,7 @@ class FakeAuthGateway implements AuthGateway {
   async getWorkspaceRole(workspaceId: string, userId: string): Promise<WorkspaceRole | null> {
     void workspaceId;
     void userId;
+    if (this.options.rejectRoleLookup) throw new Error("SYNTHETIC_WORKSPACE_ROLE_UNAVAILABLE");
     return this.role;
   }
 
@@ -97,6 +104,22 @@ describe("AuthBoundary", () => {
 
   it("denies access when the signed-in user has no workspace membership", async () => {
     protectedSurface(new FakeAuthGateway({ user: { id: "synthetic-user", email: "user@example.invalid" } }, null));
+
+    expect(await screen.findByRole("heading", { name: "Access denied" })).toBeVisible();
+    expect(screen.queryByText("Protected synthetic dashboard")).not.toBeInTheDocument();
+  });
+
+  it("denies access when the signed-in user's workspace role lookup fails", async () => {
+    protectedSurface(new FakeAuthGateway(null, "owner", {
+      rejectRoleLookup: true,
+      notifyOnSignIn: false,
+    }));
+
+    fireEvent.change(await screen.findByLabelText("Email"), {
+      target: { value: "owner@example.invalid" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "synthetic-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
 
     expect(await screen.findByRole("heading", { name: "Access denied" })).toBeVisible();
     expect(screen.queryByText("Protected synthetic dashboard")).not.toBeInTheDocument();

@@ -15,8 +15,10 @@ export class SafeErrorBoundary extends Component<SafeErrorBoundaryProps, SafeErr
     return { hasError: true };
   }
 
-  componentDidCatch(): void {
-    // Intentionally avoid logging exception details that may contain sensitive data.
+  componentDidCatch(error: Error): void {
+    void error;
+    // React may emit a development diagnostic for a thrown child. This boundary must not add
+    // application-controlled console logging because exception details can contain sensitive data.
   }
 
   render() {

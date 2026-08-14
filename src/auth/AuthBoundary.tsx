@@ -59,7 +59,11 @@ export function AuthBoundary({ gateway, workspaceId, children }: AuthBoundaryPro
     try {
       const nextSession = await gateway.signIn(email, password);
       setSession(nextSession);
-      setRole(await gateway.getWorkspaceRole(workspaceId, nextSession.user.id));
+      try {
+        setRole(await gateway.getWorkspaceRole(workspaceId, nextSession.user.id));
+      } catch {
+        setRole(null);
+      }
     } catch {
       setSignInError(true);
     } finally {
