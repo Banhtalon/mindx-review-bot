@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
-import App, { Phase5ContextSurface } from "./App";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import App, { Phase5BReviewInputSurface, Phase5ContextSurface } from "./App";
 import type { CourseCatalog, SyntheticSession } from "./curriculum/contracts";
+import {
+  createInitialReviewInputs,
+  PHASE5B_SYNTHETIC_LEARNERS,
+} from "./fixtures/phase5bReviewInputs";
+import { InMemorySyntheticReviewDraftStore } from "./reviewInputs/syntheticDraftStore";
 
 const MANUAL_FALLBACK_CATALOGS = [
   {
@@ -90,7 +95,12 @@ const NEXT_CURRICULUM_MISSING_SESSIONS = [
   },
 ] as const satisfies readonly SyntheticSession[];
 
-afterEach(() => cleanup());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  cleanup();
+});
 
 describe("Bootstrap shell", () => {
   it("identifies the synthetic-only Spike 0 mode", () => {
@@ -187,6 +197,67 @@ describe("Bootstrap shell", () => {
 });
 
 describe("Synthetic review inputs", () => {
+  const createDraftStore = () =>
+    new InMemorySyntheticReviewDraftStore(
+      "synthetic-robotics-session-3",
+      createInitialReviewInputs(PHASE5B_SYNTHETIC_LEARNERS),
+    );
+
+  it("commits the latest synthetic edit only after 300 milliseconds", () => {
+    vi.useFakeTimers();
+    const store = createDraftStore();
+    render(<Phase5BReviewInputSurface store={store} />);
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Synthetic learner 01 draft note" }),
+      { target: { value: "Local synthetic autosave note" } },
+    );
+
+    expect(screen.getByText("Draft pending")).toBeVisible();
+    expect(store.read().revision).toBe(1);
+
+    act(() => vi.advanceTimersByTime(299));
+    expect(store.read().revision).toBe(1);
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(store.read().revision).toBe(2);
+    expect(store.read().inputs[0].noteDraft).toBe("Local synthetic autosave note");
+    expect(screen.getByText("Saved locally · revision 2")).toBeVisible();
+  });
+
+  it("commits incomplete attendance without opening the generation gate", () => {
+    vi.useFakeTimers();
+    const store = createDraftStore();
+    render(<Phase5BReviewInputSurface store={store} />);
+
+    fireEvent.change(
+      screen.getByRole("combobox", { name: "Synthetic learner 01 level" }),
+      { target: { value: "developing" } },
+    );
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(store.read().revision).toBe(2);
+    expect(screen.getByText("Generation blocked: attendance unknown")).toBeVisible();
+    expect(screen.getByText("Saved locally · revision 2")).toBeVisible();
+  });
+
+  it("does not issue a network request while committing a synthetic draft", () => {
+    vi.useFakeTimers();
+    const requestSpy = vi.fn();
+    vi.stubGlobal("fetch", requestSpy);
+    const store = createDraftStore();
+    render(<Phase5BReviewInputSurface store={store} />);
+
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Synthetic learner 02 draft note" }),
+      { target: { value: "Synthetic local-only note" } },
+    );
+    act(() => vi.advanceTimersByTime(300));
+
+    expect(requestSpy).not.toHaveBeenCalled();
+    expect(store.read().revision).toBe(2);
+  });
+
   it("starts blocked with three local synthetic learner drafts and no write actions", () => {
     render(<App />);
 

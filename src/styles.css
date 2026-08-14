@@ -439,6 +439,29 @@ select {
   background: #eefaf4;
 }
 
+.review-draft-status {
+  display: grid;
+  gap: 0.2rem;
+  margin-bottom: 1rem;
+  border-left: 4px solid #18794e;
+  padding: 0.7rem 0.8rem;
+  color: #17633f;
+  background: #eefaf4;
+  font-size: 0.82rem;
+}
+
+.review-draft-status.pending {
+  border-left-color: #1769e0;
+  color: #174b9b;
+  background: #eef5ff;
+}
+
+.review-draft-status.conflict {
+  border-left-color: #b42318;
+  color: #8f1d14;
+  background: #fff1f0;
+}
+
 .review-inputs-list {
   display: grid;
   gap: 0.75rem;

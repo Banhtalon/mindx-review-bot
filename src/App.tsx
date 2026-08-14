@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PHASE5_COURSE_CATALOGS, PHASE5_SESSIONS } from "./fixtures/phase5Curriculum";
 import {
   createInitialReviewInputs,
@@ -15,10 +15,14 @@ import {
 import { evaluateReviewInputGate } from "./reviewInputs/gate";
 import type {
   AttendanceStatus,
+  CommitDraftResult,
   LearningLevel,
   SyntheticLearner,
+  SyntheticReviewDraftStore,
+  SyntheticReviewDraftSnapshot,
   SyntheticReviewInput,
 } from "./reviewInputs/contracts";
+import { InMemorySyntheticReviewDraftStore } from "./reviewInputs/syntheticDraftStore";
 import { resolveLessonContext } from "./session/lessonContext";
 import type { CourseCatalog, LessonContextWarningCode, SyntheticSession } from "./curriculum/contracts";
 
@@ -265,28 +269,68 @@ export function Phase5ContextSurface({
 
 type Phase5BReviewInputSurfaceProps = {
   readonly learners?: readonly SyntheticLearner[];
+  readonly store?: SyntheticReviewDraftStore;
 };
 
 type ReviewInputPatch = Partial<Pick<SyntheticReviewInput, "attendance" | "level" | "noteDraft">>;
+type DraftCommitStatus = "saved" | "pending" | "conflict";
 
 export function Phase5BReviewInputSurface({
   learners = PHASE5B_SYNTHETIC_LEARNERS,
+  store: suppliedStore,
 }: Phase5BReviewInputSurfaceProps) {
-  const [inputs, setInputs] = useState<readonly SyntheticReviewInput[]>(() =>
-    createInitialReviewInputs(learners),
+  const [draftStore] = useState<SyntheticReviewDraftStore>(() =>
+    suppliedStore ??
+    new InMemorySyntheticReviewDraftStore(
+      "synthetic-robotics-session-3",
+      createInitialReviewInputs(learners),
+    ),
   );
+  const [initialSnapshot] = useState<SyntheticReviewDraftSnapshot>(() => draftStore.read());
+  const [inputs, setInputs] = useState<readonly SyntheticReviewInput[]>(initialSnapshot.inputs);
+  const [revision, setRevision] = useState(initialSnapshot.revision);
+  const [commitStatus, setCommitStatus] = useState<DraftCommitStatus>("saved");
+  const [, setConflictSnapshot] = useState<SyntheticReviewDraftSnapshot | null>(null);
   const gate = useMemo(() => evaluateReviewInputGate(inputs), [inputs]);
+
+  const applyCommitResult = useCallback((result: CommitDraftResult) => {
+    if (result.status === "saved") {
+      setRevision(result.snapshot.revision);
+      setConflictSnapshot(null);
+      setCommitStatus("saved");
+      return;
+    }
+
+    setConflictSnapshot(result.current);
+    setCommitStatus("conflict");
+  }, []);
+
+  useEffect(() => {
+    if (commitStatus !== "pending") return;
+
+    const timeoutId = window.setTimeout(() => {
+      applyCommitResult(draftStore.commitDraft(revision, inputs));
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [applyCommitResult, commitStatus, draftStore, inputs, revision]);
+
+  function markPendingUnlessConflicted() {
+    setCommitStatus((current) => (current === "conflict" ? current : "pending"));
+  }
 
   function updateInput(rowKey: string, patch: ReviewInputPatch) {
     setInputs((current) =>
       current.map((input) => (input.rowKey === rowKey ? { ...input, ...patch } : input)),
     );
+    markPendingUnlessConflicted();
   }
 
   function markAllPresent() {
     setInputs((current) =>
       current.map((input) => ({ ...input, attendance: "present" as const })),
     );
+    markPendingUnlessConflicted();
   }
 
   return (
@@ -295,7 +339,7 @@ export function Phase5BReviewInputSurface({
         <div>
           <h2 id="synthetic-review-inputs-heading">Synthetic review inputs</h2>
           <p className="muted">
-            Local browser-memory draft for the synthetic roster. Reloading intentionally discards these values.
+            Synthetic in-memory draft with debounced local autosave. A full reload intentionally resets these values.
           </p>
         </div>
         <span className="readonly-badge">Synthetic local draft</span>
@@ -321,6 +365,17 @@ export function Phase5BReviewInputSurface({
             ? `All ${learners.length} synthetic learners have explicit attendance.`
             : `Reason code: ${gate.reasonCode} · ${gate.unknownAttendanceRowKeys.length} attendance value(s) unresolved.`}
         </span>
+      </div>
+
+      <div className={`review-draft-status ${commitStatus}`} role="status" aria-live="polite">
+        <strong>
+          {commitStatus === "pending"
+            ? "Draft pending"
+            : commitStatus === "conflict"
+              ? "Autosave paused"
+              : `Saved locally · revision ${revision}`}
+        </strong>
+        <span>Synthetic in-memory draft only. A full reload resets it.</span>
       </div>
 
       <div className="review-inputs-list">
