@@ -462,6 +462,27 @@ select {
   background: #fff1f0;
 }
 
+.review-draft-conflict {
+  display: grid;
+  gap: 0.65rem;
+  margin-bottom: 1rem;
+  border: 1px solid #e29a93;
+  border-radius: 0.65rem;
+  padding: 0.85rem;
+  color: #8f1d14;
+  background: #fff7f6;
+}
+
+.review-draft-conflict p {
+  margin: 0;
+}
+
+.review-draft-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
 .review-inputs-list {
   display: grid;
   gap: 0.75rem;
@@ -550,6 +571,15 @@ select {
     align-items: flex-start;
     grid-template-columns: 1fr;
     flex-direction: column;
+  }
+
+  .review-draft-conflict-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .review-draft-conflict-actions .secondary-button {
+    width: 100%;
   }
 
   .review-input-note {

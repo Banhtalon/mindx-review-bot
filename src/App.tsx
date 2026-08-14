@@ -290,7 +290,7 @@ export function Phase5BReviewInputSurface({
   const [inputs, setInputs] = useState<readonly SyntheticReviewInput[]>(initialSnapshot.inputs);
   const [revision, setRevision] = useState(initialSnapshot.revision);
   const [commitStatus, setCommitStatus] = useState<DraftCommitStatus>("saved");
-  const [, setConflictSnapshot] = useState<SyntheticReviewDraftSnapshot | null>(null);
+  const [conflictSnapshot, setConflictSnapshot] = useState<SyntheticReviewDraftSnapshot | null>(null);
   const gate = useMemo(() => evaluateReviewInputGate(inputs), [inputs]);
 
   const applyCommitResult = useCallback((result: CommitDraftResult) => {
@@ -331,6 +331,19 @@ export function Phase5BReviewInputSurface({
       current.map((input) => ({ ...input, attendance: "present" as const })),
     );
     markPendingUnlessConflicted();
+  }
+
+  function useLatestVersion() {
+    const latest = draftStore.read();
+    setInputs(latest.inputs);
+    setRevision(latest.revision);
+    setConflictSnapshot(null);
+    setCommitStatus("saved");
+  }
+
+  function keepLocalDraft() {
+    const latest = draftStore.read();
+    applyCommitResult(draftStore.commitDraft(latest.revision, inputs));
   }
 
   return (
@@ -377,6 +390,24 @@ export function Phase5BReviewInputSurface({
         </strong>
         <span>Synthetic in-memory draft only. A full reload resets it.</span>
       </div>
+
+      {conflictSnapshot ? (
+        <div className="review-draft-conflict" role="alert">
+          <strong>Conflict detected · local draft preserved</strong>
+          <p>
+            Synthetic revision {conflictSnapshot.revision} is newer. Choose which draft to continue with;
+            nothing is written to Teaching or LMS.
+          </p>
+          <div className="review-draft-conflict-actions">
+            <button className="secondary-button" type="button" onClick={useLatestVersion}>
+              Use latest version
+            </button>
+            <button className="secondary-button" type="button" onClick={keepLocalDraft}>
+              Keep my local draft
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div className="review-inputs-list">
         {learners.map((learner) => {

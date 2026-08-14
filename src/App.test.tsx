@@ -203,6 +203,27 @@ describe("Synthetic review inputs", () => {
       createInitialReviewInputs(PHASE5B_SYNTHETIC_LEARNERS),
     );
 
+  function createConflictScenario() {
+    vi.useFakeTimers();
+    const store = createDraftStore();
+    render(<Phase5BReviewInputSurface store={store} />);
+
+    const note = screen.getByRole("textbox", {
+      name: "Synthetic learner 01 draft note",
+    });
+    fireEvent.change(note, { target: { value: "Preserve this local draft" } });
+
+    const external = store.read().inputs.map((input) =>
+      input.rowKey === "synthetic-review-001"
+        ? { ...input, noteDraft: "Latest external synthetic draft" }
+        : input,
+    );
+    store.injectExternalRevisionForTest(external);
+    act(() => vi.advanceTimersByTime(300));
+
+    return { note, store };
+  }
+
   it("commits the latest synthetic edit only after 300 milliseconds", () => {
     vi.useFakeTimers();
     const store = createDraftStore();
@@ -256,6 +277,45 @@ describe("Synthetic review inputs", () => {
 
     expect(requestSpy).not.toHaveBeenCalled();
     expect(store.read().revision).toBe(2);
+  });
+
+  it("preserves the local draft and pauses automatic retries on conflict", () => {
+    const { note, store } = createConflictScenario();
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Conflict detected · local draft preserved",
+    );
+    expect(note).toHaveValue("Preserve this local draft");
+    expect(store.read().revision).toBe(2);
+
+    fireEvent.change(note, { target: { value: "Edited while conflict remains" } });
+    act(() => vi.advanceTimersByTime(600));
+
+    expect(store.read().revision).toBe(2);
+    expect(note).toHaveValue("Edited while conflict remains");
+  });
+
+  it("adopts the latest snapshot only after the explicit latest-version action", () => {
+    const { note, store } = createConflictScenario();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use latest version" }));
+
+    expect(note).toHaveValue("Latest external synthetic draft");
+    expect(store.read().revision).toBe(2);
+    expect(screen.getByText("Saved locally · revision 2")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("commits the preserved local draft as a new checked revision", () => {
+    const { note, store } = createConflictScenario();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep my local draft" }));
+
+    expect(note).toHaveValue("Preserve this local draft");
+    expect(store.read().revision).toBe(3);
+    expect(store.read().inputs[0].noteDraft).toBe("Preserve this local draft");
+    expect(screen.getByText("Saved locally · revision 3")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("starts blocked with three local synthetic learner drafts and no write actions", () => {
