@@ -1,7 +1,7 @@
 {
   "version": 1,
   "phase": "phase-1",
-  "commit": "c1ca5a1",
+  "commit": "a510555",
   "items": [
     {"id": "V4-P1-01", "requirement": "Protected Auth boundary and logout fail-closed behavior", "path": "V4-P1-01.md", "status": "PASS", "environment": "local synthetic", "scope": "React AuthBoundary tests only"},
     {"id": "V4-P1-02", "requirement": "Partial Supabase frontend configuration fails closed", "path": "V4-P1-02.md", "status": "PASS", "environment": "local synthetic", "scope": "runtime configuration contract"},

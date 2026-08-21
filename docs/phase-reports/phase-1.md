@@ -1,6 +1,6 @@
 # Phase 1 report — Auth, synthetic seed, RLS and CI
 
-- Commit: `c1ca5a1`
+- Commit: `a510555`
 - Branch: `codex/phase1-2-closure`
 - Result: local/synthetic implementation PASS; hosted closure BLOCKED.
 

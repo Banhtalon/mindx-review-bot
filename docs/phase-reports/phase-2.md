@@ -1,6 +1,6 @@
 # Phase 2 report — Runner lease, heartbeat, retry and scheduled dispatch
 
-- Commit: `c1ca5a1`
+- Commit: `a510555`
 - Branch: `codex/phase1-2-closure`
 - Result: local/synthetic implementation PASS; hosted/off-PC closure BLOCKED.
 
@@ -24,7 +24,7 @@
 - PASS: `uv run pytest` from `apps/browser-runner` — 217 tests.
 - PASS: `npx supabase db reset`.
 - PASS: `npm run test:rls` — 101 assertions.
-- PASS: `npm exec vitest run test/cron-workflow.test.ts` — 4 tests.
+- PASS: `npm exec vitest run test/cron-workflow.test.ts` — 6 tests.
 
 ## Exit boundary
 
