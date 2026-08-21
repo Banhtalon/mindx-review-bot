@@ -1,7 +1,7 @@
 # Phase 1–2 Closure Design
 
-**Date:** 2026-08-14  
-**Status:** Approved by Qq for implementation  
+**Date:** 2026-08-14
+**Status:** Approved by Qq for implementation
 **Scope:** Local/synthetic implementation and evidence only
 
 ## Goal
@@ -75,4 +75,3 @@ lease/heartbeat/bounded-retry contract required by the V4 Phase 1–2 checklists
   artifact upload.
 - Phase-level evidence indexes and reports link every `V4-P1-*` and `V4-P2-*`
   row to a command, artifact, commit and honest status.
-
