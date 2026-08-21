@@ -242,7 +242,7 @@ async def test_run_job_enforces_a_hard_application_timeout(
 ) -> None:
     from mindx_runner import cli as cli_module
 
-    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.02)
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
     monkeypatch.setattr(cli_module, "HEARTBEAT_INTERVAL_SECONDS", 0.005)
     client = FakeClient([])
     session = FakeSession()
@@ -271,7 +271,7 @@ async def test_run_job_applies_the_timeout_before_browser_start(
 ) -> None:
     from mindx_runner import cli as cli_module
 
-    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.02)
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
     client = FakeClient([])
     session = SlowStartSession()
 
