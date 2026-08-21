@@ -128,9 +128,15 @@ async def _finish_run_best_effort(
 
 async def _close_browser_with_bound(
     browser: ReadonlyBrowserSession,
+    *,
+    wall_deadline: float,
+    cleanup_budget: float,
 ) -> None:
+    remaining = min(cleanup_budget, wall_deadline - asyncio.get_running_loop().time())
+    if remaining <= 0:
+        return
     try:
-        await asyncio.wait_for(browser.close(), timeout=CLEANUP_TIMEOUT_SECONDS)
+        await asyncio.wait_for(browser.close(), timeout=remaining)
     except Exception:
         return
 
@@ -197,11 +203,13 @@ async def run_job(
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
 
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + RUN_TIMEOUT_SECONDS
+    wall_deadline = loop.time() + RUN_TIMEOUT_SECONDS
+    cleanup_budget = min(CLEANUP_TIMEOUT_SECONDS, max(0.0, RUN_TIMEOUT_SECONDS / 10))
+    work_deadline = wall_deadline - cleanup_budget
     client = client_factory(config)
     claimed = await _await_with_deadline(
         asyncio.to_thread(client.claim_job_run, config.job_id, config.runner_id),
-        deadline,
+        work_deadline,
     )
     if not claimed.claimed:
         raise RunnerError("JOB_ALREADY_CLAIMED")
@@ -214,7 +222,7 @@ async def run_job(
             records_read=0,
             error_code="JOB_TYPE_MISMATCH",
             duration_ms=0,
-            deadline=deadline,
+            deadline=work_deadline,
         )
         raise RunnerError("JOB_TYPE_MISMATCH")
 
@@ -225,7 +233,7 @@ async def run_job(
     )
     try:
         started_at = 0.0
-        await _await_with_deadline(browser.start(), deadline)
+        await _await_with_deadline(browser.start(), work_deadline)
         started_at = time.monotonic()
         records_read = await _run_adapter_with_heartbeat(
             client,
@@ -233,7 +241,7 @@ async def run_job(
             claimed,
             browser,
             adapter,
-            deadline=deadline,
+            deadline=work_deadline,
         )
         duration_ms = max(0, int((time.monotonic() - started_at) * 1000))
         if isinstance(records_read, bool) or records_read < 0:
@@ -246,7 +254,7 @@ async def run_job(
             records_read=records_read,
             error_code=None,
             duration_ms=duration_ms,
-            deadline=deadline,
+            deadline=work_deadline,
         )
         return SafeRunSummary(config.job_id, claimed.run_id, "succeeded", records_read)
     except Exception as error:
@@ -259,11 +267,15 @@ async def run_job(
             records_read=0,
             error_code=error_code,
             duration_ms=duration_ms,
-            deadline=deadline,
+            deadline=work_deadline,
         )
         raise
     finally:
-        await _close_browser_with_bound(browser)
+        await _close_browser_with_bound(
+            browser,
+            wall_deadline=wall_deadline,
+            cleanup_budget=cleanup_budget,
+        )
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mindx-runner")

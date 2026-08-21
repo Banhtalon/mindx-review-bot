@@ -89,6 +89,17 @@ class SlowStartSession(FakeSession):
         await asyncio.sleep(1)
 
 
+class SlowStopSession(FakeSession):
+    cancelled: bool = False
+
+    async def stop(self) -> None:
+        try:
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+
+
 class FakeFetch:
     async def enable(self, **_: object) -> None:
         pass
@@ -290,3 +301,32 @@ async def test_run_job_applies_the_timeout_before_browser_start(
     assert error.value.code == "RUNNER_TIMEOUT"
     assert client.finished == []
     assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_job_keeps_browser_cleanup_inside_the_hard_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+    client = FakeClient([])
+    session = SlowStopSession()
+
+    async def adapter(*_: object) -> int:
+        return 2
+
+    summary = await asyncio.wait_for(
+        run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        ),
+        timeout=0.25,
+    )
+
+    assert summary.status == "succeeded"
+    assert session.cancelled is True
+    assert session.closed is False
