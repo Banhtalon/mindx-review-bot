@@ -21,7 +21,7 @@
 
 - PASS: `uv run --project apps/browser-runner ruff check .`.
 - PASS: `uv run mypy src` from `apps/browser-runner`.
-- PASS: `uv run pytest` from `apps/browser-runner` — 217 tests.
+- PASS: `uv run pytest` from `apps/browser-runner` — 218 tests.
 - PASS: `npx supabase db reset`.
 - PASS: `npm run test:rls` — 101 assertions.
 - PASS: `npm exec vitest run test/cron-workflow.test.ts` — 6 tests.
