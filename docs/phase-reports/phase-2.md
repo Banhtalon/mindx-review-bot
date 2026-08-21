@@ -1,6 +1,6 @@
 # Phase 2 report — Runner lease, heartbeat, retry and scheduled dispatch
 
-- Commit: `4d60bbe`
+- Commit: `cbfe54e`
 - Branch: `codex/phase1-2-closure`
 - Result: local/synthetic implementation PASS; hosted/off-PC closure BLOCKED.
 
@@ -19,9 +19,9 @@
 
 - PASS: `uv run --project apps/browser-runner ruff check .`.
 - PASS: `uv run mypy src` from `apps/browser-runner`.
-- PASS: `uv run pytest` from `apps/browser-runner` — 215 tests.
+- PASS: `uv run pytest` from `apps/browser-runner` — 216 tests.
 - PASS: `npx supabase db reset`.
-- PASS: `npm run test:rls` — 100 assertions.
+- PASS: `npm run test:rls` — 101 assertions.
 - PASS: `npm exec vitest run test/cron-workflow.test.ts` — 4 tests.
 
 ## Exit boundary
@@ -29,7 +29,8 @@
 - BLOCKED: deployed Supabase migration/RPC verification.
 - BLOCKED: hosted Storage reuse/reset and live Teaching/LMS read-only smoke.
 - BLOCKED: cloud dispatch with the PC off and redacted owner evidence.
-- BLOCKED: final whole-branch review is still a handoff gate at report creation.
+- PASS: final review round addressed the four implementation blockers; a new
+  review is still required after these follow-up fixes.
 
 ## Privacy review
 

@@ -1,6 +1,6 @@
 # Phase 1 report — Auth, synthetic seed, RLS and CI
 
-- Commit: `4d60bbe`
+- Commit: `cbfe54e`
 - Branch: `codex/phase1-2-closure`
 - Result: local/synthetic implementation PASS; hosted closure BLOCKED.
 
@@ -18,12 +18,12 @@
 
 - PASS: `npm run lint`.
 - PASS: `npm run typecheck`.
-- PASS: `npm run test` — 23 files, 122 tests.
+- PASS: `npm run test` — 23 files, 124 tests.
 - PASS: `npm run build`.
 - PASS: `npm run verify:no-secrets`.
 - PASS: `npm run verify:no-live-write`.
 - PASS: `npx supabase db reset`.
-- PASS: `npm run test:rls` — 5 files, 100 assertions.
+- PASS: `npm run test:rls` — 5 files, 101 assertions.
 
 ## Exit boundary
 

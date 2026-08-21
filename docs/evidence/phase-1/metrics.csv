@@ -1,6 +1,6 @@
 metric,scope,value,unit,status,notes
-web_vitest,local synthetic,122,tests,PASS,"23 files; no live data"
-rls_pgtap,local Supabase,100,assertions,PASS,"5 SQL files after db reset"
+web_vitest,local synthetic,124,tests,PASS,"23 files; no live data"
+rls_pgtap,local Supabase,101,assertions,PASS,"5 SQL files after db reset"
 lint_typecheck_build,local worktree,3,gates,PASS,"npm lint, typecheck and build"
 privacy_scans,local worktree,2,gates,PASS,"no-secrets and no-live-write"
 hosted_auth_smoke,hosted,not-run,runs,BLOCKED,"owner-controlled account and workspace membership required"
