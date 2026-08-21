@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "phase": "phase-1",
+  "commit": "4d60bbe",
+  "items": [
+    {"id": "V4-P1-01", "requirement": "Protected Auth boundary and logout fail-closed behavior", "path": "V4-P1-01.md", "status": "PASS", "environment": "local synthetic", "scope": "React AuthBoundary tests only"},
+    {"id": "V4-P1-02", "requirement": "Partial Supabase frontend configuration fails closed", "path": "V4-P1-02.md", "status": "PASS", "environment": "local synthetic", "scope": "runtime configuration contract"},
+    {"id": "V4-P1-03", "requirement": "Workspace RLS and security-definer search_path contract", "path": "V4-P1-03.md", "status": "PASS", "environment": "local Supabase", "scope": "synthetic database reset and pgTAP"},
+    {"id": "V4-P1-04", "requirement": "Deterministic synthetic seed", "path": "V4-P1-04.md", "status": "PASS", "environment": "local synthetic", "scope": "seed file and reset"},
+    {"id": "V4-P1-05", "requirement": "Pinned CI quality and RLS gates", "path": "V4-P1-05.md", "status": "PASS", "environment": "repository contract", "scope": "workflow and Vitest contract"},
+    {"id": "V4-P1-06", "requirement": "No secrets or credential material in repository checks", "path": "V4-P1-06.md", "status": "PASS", "environment": "local worktree", "scope": "repository scanner"},
+    {"id": "V4-P1-07", "requirement": "No LMS write action", "path": "V4-P1-07.md", "status": "PASS", "environment": "local worktree", "scope": "repository write guard"},
+    {"id": "V4-P1-08", "requirement": "Hosted Auth and owner-controlled workspace verification", "path": "V4-P1-08.md", "status": "BLOCKED", "environment": "hosted owner-controlled", "scope": "not run; requires Qq"}
+  ]
+}

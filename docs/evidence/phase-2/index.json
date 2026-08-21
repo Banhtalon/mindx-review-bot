@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "phase": "phase-2",
+  "commit": "4d60bbe",
+  "items": [
+    {"id": "V4-P2-01", "requirement": "Bounded job attempts and runner-owned lease metadata", "path": "V4-P2-01.md", "status": "PASS", "environment": "local Supabase", "scope": "migration and pgTAP"},
+    {"id": "V4-P2-02", "requirement": "Atomic claim and active lease contention", "path": "V4-P2-02.md", "status": "PASS", "environment": "local Supabase", "scope": "service-only RPC"},
+    {"id": "V4-P2-03", "requirement": "Owner heartbeat extends a ten-minute lease", "path": "V4-P2-03.md", "status": "PASS", "environment": "local Supabase and Python", "scope": "synthetic runner"},
+    {"id": "V4-P2-04", "requirement": "Matching runner finish and bounded metrics", "path": "V4-P2-04.md", "status": "PASS", "environment": "local Supabase and Python", "scope": "service-only RPC"},
+    {"id": "V4-P2-05", "requirement": "Expired lease recovery and three-attempt terminal bound", "path": "V4-P2-05.md", "status": "PASS", "environment": "local Supabase", "scope": "synthetic retry lifecycle"},
+    {"id": "V4-P2-06", "requirement": "Python runner ID and RPC request contract", "path": "V4-P2-06.md", "status": "PASS", "environment": "local synthetic", "scope": "client/config tests"},
+    {"id": "V4-P2-07", "requirement": "CLI heartbeat and browser cleanup lifecycle", "path": "V4-P2-07.md", "status": "PASS", "environment": "local synthetic", "scope": "long adapter test"},
+    {"id": "V4-P2-08", "requirement": "Scheduled deterministic read-only dispatch", "path": "V4-P2-08.md", "status": "PASS", "environment": "local synthetic", "scope": "Node script and workflow contract"},
+    {"id": "V4-P2-09", "requirement": "Private browser-state service lifecycle remains read-only", "path": "V4-P2-09.md", "status": "PASS", "environment": "local Supabase", "scope": "service-only local RPC; hosted reuse unverified"},
+    {"id": "V4-P2-10", "requirement": "Whole-branch review and off-PC hosted live gate", "path": "V4-P2-10.md", "status": "BLOCKED", "environment": "hosted owner-controlled", "scope": "review/live evidence pending"}
+  ]
+}

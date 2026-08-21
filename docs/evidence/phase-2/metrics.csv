@@ -1,0 +1,7 @@
+metric,scope,value,unit,status,notes
+python_pytest,local synthetic,215,tests,PASS,"Full browser-runner suite"
+runner_pgTAP,local Supabase,100,assertions,PASS,"Includes lease, heartbeat, ownership and retry tests"
+cron_contract_vitest,local synthetic,4,tests,PASS,"Deterministic empty-payload request and workflow schedules"
+runner_lint_typecheck,local worktree,2,gates,PASS,"Ruff and mypy"
+hosted_runner_smoke,hosted,not-run,runs,BLOCKED,"Requires owner-controlled secrets and deployment"
+off_pc_dispatch,hosted,not-run,runs,BLOCKED,"No cloud/off-PC evidence was available"
