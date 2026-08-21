@@ -1,4 +1,5 @@
 import base64
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Final, Literal, NoReturn
@@ -24,6 +25,10 @@ SAFE_ERROR_CODES: Final[frozenset[str]] = frozenset(
         "JOB_ALREADY_CLAIMED",
         "JOB_TYPE_MISMATCH",
         "JOB_LEASE_EXPIRED",
+        "JOB_MAX_ATTEMPTS_EXCEEDED",
+        "JOB_RUNNER_MISMATCH",
+        "JOB_NOT_READY",
+        "RUNNER_ID_INVALID",
         "SUPABASE_UNAVAILABLE",
         "STORAGE_STATE_DECRYPT_FAILED",
         "STORAGE_PATH_INVALID",
@@ -51,6 +56,7 @@ class LiveConfigError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class LiveRunConfig:
     job_id: str
+    runner_id: str
     job_type: JobType
     supabase_url: str
     supabase_secret_key: str = field(repr=False)
@@ -86,6 +92,12 @@ def validate_job_id(value: str) -> str:
     if value.lower() != canonical:
         _fail("JOB_ID")
     return canonical
+
+
+def validate_runner_id(value: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}", value) is None:
+        _fail("RUNNER_ID")
+    return value
 
 
 def _decode_key(value: str) -> bytes:
@@ -130,6 +142,7 @@ def load_live_config(environment: Mapping[str, str]) -> LiveRunConfig:
 
     return LiveRunConfig(
         job_id=validate_job_id(_required(environment, "JOB_ID")),
+        runner_id=validate_runner_id(_required(environment, "RUNNER_ID")),
         job_type=job_type,  # type: ignore[arg-type]
         supabase_url=_validate_supabase_url(_required(environment, "SUPABASE_URL")),
         **{"supabase_secret_key": _required(environment, "SUPABASE_SECRET_KEY")},

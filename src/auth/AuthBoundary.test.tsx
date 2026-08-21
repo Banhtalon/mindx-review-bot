@@ -9,6 +9,7 @@ const WORKSPACE_ID = "00000000-0000-0000-0000-0000000000a1";
 type FakeAuthGatewayOptions = {
   readonly rejectRoleLookup?: boolean;
   readonly notifyOnSignIn?: boolean;
+  readonly rejectOnSignOut?: boolean;
 };
 
 class FakeAuthGateway implements AuthGateway {
@@ -32,6 +33,7 @@ class FakeAuthGateway implements AuthGateway {
   }
 
   async signOut(): Promise<void> {
+    if (this.options.rejectOnSignOut) throw new Error("SYNTHETIC_SIGN_OUT_UNAVAILABLE");
     this.session = null;
     this.notify();
   }
@@ -90,6 +92,22 @@ describe("AuthBoundary", () => {
       expect(screen.queryByText("Protected synthetic dashboard")).not.toBeInTheDocument();
     });
     expect(screen.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  });
+
+  it("removes protected content when logout fails", async () => {
+    protectedSurface(new FakeAuthGateway(
+      { user: { id: "synthetic-user", email: "user@example.invalid" } },
+      "owner",
+      { rejectOnSignOut: true },
+    ));
+
+    expect(await screen.findByText("Protected synthetic dashboard")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "Log out" }));
+
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeVisible();
+    expect(screen.queryByText("Protected synthetic dashboard")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/signed out locally/i);
   });
 
   it.each([

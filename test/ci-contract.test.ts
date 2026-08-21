@@ -51,6 +51,8 @@ describe("phase 1 CI workflow contract", () => {
     expect(workflow).toMatch(/working-directory:\s*apps\/browser-runner[\s\S]*?uv run ruff check \./);
     expect(workflow).toMatch(/working-directory:\s*apps\/browser-runner[\s\S]*?uv run mypy src/);
     expect(workflow).toMatch(/working-directory:\s*apps\/browser-runner[\s\S]*?uv run pytest/);
+    expect(workflow).toMatch(/\bnpx supabase db reset\b/);
+    expect(workflow).toMatch(/\bnpm run test:rls\b/);
     expect(workflow).not.toMatch(/upload-artifact/);
     expect(workflow).not.toMatch(/secrets\./);
   });

@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { AuthGateway, AuthSession, WorkspaceRole } from "./contracts";
 
 type AuthBoundaryProps = {
@@ -14,16 +14,18 @@ function roleLabel(role: WorkspaceRole): string {
 export function AuthBoundary({ gateway, workspaceId, children }: AuthBoundaryProps) {
   const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
   const [role, setRole] = useState<WorkspaceRole | null | undefined>(undefined);
-  const [signInError, setSignInError] = useState(false);
+  const [authError, setAuthError] = useState<"sign-in" | "sign-out" | null>(null);
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const locallySignedOut = useRef(false);
 
   useEffect(() => {
     let active = true;
 
     const resolveSession = async (nextSession: AuthSession | null) => {
       if (!active) return;
+      if (locallySignedOut.current && nextSession) return;
       setSession(nextSession);
-      setSignInError(false);
+      setAuthError(null);
 
       if (!nextSession) {
         setRole(undefined);
@@ -54,7 +56,8 @@ export function AuthBoundary({ gateway, workspaceId, children }: AuthBoundaryPro
     const email = String(form.get("email") ?? "");
     const password = String(form.get("password") ?? "");
     setIsSigningIn(true);
-    setSignInError(false);
+    setAuthError(null);
+    locallySignedOut.current = false;
 
     try {
       const nextSession = await gateway.signIn(email, password);
@@ -65,7 +68,7 @@ export function AuthBoundary({ gateway, workspaceId, children }: AuthBoundaryPro
         setRole(null);
       }
     } catch {
-      setSignInError(true);
+      setAuthError("sign-in");
     } finally {
       setIsSigningIn(false);
     }
@@ -74,10 +77,16 @@ export function AuthBoundary({ gateway, workspaceId, children }: AuthBoundaryPro
   const signOut = async () => {
     try {
       await gateway.signOut();
+      locallySignedOut.current = false;
       setSession(null);
       setRole(undefined);
+      setAuthError(null);
     } catch {
-      setSignInError(true);
+      // A failed remote logout must never leave protected content visible.
+      locallySignedOut.current = true;
+      setSession(null);
+      setRole(undefined);
+      setAuthError("sign-out");
     }
   };
 
@@ -98,7 +107,8 @@ export function AuthBoundary({ gateway, workspaceId, children }: AuthBoundaryPro
             Password
             <input name="password" type="password" autoComplete="current-password" required />
           </label>
-          {signInError && <p role="alert">Unable to sign in safely. Check your details and try again.</p>}
+          {authError === "sign-in" && <p role="alert">Unable to sign in safely. Check your details and try again.</p>}
+          {authError === "sign-out" && <p role="alert">Unable to sign out remotely. You have been signed out locally.</p>}
           <button type="submit" disabled={isSigningIn}>{isSigningIn ? "Signing in…" : "Sign in"}</button>
         </form>
       </main>

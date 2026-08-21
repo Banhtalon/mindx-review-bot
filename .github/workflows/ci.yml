@@ -44,6 +44,12 @@ jobs:
       - name: Verify no live write
         run: npm run verify:no-live-write
 
+      - name: Reset local Supabase schema
+        run: npx supabase db reset
+
+      - name: Test local Supabase RLS
+        run: npm run test:rls
+
       - name: Install locked browser-runner
         run: uv sync --locked --project apps/browser-runner
 

@@ -14,6 +14,7 @@
     "supabase:stop": "npx supabase stop",
     "supabase:reset": "npx supabase db reset",
     "test:rls": "npx supabase test db",
+    "cron:dispatch": "node scripts/cron_dispatch.mjs",
     "verify:no-secrets": "node scripts/verify_no_secrets.mjs",
     "verify:no-live-write": "node scripts/verify_no_live_write.mjs"
   },

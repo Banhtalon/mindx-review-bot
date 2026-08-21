@@ -15,7 +15,7 @@ values (
   'authenticated',
   'owner@example.invalid',
   'synthetic',
-  now()
+  '2026-01-01T00:00:00+00:00'::timestamptz
 )
 on conflict (id) do update
 set aud = excluded.aud,

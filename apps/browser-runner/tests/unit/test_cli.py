@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
@@ -10,10 +11,12 @@ from mindx_runner.supabase_client import ClaimedRun
 JOB_ID = "00000000-0000-4000-8000-000000000001"
 RUN_ID = "00000000-0000-4000-8000-000000000002"
 WORKSPACE_ID = "00000000-0000-4000-8000-000000000003"
+RUNNER_ID = "runner-test-01"
 ENVIRONMENT = {
     "AUTOMATION_ENABLED": "true",
     "MVP_LMS_WRITE_ENABLED": "false",
     "JOB_ID": JOB_ID,
+    "RUNNER_ID": RUNNER_ID,
     "JOB_TYPE": "sync_teaching",
     "SUPABASE_URL": "https://example.supabase.co",
     "SUPABASE_SECRET_KEY": "server-secret",
@@ -27,9 +30,11 @@ ENVIRONMENT = {
 
 @dataclass
 class FakeClient:
-    finished: list[tuple[str, str, int, str | None]]
+    finished: list[tuple[str, str, int, str | None, int]]
+    heartbeats: list[tuple[str, str]] = field(default_factory=list)
 
-    def claim_job_run(self, job_id: str) -> ClaimedRun:
+    def claim_job_run(self, job_id: str, runner_id: str) -> ClaimedRun:
+        assert runner_id == RUNNER_ID
         return ClaimedRun(
             claimed=True,
             run_id=RUN_ID,
@@ -43,12 +48,18 @@ class FakeClient:
     def finish_job_run(
         self,
         run_id: str,
+        runner_id: str,
         status: str,
         *,
         records_read: int,
         error_code: str | None,
+        duration_ms: int = 0,
     ) -> None:
-        self.finished.append((run_id, status, records_read, error_code))
+        assert runner_id == RUNNER_ID
+        self.finished.append((run_id, status, records_read, error_code, duration_ms))
+
+    def heartbeat_job(self, job_id: str, runner_id: str) -> None:
+        self.heartbeats.append((job_id, runner_id))
 
 
 @dataclass
@@ -163,7 +174,8 @@ async def test_run_job_finishes_failed_and_closes_browser_when_adapter_errors() 
         )
 
     assert error.value.code == "LMS_SELECTOR_CHANGED"
-    assert client.finished == [(RUN_ID, "failed", 0, "LMS_SELECTOR_CHANGED")]
+    assert client.finished[0][:4] == (RUN_ID, "failed", 0, "LMS_SELECTOR_CHANGED")
+    assert client.finished[0][4] >= 0
     assert session.closed is True
 
 
@@ -186,5 +198,34 @@ async def test_run_job_rejects_job_type_mismatch_after_claim() -> None:
         )
 
     assert error.value.code == "JOB_TYPE_MISMATCH"
-    assert client.finished == [(RUN_ID, "failed", 0, "JOB_TYPE_MISMATCH")]
+    assert client.finished[0][:4] == (RUN_ID, "failed", 0, "JOB_TYPE_MISMATCH")
     assert session.closed is False
+
+
+@pytest.mark.asyncio
+async def test_run_job_refreshes_lease_during_a_long_read_only_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "HEARTBEAT_INTERVAL_SECONDS", 0.01)
+    client = FakeClient([])
+    session = FakeSession()
+
+    async def adapter(*_: object) -> int:
+        await asyncio.sleep(0.04)
+        return 2
+
+    summary = await run_job(
+        JOB_ID,
+        ENVIRONMENT,
+        client_factory=lambda _: client,
+        session_factory=lambda **_: session,
+        adapter=adapter,
+    )
+
+    assert summary.status == "succeeded"
+    assert len(client.heartbeats) >= 1
+    assert client.heartbeats[0] == (JOB_ID, RUNNER_ID)
+    assert client.finished[0][:4] == (RUN_ID, "succeeded", 2, None)
+    assert session.closed is True

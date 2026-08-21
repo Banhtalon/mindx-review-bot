@@ -113,14 +113,14 @@ select is(
   (select array_to_string(coalesce(proconfig, array[]::text[]), ',')
    from pg_proc
    where oid = 'public.is_workspace_member(uuid)'::regprocedure),
-  'search_path=',
+  'search_path=""',
   'is_workspace_member keeps a fixed empty search_path'
 );
 select is(
   (select array_to_string(coalesce(proconfig, array[]::text[]), ',')
    from pg_proc
    where oid = 'public.has_workspace_role(uuid,text[])'::regprocedure),
-  'search_path=',
+  'search_path=""',
   'has_workspace_role keeps a fixed empty search_path'
 );
 
