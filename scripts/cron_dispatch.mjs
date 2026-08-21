@@ -12,6 +12,7 @@ const ALLOWED_STATUSES = new Set([
   "failed",
   "cancelled",
 ]);
+const WORKSPACE_TIME_ZONE = "Asia/Ho_Chi_Minh";
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -56,11 +57,22 @@ function validateSupabaseUrl(value) {
   return parsed.origin;
 }
 
-function dateKey(value) {
+function localDate(value) {
   if (!(value instanceof Date) || Number.isNaN(value.getTime())) {
     throw new CronDispatchError("CRON_CONFIG_INVALID");
   }
-  return value.toISOString().slice(0, 10);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: WORKSPACE_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value);
+  const part = (type) => parts.find((entry) => entry.type === type)?.value;
+  const year = part("year");
+  const month = part("month");
+  const day = part("day");
+  if (!year || !month || !day) throw new CronDispatchError("CRON_CONFIG_INVALID");
+  return `${year}-${month}-${day}`;
 }
 
 function compactUtc(value) {
@@ -91,7 +103,7 @@ function lmsWindow(value) {
 }
 
 function idempotencyKey(type, workspace, now) {
-  if (type === "sync_teaching") return `sync_teaching:${workspace}:${dateKey(now)}`;
+  if (type === "sync_teaching") return `sync_teaching:${workspace}:${localDate(now)}`;
   const [windowStart, windowEnd] = lmsWindow(now);
   return `read_lms_pending:${workspace}:${compactUtc(windowStart)}:${compactUtc(windowEnd)}`;
 }

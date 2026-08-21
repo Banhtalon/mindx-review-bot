@@ -54,6 +54,18 @@ describe("scheduled read-only dispatch contract", () => {
     expect(retryWindow).not.toBe(firstWindow);
   });
 
+  it("uses the workspace local date for the daily Teaching key", () => {
+    const request = buildCronDispatchRequest({
+      ...ENVIRONMENT,
+      JOB_TYPE: "sync_teaching",
+      now: new Date("2026-08-21T22:33:00.000Z"),
+    });
+
+    expect(JSON.parse(request.body).idempotency_key).toBe(
+      `sync_teaching:${WORKSPACE_ID}:2026-08-22`,
+    );
+  });
+
   it("accepts only a safe job UUID and status from the dispatch response", async () => {
     const calls: Array<{ url: string; init: RequestInit }> = [];
     const result = await dispatchCronJob({

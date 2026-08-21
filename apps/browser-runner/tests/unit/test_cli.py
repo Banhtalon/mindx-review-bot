@@ -84,6 +84,11 @@ class FakeSession:
         return SimpleNamespace(cdp_client=self.cdp_client, session_id=target_id)
 
 
+class SlowStartSession(FakeSession):
+    async def start(self) -> None:
+        await asyncio.sleep(1)
+
+
 class FakeFetch:
     async def enable(self, **_: object) -> None:
         pass
@@ -257,4 +262,31 @@ async def test_run_job_enforces_a_hard_application_timeout(
 
     assert error.value.code == "RUNNER_TIMEOUT"
     assert client.finished[0][:4] == (RUN_ID, "failed", 0, "RUNNER_TIMEOUT")
+    assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_job_applies_the_timeout_before_browser_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.02)
+    client = FakeClient([])
+    session = SlowStartSession()
+
+    async def adapter(*_: object) -> int:
+        return 2
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "RUNNER_TIMEOUT"
+    assert client.finished == []
     assert session.closed is True

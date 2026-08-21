@@ -54,10 +54,85 @@ Adapter = Callable[
 ClientFactory = Callable[[LiveRunConfig], RunnerClient]
 HEARTBEAT_INTERVAL_SECONDS: Final[float] = 30.0
 RUN_TIMEOUT_SECONDS: Final[float] = 12 * 60
+CLEANUP_TIMEOUT_SECONDS: Final[float] = 1.0
 
 
 def _default_client_factory(config: LiveRunConfig) -> RunnerClient:
     return SupabaseRunnerClient(config.supabase_url, config.supabase_secret_key)
+
+
+async def _await_with_deadline[ResultT](
+    awaitable: Awaitable[ResultT],
+    deadline: float,
+) -> ResultT:
+    remaining = deadline - asyncio.get_running_loop().time()
+    if remaining <= 0:
+        raise RunnerError("RUNNER_TIMEOUT")
+    try:
+        return await asyncio.wait_for(awaitable, timeout=remaining)
+    except TimeoutError as error:
+        raise RunnerError("RUNNER_TIMEOUT") from error
+
+
+async def _finish_run(
+    client: RunnerClient,
+    run_id: str,
+    runner_id: str,
+    status: str,
+    *,
+    records_read: int,
+    error_code: str | None,
+    duration_ms: int,
+    deadline: float,
+) -> None:
+    await _await_with_deadline(
+        asyncio.to_thread(
+            client.finish_job_run,
+            run_id,
+            runner_id,
+            status,
+            records_read=records_read,
+            error_code=error_code,
+            duration_ms=duration_ms,
+        ),
+        deadline,
+    )
+
+
+async def _finish_run_best_effort(
+    client: RunnerClient,
+    run_id: str,
+    runner_id: str,
+    *,
+    records_read: int,
+    error_code: str,
+    duration_ms: int,
+    deadline: float,
+) -> None:
+    if deadline <= asyncio.get_running_loop().time():
+        return
+    try:
+        await _finish_run(
+            client,
+            run_id,
+            runner_id,
+            "failed",
+            records_read=records_read,
+            error_code=error_code,
+            duration_ms=duration_ms,
+            deadline=deadline,
+        )
+    except Exception:
+        return
+
+
+async def _close_browser_with_bound(
+    browser: ReadonlyBrowserSession,
+) -> None:
+    try:
+        await asyncio.wait_for(browser.close(), timeout=CLEANUP_TIMEOUT_SECONDS)
+    except Exception:
+        return
 
 
 async def _run_adapter_with_heartbeat(
@@ -66,10 +141,12 @@ async def _run_adapter_with_heartbeat(
     claimed: ClaimedRun,
     browser: ReadonlyBrowserSession,
     adapter: Adapter,
+    *,
+    deadline: float | None = None,
 ) -> int:
     adapter_task: asyncio.Future[int] = asyncio.ensure_future(adapter(config, claimed, browser))
     loop = asyncio.get_running_loop()
-    deadline = loop.time() + RUN_TIMEOUT_SECONDS
+    run_deadline = deadline if deadline is not None else loop.time() + RUN_TIMEOUT_SECONDS
 
     async def cancel_adapter() -> None:
         if not adapter_task.done():
@@ -78,7 +155,7 @@ async def _run_adapter_with_heartbeat(
                 await adapter_task
 
     while True:
-        remaining = deadline - loop.time()
+        remaining = run_deadline - loop.time()
         if remaining <= 0:
             await cancel_adapter()
             raise RunnerError("RUNNER_TIMEOUT")
@@ -88,14 +165,17 @@ async def _run_adapter_with_heartbeat(
                 timeout=min(HEARTBEAT_INTERVAL_SECONDS, remaining),
             )
         except TimeoutError as error:
-            if loop.time() >= deadline:
+            if loop.time() >= run_deadline:
                 await cancel_adapter()
                 raise RunnerError("RUNNER_TIMEOUT") from error
             try:
-                await asyncio.to_thread(
-                    client.heartbeat_job,
-                    config.job_id,
-                    config.runner_id,
+                await _await_with_deadline(
+                    asyncio.to_thread(
+                        client.heartbeat_job,
+                        config.job_id,
+                        config.runner_id,
+                    ),
+                    run_deadline,
                 )
             except BaseException:
                 await cancel_adapter()
@@ -116,18 +196,25 @@ async def run_job(
     if adapter is None:
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
 
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + RUN_TIMEOUT_SECONDS
     client = client_factory(config)
-    claimed = client.claim_job_run(config.job_id, config.runner_id)
+    claimed = await _await_with_deadline(
+        asyncio.to_thread(client.claim_job_run, config.job_id, config.runner_id),
+        deadline,
+    )
     if not claimed.claimed:
         raise RunnerError("JOB_ALREADY_CLAIMED")
     if claimed.job_type != config.job_type:
-        client.finish_job_run(
+        await _finish_run(
+            client,
             claimed.run_id,
             config.runner_id,
             "failed",
             records_read=0,
             error_code="JOB_TYPE_MISMATCH",
             duration_ms=0,
+            deadline=deadline,
         )
         raise RunnerError("JOB_TYPE_MISMATCH")
 
@@ -138,7 +225,7 @@ async def run_job(
     )
     try:
         started_at = 0.0
-        await browser.start()
+        await _await_with_deadline(browser.start(), deadline)
         started_at = time.monotonic()
         records_read = await _run_adapter_with_heartbeat(
             client,
@@ -146,33 +233,37 @@ async def run_job(
             claimed,
             browser,
             adapter,
+            deadline=deadline,
         )
         duration_ms = max(0, int((time.monotonic() - started_at) * 1000))
         if isinstance(records_read, bool) or records_read < 0:
             raise RunnerError("RUNNER_RESULT_INVALID")
-        client.finish_job_run(
+        await _finish_run(
+            client,
             claimed.run_id,
             config.runner_id,
             "succeeded",
             records_read=records_read,
             error_code=None,
             duration_ms=duration_ms,
+            deadline=deadline,
         )
         return SafeRunSummary(config.job_id, claimed.run_id, "succeeded", records_read)
     except Exception as error:
         error_code = safe_error_code(error)
         duration_ms = max(0, int((time.monotonic() - started_at) * 1000)) if started_at else 0
-        client.finish_job_run(
+        await _finish_run_best_effort(
+            client,
             claimed.run_id,
             config.runner_id,
-            "failed",
             records_read=0,
             error_code=error_code,
             duration_ms=duration_ms,
+            deadline=deadline,
         )
         raise
     finally:
-        await browser.close()
+        await _close_browser_with_bound(browser)
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mindx-runner")
