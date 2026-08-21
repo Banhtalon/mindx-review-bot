@@ -48,6 +48,7 @@ jobs:
         if: inputs.job_type == 'sync_teaching'
         env:
           JOB_ID: ${{ inputs.job_id }}
+          RUNNER_ID: github-${{ github.run_id }}
           JOB_TYPE: ${{ inputs.job_type }}
           AUTOMATION_ENABLED: true
           MVP_LMS_WRITE_ENABLED: false
@@ -62,6 +63,7 @@ jobs:
         if: inputs.job_type == 'read_lms_pending'
         env:
           JOB_ID: ${{ inputs.job_id }}
+          RUNNER_ID: github-${{ github.run_id }}
           JOB_TYPE: ${{ inputs.job_type }}
           AUTOMATION_ENABLED: true
           MVP_LMS_WRITE_ENABLED: false

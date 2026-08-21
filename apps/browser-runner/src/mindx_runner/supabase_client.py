@@ -29,6 +29,9 @@ SAFE_ERROR_CODES = frozenset(
         "JOB_ALREADY_CLAIMED",
         "JOB_TYPE_MISMATCH",
         "JOB_LEASE_EXPIRED",
+        "JOB_MAX_ATTEMPTS_EXCEEDED",
+        "JOB_RUNNER_MISMATCH",
+        "JOB_NOT_READY",
         "LIVE_CONFIG_INVALID",
         "SUPABASE_UNAVAILABLE",
         "STORAGE_STATE_DECRYPT_FAILED",
@@ -38,6 +41,7 @@ SAFE_ERROR_CODES = frozenset(
         "RUNNER_RESULT_INVALID",
         "SITE_ADAPTER_NOT_CONFIGURED",
         "RUNNER_FAILED",
+        "RUNNER_TIMEOUT",
     }
 )
 JobType = Literal["sync_teaching", "read_lms_pending"]
@@ -99,6 +103,12 @@ def _uuid(value: str, field_name: str) -> str:
     except (AttributeError, TypeError, ValueError) as error:
         raise SupabaseClientError(f"{RUNNER_RESULT_INVALID}:{field_name}") from error
     return str(parsed)
+
+
+def _runner_id(value: str) -> str:
+    if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}", value) is None:
+        raise SupabaseClientError(RUNNER_RESULT_INVALID)
+    return value
 
 
 def _json_body(value: object) -> bytes:
@@ -228,9 +238,16 @@ class SupabaseRunnerClient:
         self._require_success(response)
         return _json_value(response.body)
 
-    def claim_job_run(self, job_id: str) -> ClaimedRun:
+    def claim_job_run(self, job_id: str, runner_id: str) -> ClaimedRun:
         target_job_id = _uuid(job_id, "job_id")
-        raw = self._rpc("claim_automation_job_run", {"target_job_id": target_job_id})
+        target_runner_id = _runner_id(runner_id)
+        raw = self._rpc(
+            "claim_automation_job_run",
+            {
+                "target_job_id": target_job_id,
+                "target_runner_id": target_runner_id,
+            },
+        )
         if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
             raise SupabaseClientError(SUPABASE_UNAVAILABLE)
         row = cast(dict[str, Any], raw[0])
@@ -258,16 +275,22 @@ class SupabaseRunnerClient:
     def finish_job_run(
         self,
         run_id: str,
+        runner_id: str,
         status: str,
         *,
         records_read: int,
         error_code: str | None,
+        duration_ms: int = 0,
     ) -> None:
         target_run_id = _uuid(run_id, "run_id")
+        target_runner_id = _runner_id(runner_id)
         if (
             status not in ALLOWED_RUN_STATUSES
             or isinstance(records_read, bool)
             or records_read < 0
+            or isinstance(duration_ms, bool)
+            or duration_ms < 0
+            or duration_ms > 86400000
             or error_code is not None
             and error_code not in SAFE_ERROR_CODES
         ):
@@ -276,12 +299,30 @@ class SupabaseRunnerClient:
             "finish_automation_job_run",
             {
                 "target_run_id": target_run_id,
+                "target_runner_id": target_runner_id,
                 "target_status": status,
                 "target_records_read": records_read,
                 "target_error_code": error_code,
+                "target_duration_ms": duration_ms,
             },
         )
         if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+
+    def heartbeat_job(self, job_id: str, runner_id: str) -> None:
+        target_job_id = _uuid(job_id, "job_id")
+        target_runner_id = _runner_id(runner_id)
+        raw = self._rpc(
+            "heartbeat_automation_job",
+            {
+                "target_job_id": target_job_id,
+                "target_runner_id": target_runner_id,
+            },
+        )
+        if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        row = cast(dict[str, Any], raw[0])
+        if row.get("job_id") != target_job_id or row.get("runner_id") != target_runner_id:
             raise SupabaseClientError(SUPABASE_UNAVAILABLE)
 
     def activate_browser_state_version(

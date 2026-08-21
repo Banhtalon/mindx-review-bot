@@ -1,0 +1,141 @@
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import type { AuthGateway, AuthSession, WorkspaceRole } from "./contracts";
+
+type AuthBoundaryProps = {
+  readonly gateway: AuthGateway;
+  readonly workspaceId: string;
+  readonly children: ReactNode;
+};
+
+function roleLabel(role: WorkspaceRole): string {
+  return role === "owner" ? "Owner" : "Reviewer";
+}
+
+export function AuthBoundary({ gateway, workspaceId, children }: AuthBoundaryProps) {
+  const [session, setSession] = useState<AuthSession | null | undefined>(undefined);
+  const [role, setRole] = useState<WorkspaceRole | null | undefined>(undefined);
+  const [authError, setAuthError] = useState<"sign-in" | "sign-out" | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const locallySignedOut = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const resolveSession = async (nextSession: AuthSession | null) => {
+      if (!active) return;
+      if (locallySignedOut.current && nextSession) return;
+      setSession(nextSession);
+      setAuthError(null);
+
+      if (!nextSession) {
+        setRole(undefined);
+        return;
+      }
+
+      setRole(undefined);
+      try {
+        const nextRole = await gateway.getWorkspaceRole(workspaceId, nextSession.user.id);
+        if (active) setRole(nextRole);
+      } catch {
+        if (active) setRole(null);
+      }
+    };
+
+    void gateway.getSession().then(resolveSession).catch(() => resolveSession(null));
+    const unsubscribe = gateway.subscribe((nextSession) => void resolveSession(nextSession));
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [gateway, workspaceId]);
+
+  const signIn = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") ?? "");
+    const password = String(form.get("password") ?? "");
+    setIsSigningIn(true);
+    setAuthError(null);
+    locallySignedOut.current = false;
+
+    try {
+      const nextSession = await gateway.signIn(email, password);
+      setSession(nextSession);
+      try {
+        setRole(await gateway.getWorkspaceRole(workspaceId, nextSession.user.id));
+      } catch {
+        setRole(null);
+      }
+    } catch {
+      setAuthError("sign-in");
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const signOut = async () => {
+    try {
+      await gateway.signOut();
+      locallySignedOut.current = false;
+      setSession(null);
+      setRole(undefined);
+      setAuthError(null);
+    } catch {
+      // A failed remote logout must never leave protected content visible.
+      locallySignedOut.current = true;
+      setSession(null);
+      setRole(undefined);
+      setAuthError("sign-out");
+    }
+  };
+
+  if (session === undefined) {
+    return <p role="status">Checking your session…</p>;
+  }
+
+  if (!session) {
+    return (
+      <main>
+        <h1>Sign in</h1>
+        <form onSubmit={signIn}>
+          <label>
+            Email
+            <input name="email" type="email" autoComplete="email" required />
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" autoComplete="current-password" required />
+          </label>
+          {authError === "sign-in" && <p role="alert">Unable to sign in safely. Check your details and try again.</p>}
+          {authError === "sign-out" && <p role="alert">Unable to sign out remotely. You have been signed out locally.</p>}
+          <button type="submit" disabled={isSigningIn}>{isSigningIn ? "Signing in…" : "Sign in"}</button>
+        </form>
+      </main>
+    );
+  }
+
+  if (role === undefined) {
+    return <p role="status">Checking workspace access…</p>;
+  }
+
+  if (!role) {
+    return (
+      <main>
+        <h1>Access denied</h1>
+        <p>You do not have access to this workspace.</p>
+        <button type="button" onClick={() => void signOut()}>Log out</button>
+      </main>
+    );
+  }
+
+  return (
+    <>
+      <header>
+        <span>Role: {roleLabel(role)}</span>
+        <button type="button" onClick={() => void signOut()}>Log out</button>
+      </header>
+      {children}
+    </>
+  );
+}

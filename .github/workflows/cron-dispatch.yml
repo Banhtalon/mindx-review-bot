@@ -1,0 +1,39 @@
+name: cron-dispatch
+
+on:
+  schedule:
+    - cron: "33 22 * * *"
+    - cron: "07 15 * * *"
+    - cron: "37 16 * * *"
+  workflow_dispatch:
+    inputs:
+      job_type:
+        description: Read-only job type
+        required: true
+        type: choice
+        options:
+          - sync_teaching
+          - read_lms_pending
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mindx-cron-dispatch
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Dispatch read-only job
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
+          CRON_WORKSPACE_ID: ${{ secrets.CRON_WORKSPACE_ID }}
+          JOB_TYPE: ${{ inputs.job_type || (github.event.schedule == '33 22 * * *' && 'sync_teaching') || 'read_lms_pending' }}
+        run: node scripts/cron_dispatch.mjs

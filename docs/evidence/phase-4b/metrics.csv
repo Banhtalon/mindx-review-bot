@@ -1,0 +1,13 @@
+metric,scope,value,unit,status,notes
+phase4b_contract_tests,synthetic,9,tests,PASS,"Exact context, mismatch reason, assignment validation, duplicate guard, gate, and row-order invariance"
+phase4b_ui_tests,synthetic,3,tests,PASS,"Synthetic-only screen, manual fallback, and explicit mapping flow"
+web_unit_tests,synthetic,57,tests,PASS,"Vitest suite; 12 files"
+web_lint,synthetic,1,command,PASS,"npm run lint"
+web_typecheck,synthetic,1,command,PASS,"npm run typecheck"
+web_build,synthetic,1,command,PASS,"npm run build"
+no_secrets,synthetic,1,command,PASS,"No secret values detected"
+no_live_write,synthetic,1,command,PASS,"No LMS write action detected"
+supabase_db_reset,synthetic-local,1,runs,PASS,"Local schema reset before RLS verification"
+supabase_rls_tests,synthetic-local,67,tests,PASS,"Three pgTAP files passed"
+live_lms_runs,live,not-run,runs,BLOCKED,"Live selectors and owner-approved smoke remain deferred"
+production_persistence,live,not-run,runs,BLOCKED,"Phase 4B is local synthetic state only"

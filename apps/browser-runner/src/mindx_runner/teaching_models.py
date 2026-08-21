@@ -18,6 +18,8 @@ class TeachingSessionExtract(BaseModel):
     scheduled_date: date
     start_time: time
     end_time: time
+    block: str | None = Field(default=None, max_length=120)
+    special_event: str | None = Field(default=None, max_length=120)
     teacher_name: str | None = Field(default=None, max_length=200)
 
     @field_validator("class_code")
@@ -28,7 +30,14 @@ class TeachingSessionExtract(BaseModel):
             raise ValueError("class_code is required")
         return cleaned.upper()
 
-    @field_validator("source_session_id", "verified_internal_id", "session_type", "teacher_name")
+    @field_validator(
+        "source_session_id",
+        "verified_internal_id",
+        "session_type",
+        "block",
+        "special_event",
+        "teacher_name",
+    )
     @classmethod
     def normalize_optional_text(cls, value: str | None) -> str | None:
         if value is None:

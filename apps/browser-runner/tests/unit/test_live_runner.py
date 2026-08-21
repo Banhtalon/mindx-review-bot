@@ -7,6 +7,7 @@ from mindx_runner.live_runner import (
     load_live_config,
     safe_error_code,
     validate_job_id,
+    validate_runner_id,
 )
 
 KEY = base64.b64encode(bytes(range(32))).decode("ascii")
@@ -14,6 +15,7 @@ BASE_ENV = {
     "AUTOMATION_ENABLED": "true",
     "MVP_LMS_WRITE_ENABLED": "false",
     "JOB_ID": "00000000-0000-4000-8000-000000000001",
+    "RUNNER_ID": "runner-test-01",
     "JOB_TYPE": "sync_teaching",
     "SUPABASE_URL": "https://example.supabase.co",
     "SUPABASE_SECRET_KEY": "server-secret",
@@ -29,6 +31,7 @@ def test_load_live_config_validates_flags_and_key_without_secret_repr() -> None:
     config = load_live_config(BASE_ENV)
 
     assert config.job_id == BASE_ENV["JOB_ID"]
+    assert config.runner_id == BASE_ENV["RUNNER_ID"]
     assert config.job_type == "sync_teaching"
     assert config.browser_state_key == bytes(range(32))
     assert "server-secret" not in repr(config)
@@ -71,6 +74,24 @@ def test_validate_job_id_accepts_uuid_and_rejects_other_values() -> None:
 
     with pytest.raises(LiveConfigError):
         validate_job_id("not-a-uuid")
+
+
+def test_validate_runner_id_accepts_safe_identifier_and_rejects_unsafe_values() -> None:
+    assert validate_runner_id(BASE_ENV["RUNNER_ID"]) == BASE_ENV["RUNNER_ID"]
+
+    for value in ("", "runner/name", "runner with spaces", "x" * 65):
+        with pytest.raises(LiveConfigError):
+            validate_runner_id(value)
+
+
+def test_load_live_config_requires_runner_id() -> None:
+    environment = {key: value for key, value in BASE_ENV.items() if key != "RUNNER_ID"}
+
+    with pytest.raises(LiveConfigError) as error:
+        load_live_config(environment)
+
+    assert error.value.code == "LIVE_CONFIG_INVALID"
+    assert "RUNNER_ID" in str(error.value)
 
 
 @pytest.mark.parametrize(

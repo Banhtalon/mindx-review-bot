@@ -1,0 +1,13 @@
+{
+  "version": 4,
+  "phase": "phase-5a",
+  "commit": "132972f",
+  "items": [
+    {
+      "id": "V4-P5A-01",
+      "requirement": "Deterministic Teaching/LMS lesson context resolver",
+      "path": "V4-P5A-01-lesson-context.md",
+      "status": "PASS"
+    }
+  ]
+}

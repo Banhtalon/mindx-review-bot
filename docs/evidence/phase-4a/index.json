@@ -1,0 +1,13 @@
+{
+  "version": 4,
+  "phase": "phase-4a",
+  "commit": "2e23910",
+  "items": [
+    {
+      "id": "V4-P4A-01",
+      "requirement": "Synthetic LMS pending reader contract with read-only and privacy regressions",
+      "path": "V4-P4A-01-lms-reader-fixtures.md",
+      "status": "PASS"
+    }
+  ]
+}

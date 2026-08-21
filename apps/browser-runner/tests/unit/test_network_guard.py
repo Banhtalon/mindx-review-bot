@@ -91,3 +91,47 @@ def test_mutation_like_body_is_blocked_even_on_allowlisted_login_path() -> None:
 
     assert decision.allowed is False
     assert decision.code == "LMS_MUTATION_BLOCKED"
+
+
+@pytest.mark.parametrize(
+    ("method", "body"),
+    [
+        ("GET", b"review_text=teacher-note"),
+        ("HEAD", b'{"save":"true"}'),
+        ("OPTIONS", b'{"editor":"<p>draft</p>"}'),
+    ],
+)
+def test_mutation_like_bodies_are_blocked_even_on_read_methods(
+    method: str, body: bytes
+) -> None:
+    decision = classify_request(
+        method,
+        "https://lms.mindx.edu.vn/classes/abc",
+        body=body,
+        content_type="application/json",
+    )
+
+    assert decision.allowed is False
+    assert decision.code == "LMS_MUTATION_BLOCKED"
+
+
+@pytest.mark.parametrize("path", ["/SAVE", "/Comments/Create", "/Editor"])
+def test_mutation_like_paths_are_blocked_case_insensitively(path: str) -> None:
+    decision = classify_request("GET", f"https://lms.mindx.edu.vn{path}")
+
+    assert decision.allowed is False
+    assert decision.code == "LMS_MUTATION_BLOCKED"
+
+
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])
+def test_non_post_login_methods_never_bypass_mutation_block(method: str) -> None:
+    decision = classify_request(
+        method,
+        "https://lms.mindx.edu.vn/auth/login",
+        body=b"username=teacher&password=hidden",
+        content_type="application/x-www-form-urlencoded",
+        login_paths=("/auth/login",),
+    )
+
+    assert decision.allowed is False
+    assert decision.code == "LMS_MUTATION_BLOCKED"

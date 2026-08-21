@@ -64,7 +64,10 @@ select set_config('request.jwt.claim.role', 'service_role', true);
 
 select ok(
   (select claimed
-   from public.claim_automation_job_run('00000000-0000-4000-8000-000000000013')),
+   from public.claim_automation_job_run(
+     '00000000-0000-4000-8000-000000000013',
+     'runner-legacy'
+   )),
   'service runner can atomically claim a dispatched job'
 );
 select is(
@@ -79,13 +82,19 @@ select is(
 );
 select ok(
   not (select claimed
-       from public.claim_automation_job_run('00000000-0000-4000-8000-000000000013')),
+       from public.claim_automation_job_run(
+         '00000000-0000-4000-8000-000000000013',
+         'runner-legacy'
+       )),
   'a running job cannot be claimed twice'
 );
 
 select ok(
   (select claimed
-   from public.claim_automation_job_run('00000000-0000-4000-8000-000000000014')),
+   from public.claim_automation_job_run(
+     '00000000-0000-4000-8000-000000000014',
+     'runner-legacy'
+   )),
   'a stale running job can be reclaimed after the lease window'
 );
 select is(
@@ -108,9 +117,11 @@ select is(
   (select status
    from public.finish_automation_job_run(
      (select id from public.automation_runs where job_id = '00000000-0000-4000-8000-000000000013'),
+     'runner-legacy',
      'succeeded',
      4,
-     null
+     null,
+     0
    )),
   'succeeded',
   'service runner can finish a successful run'
@@ -202,14 +213,22 @@ select throws_ok(
   'authenticated clients cannot upload browser-state objects'
 );
 select throws_ok(
-  $$select * from public.claim_automation_job_run('00000000-0000-4000-8000-000000000013')$$,
+  $$select * from public.claim_automation_job_run(
+    '00000000-0000-4000-8000-000000000013',
+    'runner-legacy'
+  )$$,
   '42501',
   null,
   'authenticated clients cannot claim runner jobs'
 );
 select throws_ok(
   $$select * from public.finish_automation_job_run(
-    '00000000-0000-4000-8000-000000000013', 'failed', 0, null
+    '00000000-0000-4000-8000-000000000013',
+    'runner-legacy',
+    'failed',
+    0,
+    null,
+    0
   )$$,
   '42501',
   null,

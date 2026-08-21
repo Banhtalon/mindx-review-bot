@@ -16,6 +16,7 @@ SECRET = "server-secret"
 JOB_ID = "00000000-0000-4000-8000-000000000001"
 RUN_ID = "00000000-0000-4000-8000-000000000002"
 WORKSPACE_ID = "00000000-0000-4000-8000-000000000003"
+RUNNER_ID = "runner-test-01"
 OBJECT_PATH = f"browser-state/{WORKSPACE_ID}/lms/{RUN_ID}.json"
 
 
@@ -70,7 +71,7 @@ def test_claim_job_run_posts_only_safe_job_id_and_parses_claim() -> None:
     )
     client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
 
-    claimed = client.claim_job_run(JOB_ID)
+    claimed = client.claim_job_run(JOB_ID, RUNNER_ID)
 
     assert claimed == ClaimedRun(
         claimed=True,
@@ -84,7 +85,10 @@ def test_claim_job_run_posts_only_safe_job_id_and_parses_claim() -> None:
     method, url, headers, body = transport.requests[0]
     assert method == "POST"
     assert url == f"{BASE_URL}/rest/v1/rpc/claim_automation_job_run"
-    assert json.loads(body or b"") == {"target_job_id": JOB_ID}
+    assert json.loads(body or b"") == {
+        "target_job_id": JOB_ID,
+        "target_runner_id": RUNNER_ID,
+    }
     assert headers["Authorization"] == f"Bearer {SECRET}"
     assert headers["apikey"] == SECRET
 
@@ -94,7 +98,7 @@ def test_claim_rejects_invalid_response_without_leaking_body() -> None:
     client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
 
     with pytest.raises(SupabaseClientError) as error:
-        client.claim_job_run(JOB_ID)
+        client.claim_job_run(JOB_ID, RUNNER_ID)
 
     assert error.value.code == "SUPABASE_UNAVAILABLE"
     assert "hidden" not in str(error.value)
@@ -104,16 +108,56 @@ def test_finish_job_run_sends_allowlisted_terminal_status() -> None:
     transport = FakeTransport([response([{"status": "succeeded"}])])
     client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
 
-    client.finish_job_run(RUN_ID, "succeeded", records_read=3, error_code=None)
+    client.finish_job_run(
+        RUN_ID,
+        RUNNER_ID,
+        "succeeded",
+        records_read=3,
+        error_code=None,
+        duration_ms=123,
+    )
 
     _, url, _, body = transport.requests[0]
     assert url == f"{BASE_URL}/rest/v1/rpc/finish_automation_job_run"
     assert json.loads(body or b"") == {
         "target_run_id": RUN_ID,
+        "target_runner_id": RUNNER_ID,
         "target_status": "succeeded",
         "target_records_read": 3,
         "target_error_code": None,
+        "target_duration_ms": 123,
     }
+
+
+def test_heartbeat_job_sends_runner_owned_lease_refresh() -> None:
+    transport = FakeTransport([response([{"job_id": JOB_ID, "runner_id": RUNNER_ID}])])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    client.heartbeat_job(JOB_ID, RUNNER_ID)
+
+    _, url, _, body = transport.requests[0]
+    assert url == f"{BASE_URL}/rest/v1/rpc/heartbeat_automation_job"
+    assert json.loads(body or b"") == {
+        "target_job_id": JOB_ID,
+        "target_runner_id": RUNNER_ID,
+    }
+
+
+def test_finish_surfaces_safe_server_rejection_without_response_body() -> None:
+    transport = FakeTransport([HttpResponse(status=403, body=b"runner=other-secret")])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    with pytest.raises(SupabaseClientError) as error:
+        client.finish_job_run(
+            RUN_ID,
+            "runner-other",
+            "succeeded",
+            records_read=0,
+            error_code=None,
+        )
+
+    assert error.value.code == "SUPABASE_UNAVAILABLE"
+    assert "other-secret" not in str(error.value)
 
 
 def test_finish_rejects_unknown_error_code_before_network_call() -> None:
@@ -121,7 +165,13 @@ def test_finish_rejects_unknown_error_code_before_network_call() -> None:
     client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
 
     with pytest.raises(SupabaseClientError) as error:
-        client.finish_job_run(RUN_ID, "failed", records_read=0, error_code="PII_VALUE")
+        client.finish_job_run(
+            RUN_ID,
+            RUNNER_ID,
+            "failed",
+            records_read=0,
+            error_code="PII_VALUE",
+        )
 
     assert error.value.code == "RUNNER_RESULT_INVALID"
     assert transport.requests == []
