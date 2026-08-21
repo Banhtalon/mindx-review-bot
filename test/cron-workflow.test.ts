@@ -30,9 +30,28 @@ describe("scheduled read-only dispatch contract", () => {
     expect(JSON.parse(request.body)).toEqual({
       workspace_id: WORKSPACE_ID,
       type: "read_lms_pending",
-      idempotency_key: `cron-read_lms_pending-${WORKSPACE_ID}-2026-08-21`,
+      idempotency_key: `read_lms_pending:${WORKSPACE_ID}:202608211507:202608211637`,
       payload: {},
     });
+  });
+
+  it("uses a distinct time window for the scheduled LMS retry", () => {
+    const firstWindow = JSON.parse(buildCronDispatchRequest({
+      ...ENVIRONMENT,
+      now: new Date("2026-08-21T15:07:00.000Z"),
+    }).body).idempotency_key;
+    const retryWindow = JSON.parse(buildCronDispatchRequest({
+      ...ENVIRONMENT,
+      now: new Date("2026-08-21T16:37:00.000Z"),
+    }).body).idempotency_key;
+
+    expect(firstWindow).toBe(
+      `read_lms_pending:${WORKSPACE_ID}:202608211507:202608211637`,
+    );
+    expect(retryWindow).toBe(
+      `read_lms_pending:${WORKSPACE_ID}:202608211637:202608221507`,
+    );
+    expect(retryWindow).not.toBe(firstWindow);
   });
 
   it("accepts only a safe job UUID and status from the dispatch response", async () => {

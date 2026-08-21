@@ -1,9 +1,25 @@
 alter table public.automation_jobs
   add column if not exists max_attempts integer not null default 3,
-  add column if not exists attempt_count integer not null default 0;
+  add column if not exists attempt_count integer not null default 0,
+  add column if not exists runner_id text,
+  add column if not exists lease_expires_at timestamptz,
+  add column if not exists heartbeat_at timestamptz,
+  add column if not exists last_error_code text,
+  add column if not exists started_at timestamptz,
+  add column if not exists finished_at timestamptz;
 
 do $$
 begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'automation_jobs_runner_id_format'
+      and conrelid = 'public.automation_jobs'::regclass
+  ) then
+    alter table public.automation_jobs
+      add constraint automation_jobs_runner_id_format
+      check (runner_id is null or runner_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$');
+  end if;
   if not exists (
     select 1
     from pg_constraint
@@ -18,23 +34,10 @@ end;
 $$;
 
 alter table public.automation_runs
-  add column if not exists runner_id text,
-  add column if not exists heartbeat_at timestamptz,
-  add column if not exists lease_expires_at timestamptz,
   add column if not exists duration_ms integer not null default 0;
 
 do $$
 begin
-  if not exists (
-    select 1
-    from pg_constraint
-    where conname = 'automation_runs_runner_id_format'
-      and conrelid = 'public.automation_runs'::regclass
-  ) then
-    alter table public.automation_runs
-      add constraint automation_runs_runner_id_format
-      check (runner_id is null or runner_id ~ '^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$');
-  end if;
   if not exists (
     select 1
     from pg_constraint
@@ -58,13 +61,20 @@ set attempt_count = greatest(
   ), 0)
 );
 
-update public.automation_runs
-set heartbeat_at = coalesce(heartbeat_at, started_at),
-    lease_expires_at = coalesce(lease_expires_at, started_at + interval '10 minutes')
-where status = 'running';
+update public.automation_jobs as job
+set started_at = coalesce(job.started_at, run.started_at),
+    heartbeat_at = coalesce(job.heartbeat_at, run.started_at),
+    lease_expires_at = coalesce(
+      job.lease_expires_at,
+      run.started_at + interval '10 minutes'
+    )
+from public.automation_runs as run
+where run.job_id = job.id
+  and run.status = 'running'
+  and job.status = 'running';
 
-create index if not exists automation_runs_active_lease_idx
-on public.automation_runs (job_id, lease_expires_at)
+create index if not exists automation_jobs_active_lease_idx
+on public.automation_jobs (lease_expires_at)
 where status = 'running';
 
 drop function if exists public.claim_automation_job_run(uuid);
@@ -123,8 +133,9 @@ begin
   for update;
 
   if found then
-    if existing_run.lease_expires_at is not null
-       and existing_run.lease_expires_at > now() then
+    if target_job.status = 'running'
+       and target_job.lease_expires_at is not null
+       and target_job.lease_expires_at > now() then
       return query
       select
         false,
@@ -134,23 +145,30 @@ begin
         target_job.type,
         target_job.payload_json,
         existing_run.attempt,
-        existing_run.runner_id,
-        existing_run.lease_expires_at;
+        target_job.runner_id,
+        target_job.lease_expires_at;
       return;
     end if;
 
     update public.automation_runs
     set status = 'failed',
         error_code = 'JOB_LEASE_EXPIRED',
-        finished_at = now(),
-        lease_expires_at = null,
-        heartbeat_at = now()
+        finished_at = now()
     where public.automation_runs.id = existing_run.id;
 
     update public.automation_jobs
-    set status = 'failed'
+    set status = 'failed',
+        runner_id = null,
+        lease_expires_at = null,
+        heartbeat_at = now(),
+        last_error_code = 'JOB_LEASE_EXPIRED',
+        finished_at = now()
     where public.automation_jobs.id = target_job.id;
     target_job.status := 'failed';
+    target_job.runner_id := null;
+    target_job.lease_expires_at := null;
+    target_job.heartbeat_at := now();
+    target_job.last_error_code := 'JOB_LEASE_EXPIRED';
   end if;
 
   if target_job.status not in ('dispatched', 'failed', 'partial') then
@@ -177,28 +195,28 @@ begin
     job_id,
     attempt,
     status,
-    runner_id,
     records_read,
-    started_at,
-    heartbeat_at,
-    lease_expires_at
+    started_at
   )
   values (
     target_job.workspace_id,
     target_job.id,
     next_attempt,
     'running',
-    target_runner_id,
     0,
-    now(),
-    now(),
-    new_lease
+    now()
   )
   returning id into new_run_id;
 
   update public.automation_jobs
   set status = 'running',
-      attempt_count = next_attempt
+      attempt_count = next_attempt,
+      runner_id = target_runner_id,
+      lease_expires_at = new_lease,
+      heartbeat_at = now(),
+      last_error_code = null,
+      started_at = now(),
+      finished_at = null
   where public.automation_jobs.id = target_job.id;
 
   return query
@@ -229,7 +247,7 @@ security definer
 set search_path = ''
 as $$
 declare
-  target_run public.automation_runs;
+  target_job public.automation_jobs;
   new_lease timestamptz;
 begin
   if auth.role() <> 'service_role' then
@@ -240,26 +258,27 @@ begin
     raise exception 'RUNNER_ID_INVALID' using errcode = '22023';
   end if;
 
-  select * into target_run
-  from public.automation_runs as run
-  where run.job_id = target_job_id
-    and run.status = 'running'
-  order by run.attempt desc
-  limit 1
+  select * into target_job
+  from public.automation_jobs
+  where public.automation_jobs.id = target_job_id
   for update;
 
-  if not found or target_run.runner_id is distinct from target_runner_id then
+  if not found then
+    raise exception 'JOB_NOT_FOUND' using errcode = 'P0002';
+  end if;
+  if target_job.status <> 'running'
+     or target_job.runner_id is distinct from target_runner_id then
     raise exception 'JOB_RUNNER_MISMATCH' using errcode = '42501';
   end if;
-  if target_run.lease_expires_at is null or target_run.lease_expires_at <= now() then
+  if target_job.lease_expires_at is null or target_job.lease_expires_at <= now() then
     raise exception 'JOB_LEASE_EXPIRED' using errcode = '55000';
   end if;
 
   new_lease := now() + interval '10 minutes';
-  update public.automation_runs
+  update public.automation_jobs
   set heartbeat_at = now(),
       lease_expires_at = new_lease
-  where public.automation_runs.id = target_run.id;
+  where public.automation_jobs.id = target_job_id;
 
   return query select target_job_id, target_runner_id, new_lease;
 end;
@@ -279,6 +298,7 @@ security definer
 set search_path = ''
 as $$
 declare
+  target_job public.automation_jobs;
   target_run public.automation_runs;
 begin
   if auth.role() <> 'service_role' then
@@ -305,13 +325,18 @@ begin
   if not found then
     raise exception 'RUN_NOT_FOUND' using errcode = 'P0002';
   end if;
-  if target_run.runner_id is distinct from target_runner_id then
+  select * into target_job
+  from public.automation_jobs
+  where public.automation_jobs.id = target_run.job_id
+  for update;
+
+  if not found or target_job.runner_id is distinct from target_runner_id then
     raise exception 'JOB_RUNNER_MISMATCH' using errcode = '42501';
   end if;
   if target_run.status <> 'running' then
     raise exception 'RUN_ALREADY_FINISHED' using errcode = '55000';
   end if;
-  if target_run.lease_expires_at is null or target_run.lease_expires_at <= now() then
+  if target_job.lease_expires_at is null or target_job.lease_expires_at <= now() then
     raise exception 'JOB_LEASE_EXPIRED' using errcode = '55000';
   end if;
 
@@ -320,13 +345,15 @@ begin
       records_read = target_records_read,
       error_code = target_error_code,
       duration_ms = target_duration_ms,
-      heartbeat_at = now(),
-      lease_expires_at = null,
       finished_at = now()
   where public.automation_runs.id = target_run_id;
 
   update public.automation_jobs
-  set status = target_status
+  set status = target_status,
+      heartbeat_at = now(),
+      lease_expires_at = null,
+      last_error_code = target_error_code,
+      finished_at = now()
   where public.automation_jobs.id = target_run.job_id;
 
   return query select target_status;

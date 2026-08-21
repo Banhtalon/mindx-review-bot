@@ -41,6 +41,7 @@ SAFE_ERROR_CODES = frozenset(
         "RUNNER_RESULT_INVALID",
         "SITE_ADAPTER_NOT_CONFIGURED",
         "RUNNER_FAILED",
+        "RUNNER_TIMEOUT",
     }
 )
 JobType = Literal["sync_teaching", "read_lms_pending"]

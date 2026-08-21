@@ -229,3 +229,32 @@ async def test_run_job_refreshes_lease_during_a_long_read_only_adapter(
     assert client.heartbeats[0] == (JOB_ID, RUNNER_ID)
     assert client.finished[0][:4] == (RUN_ID, "succeeded", 2, None)
     assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_job_enforces_a_hard_application_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.02)
+    monkeypatch.setattr(cli_module, "HEARTBEAT_INTERVAL_SECONDS", 0.005)
+    client = FakeClient([])
+    session = FakeSession()
+
+    async def adapter(*_: object) -> int:
+        await asyncio.sleep(1)
+        return 2
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "RUNNER_TIMEOUT"
+    assert client.finished[0][:4] == (RUN_ID, "failed", 0, "RUNNER_TIMEOUT")
+    assert session.closed is True

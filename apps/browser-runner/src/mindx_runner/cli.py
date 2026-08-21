@@ -53,6 +53,7 @@ Adapter = Callable[
 ]
 ClientFactory = Callable[[LiveRunConfig], RunnerClient]
 HEARTBEAT_INTERVAL_SECONDS: Final[float] = 30.0
+RUN_TIMEOUT_SECONDS: Final[float] = 12 * 60
 
 
 def _default_client_factory(config: LiveRunConfig) -> RunnerClient:
@@ -67,13 +68,29 @@ async def _run_adapter_with_heartbeat(
     adapter: Adapter,
 ) -> int:
     adapter_task: asyncio.Future[int] = asyncio.ensure_future(adapter(config, claimed, browser))
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + RUN_TIMEOUT_SECONDS
+
+    async def cancel_adapter() -> None:
+        if not adapter_task.done():
+            adapter_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await adapter_task
+
     while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            await cancel_adapter()
+            raise RunnerError("RUNNER_TIMEOUT")
         try:
             return await asyncio.wait_for(
                 asyncio.shield(adapter_task),
-                timeout=HEARTBEAT_INTERVAL_SECONDS,
+                timeout=min(HEARTBEAT_INTERVAL_SECONDS, remaining),
             )
-        except TimeoutError:
+        except TimeoutError as error:
+            if loop.time() >= deadline:
+                await cancel_adapter()
+                raise RunnerError("RUNNER_TIMEOUT") from error
             try:
                 await asyncio.to_thread(
                     client.heartbeat_job,
@@ -81,10 +98,7 @@ async def _run_adapter_with_heartbeat(
                     config.runner_id,
                 )
             except BaseException:
-                if not adapter_task.done():
-                    adapter_task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await adapter_task
+                await cancel_adapter()
                 raise
 
 

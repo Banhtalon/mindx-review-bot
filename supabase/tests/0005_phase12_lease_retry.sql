@@ -1,6 +1,6 @@
 begin;
 
-select plan(17);
+select plan(18);
 
 insert into auth.users (id, aud, role, email, encrypted_password, email_confirmed_at)
 values (
@@ -24,7 +24,10 @@ insert into public.automation_jobs (
   requested_by,
   payload_json,
   max_attempts,
-  attempt_count
+  attempt_count,
+  runner_id,
+  heartbeat_at,
+  lease_expires_at
 )
 values
 (
@@ -36,7 +39,10 @@ values
   '00000000-0000-4000-8000-000000000031',
   '{}'::jsonb,
   3,
-  0
+  0,
+  null,
+  null,
+  null
 ),
 (
   '00000000-0000-4000-8000-000000000034',
@@ -47,7 +53,10 @@ values
   '00000000-0000-4000-8000-000000000031',
   '{}'::jsonb,
   3,
-  1
+  1,
+  'runner-old',
+  now() - interval '11 minutes',
+  now() - interval '1 minute'
 ),
 (
   '00000000-0000-4000-8000-000000000035',
@@ -58,7 +67,10 @@ values
   '00000000-0000-4000-8000-000000000031',
   '{}'::jsonb,
   3,
-  3
+  3,
+  null,
+  null,
+  null
 );
 
 insert into public.automation_runs (
@@ -67,11 +79,8 @@ insert into public.automation_runs (
   job_id,
   attempt,
   status,
-  runner_id,
   records_read,
-  started_at,
-  heartbeat_at,
-  lease_expires_at
+  started_at
 )
 values
 (
@@ -80,11 +89,8 @@ values
   '00000000-0000-4000-8000-000000000034',
   1,
   'running',
-  'runner-old',
   0,
-  now() - interval '11 minutes',
-  now() - interval '11 minutes',
-  now() - interval '1 minute'
+  now() - interval '11 minutes'
 ),
 (
   '00000000-0000-4000-8000-000000000037',
@@ -92,11 +98,8 @@ values
   '00000000-0000-4000-8000-000000000035',
   1,
   'failed',
-  'runner-old',
   0,
-  now() - interval '30 minutes',
-  now() - interval '30 minutes',
-  null
+  now() - interval '30 minutes'
 ),
 (
   '00000000-0000-4000-8000-000000000038',
@@ -104,11 +107,8 @@ values
   '00000000-0000-4000-8000-000000000035',
   2,
   'failed',
-  'runner-old',
   0,
-  now() - interval '20 minutes',
-  now() - interval '20 minutes',
-  null
+  now() - interval '20 minutes'
 ),
 (
   '00000000-0000-4000-8000-000000000039',
@@ -116,11 +116,8 @@ values
   '00000000-0000-4000-8000-000000000035',
   3,
   'failed',
-  'runner-old',
   0,
-  now() - interval '10 minutes',
-  now() - interval '10 minutes',
-  null
+  now() - interval '10 minutes'
 );
 
 set local role service_role;
@@ -135,11 +132,16 @@ select ok(
   'runner A can claim a dispatched job'
 );
 select is(
-  (select runner_id from public.automation_runs
-   where job_id = '00000000-0000-4000-8000-000000000033'
-     and status = 'running'),
+  (select runner_id from public.automation_jobs
+   where id = '00000000-0000-4000-8000-000000000033'),
   'runner-a',
   'claim records the owning runner id'
+);
+select ok(
+  (select lease_expires_at > now() + interval '9 minutes'
+   from public.automation_jobs
+   where id = '00000000-0000-4000-8000-000000000033'),
+  'claim records a ten minute lease on the job'
 );
 select ok(
   not (select claimed
@@ -227,9 +229,8 @@ select is(
   'lease recovery increments the attempt number'
 );
 select is(
-  (select runner_id from public.automation_runs
-   where job_id = '00000000-0000-4000-8000-000000000034'
-     and status = 'running'),
+  (select runner_id from public.automation_jobs
+   where id = '00000000-0000-4000-8000-000000000034'),
   'runner-b',
   'lease recovery transfers ownership only through a new run'
 );

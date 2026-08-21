@@ -63,6 +63,39 @@ function dateKey(value) {
   return value.toISOString().slice(0, 10);
 }
 
+function compactUtc(value) {
+  return value.toISOString().slice(0, 16).replace(/\D/g, "");
+}
+
+function scheduledUtcDay(value, hour, minute) {
+  return new Date(Date.UTC(
+    value.getUTCFullYear(),
+    value.getUTCMonth(),
+    value.getUTCDate(),
+    hour,
+    minute,
+  ));
+}
+
+function lmsWindow(value) {
+  const firstWindowStart = scheduledUtcDay(value, 15, 7);
+  const retryWindowStart = scheduledUtcDay(value, 16, 37);
+  if (value < firstWindowStart) {
+    const previousDay = new Date(firstWindowStart.getTime() - 86400000);
+    return [scheduledUtcDay(previousDay, 16, 37), firstWindowStart];
+  }
+  if (value < retryWindowStart) return [firstWindowStart, retryWindowStart];
+
+  const nextDay = new Date(retryWindowStart.getTime() + 86400000);
+  return [retryWindowStart, scheduledUtcDay(nextDay, 15, 7)];
+}
+
+function idempotencyKey(type, workspace, now) {
+  if (type === "sync_teaching") return `sync_teaching:${workspace}:${dateKey(now)}`;
+  const [windowStart, windowEnd] = lmsWindow(now);
+  return `read_lms_pending:${workspace}:${compactUtc(windowStart)}:${compactUtc(windowEnd)}`;
+}
+
 export function buildCronDispatchRequest({
   SUPABASE_URL: supabaseUrl,
   CRON_DISPATCH_SECRET: cronSecret,
@@ -85,7 +118,7 @@ export function buildCronDispatchRequest({
     body: JSON.stringify({
       workspace_id: workspace,
       type,
-      idempotency_key: `cron-${type}-${workspace}-${dateKey(now)}`,
+      idempotency_key: idempotencyKey(type, workspace, now),
       payload: {},
     }),
   };

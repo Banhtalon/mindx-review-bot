@@ -36,6 +36,7 @@ SAFE_ERROR_CODES: Final[frozenset[str]] = frozenset(
         "QUOTA_GUARD_BLOCKED",
         "RUNNER_RESULT_INVALID",
         "SITE_ADAPTER_NOT_CONFIGURED",
+        "RUNNER_TIMEOUT",
     }
 )
 JobType = Literal["sync_teaching", "read_lms_pending"]

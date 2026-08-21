@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 const CI_WORKFLOW_PATH = new URL("../.github/workflows/ci.yml", import.meta.url);
 const RUNNER_WORKFLOW_PATH = new URL("../.github/workflows/browser-runner.yml", import.meta.url);
+const ENV_EXAMPLE_PATH = new URL("../.env.example", import.meta.url);
 
 function workflowText(path: URL): string {
   return readFileSync(path, "utf8");
@@ -55,5 +56,11 @@ describe("phase 1 CI workflow contract", () => {
     expect(workflow).toMatch(/\bnpm run test:rls\b/);
     expect(workflow).not.toMatch(/upload-artifact/);
     expect(workflow).not.toMatch(/secrets\./);
+  });
+
+  it("defaults Edge dispatch to the read-only browser runner workflow", () => {
+    const environment = workflowText(ENV_EXAMPLE_PATH);
+
+    expect(environment).toContain("GITHUB_WORKFLOW_ID=browser-runner.yml");
   });
 });
