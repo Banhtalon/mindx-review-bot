@@ -12,6 +12,6 @@
     {"id": "V4-P2-07", "requirement": "CLI heartbeat and browser cleanup lifecycle", "path": "V4-P2-07.md", "status": "PASS", "environment": "local synthetic", "scope": "long adapter test"},
     {"id": "V4-P2-08", "requirement": "Scheduled deterministic read-only dispatch", "path": "V4-P2-08.md", "status": "PASS", "environment": "local synthetic", "scope": "Node script and workflow contract"},
     {"id": "V4-P2-09", "requirement": "Private browser-state service lifecycle remains read-only", "path": "V4-P2-09.md", "status": "PASS", "environment": "local Supabase", "scope": "service-only local RPC; hosted reuse unverified"},
-    {"id": "V4-P2-10", "requirement": "Whole-branch review and off-PC hosted live gate", "path": "V4-P2-10.md", "status": "BLOCKED", "environment": "hosted owner-controlled", "scope": "review/live evidence pending"}
+    {"id": "V4-P2-10", "requirement": "Whole-branch review and off-PC hosted live gate", "path": "V4-P2-10.md", "status": "BLOCKED", "environment": "hosted owner-controlled", "scope": "hosted live evidence pending after local review"}
   ]
 }

@@ -31,8 +31,8 @@
 - BLOCKED: deployed Supabase migration/RPC verification.
 - BLOCKED: hosted Storage reuse/reset and live Teaching/LMS read-only smoke.
 - BLOCKED: cloud dispatch with the PC off and redacted owner evidence.
-- PASS: final review round addressed the four implementation blockers; a new
-  review is still required after these follow-up fixes.
+- PASS: final review round addressed the four implementation blockers; the
+  follow-up scoped review completed with no P0/P1 findings.
 
 ## Privacy review
 
