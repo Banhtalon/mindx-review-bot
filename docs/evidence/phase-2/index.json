@@ -1,7 +1,7 @@
 {
   "version": 1,
   "phase": "phase-2",
-  "commit": "cbfe54e",
+  "commit": "c1ca5a1",
   "items": [
     {"id": "V4-P2-01", "requirement": "Bounded job attempts and runner-owned lease metadata", "path": "V4-P2-01.md", "status": "PASS", "environment": "local Supabase", "scope": "migration and pgTAP"},
     {"id": "V4-P2-02", "requirement": "Atomic claim and active lease contention", "path": "V4-P2-02.md", "status": "PASS", "environment": "local Supabase", "scope": "service-only RPC"},

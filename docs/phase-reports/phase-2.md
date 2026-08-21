@@ -1,6 +1,6 @@
 # Phase 2 report — Runner lease, heartbeat, retry and scheduled dispatch
 
-- Commit: `cbfe54e`
+- Commit: `c1ca5a1`
 - Branch: `codex/phase1-2-closure`
 - Result: local/synthetic implementation PASS; hosted/off-PC closure BLOCKED.
 
@@ -10,16 +10,18 @@
 - Added a ten-minute lease, explicit runner IDs, bounded duration metrics and a
   maximum of three attempts with safe expired-lease recovery.
 - Updated the Python runner to require a safe `RUNNER_ID`, send exact RPC
-  contracts, heartbeat during long reads and close the browser in `finally`.
+  contracts, heartbeat during long reads, enforce a twelve-minute application
+  deadline and close the browser in `finally` with bounded cleanup.
 - Added a deterministic GitHub Cron dispatch contract for the two read-only job
-  types and the three requested UTC schedules.
+  types and the three requested UTC schedules; Teaching uses the workspace local
+  date and LMS uses distinct UTC time windows for the primary/retry schedules.
 - Kept browser-state storage private and LMS behavior read-only.
 
 ## Fresh local gates
 
 - PASS: `uv run --project apps/browser-runner ruff check .`.
 - PASS: `uv run mypy src` from `apps/browser-runner`.
-- PASS: `uv run pytest` from `apps/browser-runner` — 216 tests.
+- PASS: `uv run pytest` from `apps/browser-runner` — 217 tests.
 - PASS: `npx supabase db reset`.
 - PASS: `npm run test:rls` — 101 assertions.
 - PASS: `npm exec vitest run test/cron-workflow.test.ts` — 4 tests.
