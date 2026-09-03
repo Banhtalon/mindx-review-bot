@@ -16,14 +16,23 @@ description: Implements approved MindX Review Bot tasks with TDD, scoped changes
 
 ## Entry condition
 
-Start implementation only when the linked issue control state is valid and is explicitly `ready-for-implementation` or `needs-fix`.
+Implementation code may start only when the linked issue is already in valid `implementing` state and exactly one `implementing` workflow label matches it.
 
-Before any `needs-fix` re-entry, a controller must already have incremented authoritative `fix_reentries` by exactly 1. If `fix_reentries >= 2`, do not start another autonomous fix; return `BLOCKED` / `blocked-owner`.
+The controller transition is separate from the implementation worker:
+
+- initial implementation: `ready-for-implementation / fix_reentries=0 -> implementing / fix_reentries=0`;
+- fix re-entry: if current state is `needs-fix` and current `fix_reentries < MAX_FIX_LOOPS`, the controller atomically sets `state=implementing`, increments `fix_reentries` by exactly 1, and replaces the primary label with `implementing`;
+- `fix_reentries=1` authorizes the first fix re-entry;
+- `fix_reentries=2` authorizes the second fix re-entry;
+- if a new fix re-entry is requested while current `fix_reentries >= MAX_FIX_LOOPS` (2), the controller must not increment or invoke implementation; it routes to `blocked-owner` instead.
+
+Therefore exactly two `needs-fix -> implementing` re-entries are permitted for one unchanged scope revision; the third attempt is blocked.
 
 Fail closed and make no code change if:
 
 - linked issue is missing;
 - Agent Control Block is missing/malformed;
+- state is not `implementing` when the worker is invoked;
 - multiple primary workflow-state labels exist;
 - issue `state` and label disagree;
 - `scope_revision` is invalid;
@@ -103,14 +112,16 @@ Do not provide chain-of-thought as review evidence.
 For each accepted Terra finding:
 
 1. confirm the controller has routed the issue to `needs-fix`;
-2. confirm authoritative `fix_reentries` was incremented before re-entry;
-3. fail closed if the counter/state is invalid or at the limit;
+2. confirm the controller performed the atomic transition to `implementing` and incremented the counter exactly once;
+3. confirm the resulting `fix_reentries` is `1` or `2` and the issue/label both say `implementing`;
 4. reproduce/prove where practical;
 5. add regression coverage;
 6. apply smallest fix;
 7. rerun focused gates;
 8. rerun required final gates;
 9. update PR evidence.
+
+If the issue is still `needs-fix` with `fix_reentries >= 2`, no third autonomous fix is allowed; return `BLOCKED` / `blocked-owner` without changing code.
 
 `MAX_FIX_LOOPS = 2` is controlled by the linked issue `fix_reentries` value, not a PR self-report field.
 
