@@ -16,15 +16,18 @@ Confirmed live on 2026-09-03:
 - deletion protection is enabled;
 - non-fast-forward/force-push protection is enabled.
 
-Still required before PR #6 may merge:
+Solo-owner review gate configuration (Scope Revision 2):
 
-- set **Required approvals** to `1`;
-- enable **Dismiss stale pull request approvals when new commits are pushed**;
-- enable **Require conversation resolution before merging**.
+Because this repository has a single GitHub user account (solo-owner), requiring GitHub human approvals (`Required approvals >= 1`) blocks the repo owner from merging pull requests. Scope Revision 2 replaces this with a machine-enforced review gate:
 
-These three settings make a green CI result insufficient by itself: the review must still be current and material review conversations must be resolved.
+- keep **Required approvals** at `0`;
+- require the repository `verify` CI check to pass on the current PR head;
+- require the `review-gate` CI check to pass on the current PR head (validates fresh Terra xHigh attestation bound to exact current head SHA);
+- enable **Require conversation resolution before merging**;
+- any new commit changes `head_sha`, automatically invalidating any prior attestation;
+- no unattended development worker may create or edit Terra attestations.
 
-Important for this personal repository: the PR author cannot count self-approval as independent review. If the PR is authored by the Owner account, a separate GitHub identity/app/collaborator capable of a valid approval is required. If no independent reviewer identity exists, keep the migration `blocked-owner`; do not silently reduce the approval requirement.
+After `review-gate` context first appears on PR #6, Owner must add `review-gate` to the active `protect-main` ruleset required status checks list alongside `verify`, and enable conversation resolution.
 
 ## 2. Workflow state labels — complete
 

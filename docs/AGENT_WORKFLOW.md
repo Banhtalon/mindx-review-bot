@@ -302,13 +302,46 @@ If the task is still `needs-fix` with current `fix_reentries >= 2`, do not perfo
 
 Do not perform unrelated cleanup while fixing a finding.
 
+## Solo-owner Terra review gate protocol
+
+Because this is a solo-developer repository with a single human account, requiring a second GitHub human approval (`Required approvals >= 1`) blocks the repo owner from merging pull requests.
+
+Under Scope Revision 2, the repository uses a deterministic machine-enforced gate:
+
+1. **GitHub branch setting**: `Required approvals = 0`.
+2. **Review gate workflow**: `.github/workflows/review-gate.yml` executes on every pull request event and comment.
+3. **Head-SHA binding**: The gate validates a structured Terra attestation bound to the exact current PR head SHA:
+   ```text
+   <!-- TERRA_REVIEW_ATTESTATION_V1 -->
+   reviewer_model: terra-xhigh
+   control_issue: <linked control issue number>
+   scope_revision: <matching scope revision>
+   pr_number: <PR number>
+   head_sha: <40-char current PR head SHA>
+   verdict: RECOMMEND_PASS
+   p0: 0
+   p1: 0
+   material_findings_resolved: true
+   reviewed_at_utc: <ISO-8601 UTC timestamp>
+   <!-- /TERRA_REVIEW_ATTESTATION_V1 -->
+   ```
+   Alternatively, ```terra-attestation or ```json:terra-attestation code blocks are accepted.
+4. **Invalidation on push**: Any new commit pushed to the PR automatically changes `head_sha`, immediately invalidating any prior attestation and causing `review-gate` to fail closed until Terra reviews the new head.
+5. **Later-attestation precedence**: When multiple attestations exist, later review submissions take precedence over earlier ones. Conflicting attestations within the same submission fail closed.
+6. **No worker self-attestation**: Implementation workers (Gemini, Sol) may not post or modify Terra attestations.
+7. **Thread resolution**: All review threads/conversations must be marked resolved before merge.
+
 ## Verification protocol
 
-A model may say `RECOMMEND_PASS`, but a task reaches `done` only when required gates pass on the current PR head, required independent review is current, and material review conversations are resolved.
+A model may say `RECOMMEND_PASS`, but a task reaches `done` only when all required status checks pass on the current PR head:
+
+1. `verify`: deterministic machine gates (lint, typecheck, tests, build, security guards, Supabase RLS, Python runner);
+2. `review-gate`: deterministic validation of the fresh Terra xHigh attestation bound to the current head SHA;
+3. all review conversation threads are resolved.
 
 If review and CI disagree, CI/runtime evidence wins for deterministic behavior verification, while reviewer findings remain unresolved until explicitly fixed/waived.
 
-No test result from an earlier commit may be reused as proof for a later changed diff unless the relevant gate reruns.
+No test result or attestation from an earlier commit may be reused as proof for a later changed diff unless the relevant gate reruns.
 
 ## Existing product scheduler versus development-agent automation
 

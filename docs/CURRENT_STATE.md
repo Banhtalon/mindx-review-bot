@@ -33,13 +33,12 @@ Repository controls now confirmed live on 2026-09-03:
 - deletion and non-fast-forward/force-push protection are active;
 - all nine canonical workflow-state labels exist.
 
-However the workflow is **not yet fully controlled for merge/unattended development** because independent-review enforcement is still incomplete in the active ruleset:
+However the workflow is **not yet fully controlled for merge/unattended development** because the solo-owner review gate setup is completing under Scope Revision 2:
 
-- required approving review count is currently `0`;
-- stale approvals are not dismissed after new commits;
-- review-thread resolution is not required before merge.
-
-Before PR #6 may merge, the ruleset must require at least one current independent approval, dismiss stale approvals after pushes, and require review-conversation resolution. If the PR author has no separate GitHub reviewer identity/app able to provide a valid independent approval, treat that as `blocked-owner`; do not weaken the rule silently.
+- active ruleset `protect-main` currently has `Required approvals = 0` and requires `verify`;
+- `.github/workflows/review-gate.yml` is being added to provide the required `review-gate` status check (validates fresh Terra xHigh attestation bound to exact PR head SHA);
+- after `review-gate` context first appears on a PR run, Owner must add `review-gate` to `protect-main` required status checks and enable conversation resolution before merge;
+- any new commit pushed to the PR automatically changes `head_sha`, invalidating prior attestations.
 
 New unattended development-agent automation remains blocked until the migration is merged and one manual pilot succeeds.
 
@@ -130,13 +129,11 @@ No model may declare final `VERIFIED`.
 
 ## Current blockers / owner decisions
 
-Workflow migration blockers:
+Workflow migration status:
 
-- update `protect-main` to require at least one independent current approval;
-- enable stale-approval dismissal after new commits;
-- require review-thread resolution before merge;
-- rerun current-head `verify` after the second Terra-finding fix pass;
-- obtain fresh Terra re-review with no unresolved P0/P1.
+- Scope Revision 2 implemented: solo-owner Terra review gate (`review-gate.yml`, validator, unit tests);
+- Owner action item remaining: add `review-gate` context to `protect-main` required status checks once context appears on PR #6, and enable conversation resolution;
+- obtain fresh Terra re-review with no unresolved P0/P1 bound to exact current head SHA.
 
 Separate product/ops decision:
 
@@ -154,13 +151,13 @@ Product work that requires any of the following must use `blocked-owner` or `blo
 
 ## Next sequence
 
-1. Complete Terra review #2 finding fixes under authoritative issue #7 re-entry state.
-2. Owner updates independent-review ruleset controls.
-3. Current PR head reruns `verify` and passes.
-4. Controller returns issue #7 and PR #6 to `ready-for-review` with matching primary labels.
-5. Fresh Terra re-review confirms no unresolved P0/P1 workflow-control blocker remains.
-6. Required GitHub approval is current and all material review threads are resolved.
-7. Merge Agent Workflow Migration PR.
+1. Complete Scope Revision 2 implementation and verify all deterministic gates pass.
+2. Push commit to PR #6 (`chore/agent-workflow-migration`).
+3. Owner adds `review-gate` to `protect-main` required status checks and enables conversation resolution.
+4. Controller moves Issue #7 to `ready-for-review`.
+5. Terra xHigh performs fresh-context review and posts attestation bound to PR #6 head SHA.
+6. Both `verify` and `review-gate` pass on current head, and conversation threads are resolved.
+7. Merge Agent Workflow Migration PR #6.
 8. Select exactly one small/medium real task as a manual pilot.
 9. Run manual Sol -> controller -> Gemini -> CI -> Terra -> controller/Gemini fix if needed -> CI handoff using a linked Agent Control Block.
 10. Evaluate scope control, finding quality, time/token cost, and deterministic evidence.

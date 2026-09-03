@@ -35,6 +35,9 @@ jobs:
       - name: Test web
         run: npm run test
 
+      - name: Test review-gate validator
+        run: npm run test:review-gate
+
       - name: Build web
         run: npm run build
 

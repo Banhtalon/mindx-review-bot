@@ -93,4 +93,25 @@ Return exactly one overall recommendation:
 
 `RECOMMEND_PASS` is not `VERIFIED`.
 
+When providing the review result, Terra must include a machine-readable attestation block for the solo-owner `review-gate` check:
+
+```text
+<!-- TERRA_REVIEW_ATTESTATION_V1 -->
+reviewer_model: terra-xhigh
+control_issue: <linked control issue number>
+scope_revision: <current scope revision integer>
+pr_number: <PR number>
+head_sha: <exact 40-char current PR head SHA>
+verdict: RECOMMEND_PASS
+p0: 0
+p1: 0
+material_findings_resolved: true
+reviewed_at_utc: <ISO-8601 UTC timestamp>
+<!-- /TERRA_REVIEW_ATTESTATION_V1 -->
+```
+
+Alternatively, a ```terra-attestation code block with the same fields is accepted.
+
+If findings exist (`NEEDS_FIX`), set `verdict: NEEDS_FIX`, `p0: <count>`, `p1: <count>`, and `material_findings_resolved: false`. If blocked, set `verdict: BLOCKED`.
+
 The authoritative `fix_reentries` counter lives in the linked GitHub issue. Only a new attempted `needs-fix -> implementing` transition with current `fix_reentries >= 2` is forbidden; do not treat a valid second re-entry already at count `2` as an automatic blocker.

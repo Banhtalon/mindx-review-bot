@@ -241,12 +241,16 @@ Authenticated live-web changes cần thêm browser/E2E evidence phù hợp; unit
 
 - Không push feature/fix trực tiếp vào `main`.
 - `main` phải được active ruleset chặn direct push/force-push/delete.
-- Required current-head `verify` phải pass và branch phải up-to-date trước merge.
-- Branch rules phải yêu cầu ít nhất 1 approval độc lập hiện hành, dismiss stale approval khi có commit mới, và require review-thread resolution trước merge.
-- PR author không được tự dùng self-approval như independent review evidence.
+- Repo thuộc sở hữu solo-owner (1 tài khoản): giữ `Required approvals = 0` trên GitHub; việc đòi hỏi tài khoản người thứ 2 approve là không khả thi.
+- Thay vào đó, PR vào `main` bắt buộc phải vượt qua 2 status check độc lập trên đúng current PR head:
+  1. `verify` (toàn bộ deterministic gates: lint, typecheck, test, build, no-secrets, no-live-write, Supabase RLS, Python runner);
+  2. `review-gate` (kiểm tra Terra xHigh attestation hợp lệ cho đúng `head_sha` hiện tại, `RECOMMEND_PASS`, `p0: 0`, `p1: 0`, `material_findings_resolved: true`).
+- Bắt buộc resolve toàn bộ conversation/review threads trước khi merge.
+- Bất kỳ push commit mới nào làm thay đổi `head_sha` đều tự động vô hiệu hóa attestation trước đó (head SHA mismatch).
+- Worker phát triển (Gemini, Sol) tuyệt đối không được tự ý tạo hoặc chỉnh sửa Terra attestation.
 - Dùng branch/worktree riêng cho task.
 - PR phải ghi requirement, acceptance criteria, changed/not-changed scope, tests, current-head verification evidence, known limitations và linked task control state.
-- Không merge khi required CI còn đỏ hoặc required review control chưa đạt.
+- Không merge khi required CI (`verify` hoặc `review-gate`) còn đỏ hoặc required review control chưa đạt.
 - Không dùng review transcript của implementer làm bằng chứng thay cho fresh review hoặc machine verification.
 
 ## Secrets

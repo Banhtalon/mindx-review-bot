@@ -99,14 +99,16 @@ Authoritative fix-loop state: see linked issue `fix_reentries`.
 
 Use `blocked-owner` for missing business/scope/live-credential/reviewer decisions and `blocked-external` for unavailable external prerequisites.
 
-## Independent Merge Review
+## Solo-Owner Review Gate & Verification
 
-- [ ] At least one current independent GitHub approval exists
-- [ ] Approval is not self-approval by the PR author
-- [ ] Approval was not invalidated by a later commit
-- [ ] All material review conversations are resolved
+- [ ] Deterministic `review-gate` status check is green on current PR head
+- [ ] Fresh Terra xHigh attestation exists for the exact current PR head SHA
+- [ ] Attestation verdict is `RECOMMEND_PASS`, P0=0, P1=0, and material findings are resolved
+- [ ] Attestation matches linked control issue and scope revision
+- [ ] All material review conversations/threads are resolved
+- [ ] Deterministic `verify` status check is green on current PR head
 
-> The active `main` ruleset is expected to enforce these conditions. A green `verify` check alone is not sufficient to merge.
+> The active `main` ruleset enforces `verify` and `review-gate` with `Required approvals = 0`. All conversation threads must be resolved before merge.
 
 ## Final Verification
 
