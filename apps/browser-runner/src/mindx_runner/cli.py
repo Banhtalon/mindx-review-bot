@@ -228,6 +228,63 @@ async def _run_adapter_with_heartbeat(
                 raise
 
 
+async def _start_browser_with_bound(
+    browser: ReadonlyBrowserSession,
+    *,
+    work_deadline: float,
+    cancellation_deadline: float,
+    wall_deadline: float,
+) -> None:
+    startup_task: asyncio.Future[None] = asyncio.ensure_future(browser.start())
+
+    def _consume_task(task: asyncio.Future[Any]) -> None:
+        if not task.cancelled():
+            with suppress(Exception):
+                task.exception()
+
+    startup_task.add_done_callback(_consume_task)
+    loop = asyncio.get_running_loop()
+
+    async def cancel_startup() -> None:
+        if not startup_task.done():
+            startup_task.cancel()
+            remaining_grace = cancellation_deadline - loop.time()
+            if remaining_grace > 0:
+                with suppress(asyncio.CancelledError, TimeoutError, Exception):
+                    await asyncio.wait_for(
+                        asyncio.shield(startup_task),
+                        timeout=remaining_grace,
+                    )
+            else:
+                await asyncio.sleep(0)
+
+        if not startup_task.done():
+            startup_task.cancel()
+            remaining_wall = max(0.0, wall_deadline - loop.time())
+            if remaining_wall > 0:
+                with suppress(asyncio.CancelledError, TimeoutError, Exception):
+                    await asyncio.wait_for(
+                        asyncio.shield(startup_task),
+                        timeout=min(0.02, remaining_wall),
+                    )
+            else:
+                await asyncio.sleep(0)
+
+    remaining_work = work_deadline - loop.time()
+    if remaining_work <= 0:
+        await cancel_startup()
+        raise RunnerError("RUNNER_TIMEOUT")
+
+    try:
+        await asyncio.wait_for(asyncio.shield(startup_task), timeout=remaining_work)
+    except TimeoutError as error:
+        await cancel_startup()
+        raise RunnerError("RUNNER_TIMEOUT") from error
+    except BaseException:
+        await cancel_startup()
+        raise
+
+
 async def run_job(
     job_id: str,
     environment: Mapping[str, str],
@@ -286,7 +343,12 @@ async def run_job(
     browser_started = False
     started_at = 0.0
     try:
-        await _await_with_deadline(browser.start(), work_deadline)
+        await _start_browser_with_bound(
+            browser,
+            work_deadline=work_deadline,
+            cancellation_deadline=cancellation_deadline,
+            wall_deadline=wall_deadline,
+        )
         browser_started = True
         started_at = time.monotonic()
         records_read = await _run_adapter_with_heartbeat(

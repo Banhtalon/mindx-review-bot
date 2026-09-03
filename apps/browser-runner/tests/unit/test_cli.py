@@ -67,6 +67,7 @@ class FakeClient:
 @dataclass
 class FakeSession:
     closed: bool = False
+    stop_calls: int = 0
     cdp_client: Any = field(default_factory=lambda: FakeCdp())
     session_manager: Any = field(default_factory=lambda: FakeSessionManager())
 
@@ -80,6 +81,7 @@ class FakeSession:
         return object()
 
     async def stop(self) -> None:
+        self.stop_calls += 1
         self.closed = True
 
     async def get_or_create_cdp_session(self, target_id: str, *, focus: bool = False) -> Any:
@@ -100,11 +102,22 @@ class SlowStopSession(FakeSession):
     cancelled: bool = False
 
     async def stop(self) -> None:
+        self.stop_calls += 1
         try:
             await asyncio.Event().wait()
         except asyncio.CancelledError:
             self.cancelled = True
             raise
+
+
+class SlowStartCleanupSession(FakeSession):
+    async def start(self) -> None:
+        await asyncio.Event().wait()
+
+    async def stop(self) -> None:
+        self.stop_calls += 1
+        await asyncio.sleep(0.2)
+        self.closed = True
 
 
 @dataclass
@@ -780,3 +793,111 @@ async def test_browser_cleanup_does_not_overlap_with_cooperative_adapter(
     assert error.value.code == "RUNNER_TIMEOUT"
     assert cleanup_started_while_adapter_active is False
     assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_browser_start_timeout_with_slow_cleanup_bounds_execution_within_wall_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+    client = FakeClient([])
+    session = SlowStartCleanupSession()
+
+    start_time = asyncio.get_running_loop().time()
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=lambda *_: 2,
+        )
+    elapsed = asyncio.get_running_loop().time() - start_time
+
+    assert error.value.code == "RUNNER_TIMEOUT"
+    assert client.finished == []
+    assert elapsed < 0.14
+    assert session.stop_calls <= 1
+
+
+@pytest.mark.asyncio
+async def test_browser_start_normal_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+    client = FakeClient([])
+    session = FakeSession()
+
+    async def adapter(*_: object) -> int:
+        return 3
+
+    summary = await run_job(
+        JOB_ID,
+        ENVIRONMENT,
+        client_factory=lambda _: client,
+        session_factory=lambda **_: session,
+        adapter=adapter,
+    )
+
+    assert summary.status == "succeeded"
+    assert summary.records_read == 3
+    assert len(client.finished) == 1
+    assert client.finished[0][:4] == (RUN_ID, "succeeded", 3, None)
+    assert session.closed is True
+    assert session.stop_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_browser_start_timeout_cooperative_cleanup_quick(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+    client = FakeClient([])
+    session = SlowStartSession()
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=lambda *_: 2,
+        )
+
+    assert error.value.code == "RUNNER_TIMEOUT"
+    assert client.finished == []
+    assert session.closed is True
+    assert session.stop_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_browser_start_timeout_when_wall_budget_almost_exhausted() -> None:
+    from mindx_runner.browser_driver import ReadonlyBrowserSession
+    from mindx_runner.cli import _start_browser_with_bound
+
+    session = FakeSession()
+    browser = ReadonlyBrowserSession(session_factory=lambda **_: session)
+
+    loop = asyncio.get_running_loop()
+    past_work_deadline = loop.time() - 0.01
+    cancellation_deadline = loop.time() + 0.05
+    wall_deadline = loop.time() + 0.10
+
+    start_time = loop.time()
+    with pytest.raises(RunnerError) as error:
+        await _start_browser_with_bound(
+            browser,
+            work_deadline=past_work_deadline,
+            cancellation_deadline=cancellation_deadline,
+            wall_deadline=wall_deadline,
+        )
+    elapsed = loop.time() - start_time
+
+    assert error.value.code == "RUNNER_TIMEOUT"
+    assert elapsed < 0.05
