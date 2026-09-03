@@ -1,12 +1,15 @@
 name: Agent task
 description: Create a controlled Sol/Gemini/Terra development task with authoritative workflow state.
 title: "[agent] "
+labels:
+  - needs-plan
 body:
   - type: markdown
     attributes:
       value: |
-        This issue is the authoritative control record for one agent-driven task.
-        Workers may read this state but must not reset/edit the control fields unattended.
+        This standalone issue is the authoritative control record for one agent-driven task.
+        The PR may reference this state but must not own or reset it.
+        New tasks start at `needs-plan` with exactly one matching primary workflow label.
 
   - type: textarea
     id: requirement
@@ -28,7 +31,7 @@ body:
     id: spec
     attributes:
       label: Specification / plan
-      description: Link the approved spec/plan artifact.
+      description: Link the approved spec/plan artifact, or write `pending` while the task remains needs-plan.
       placeholder: docs/... or URL
     validations:
       required: true
@@ -44,55 +47,40 @@ body:
     validations:
       required: true
 
+  - type: textarea
+    id: agent_control_block
+    attributes:
+      label: Agent Control Block
+      description: Keep exactly one block. Controller/Owner updates it together with exactly one matching primary workflow-state label. Workers must not edit/reset it unattended.
+      value: |
+        ```text
+        state: needs-plan
+        scope_revision: 1
+        fix_reentries: 0
+        owner_scope_reset: none
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: reentry_history
+    attributes:
+      label: Re-entry history
+      description: Append controller transitions. Exactly two needs-fix -> implementing re-entries are allowed for one scope revision; the third is blocked.
+      value: |
+        - Initial task creation: `needs-plan / scope_revision=1 / fix_reentries=0`.
+    validations:
+      required: true
+
   - type: markdown
     attributes:
       value: |
-        ## Agent Control Block
-        The values below are authoritative and must match exactly one workflow-state label.
-
-  - type: dropdown
-    id: state
-    attributes:
-      label: state
-      options:
-        - needs-plan
-        - ready-for-implementation
-        - implementing
-        - ready-for-review
-        - needs-fix
-        - ready-for-verify
-        - done
-        - blocked-owner
-        - blocked-external
-    validations:
-      required: true
-
-  - type: input
-    id: scope_revision
-    attributes:
-      label: scope_revision
-      description: Positive integer. Increment only for an Owner-approved material scope revision.
-      value: "1"
-    validations:
-      required: true
-
-  - type: input
-    id: fix_reentries
-    attributes:
-      label: fix_reentries
-      description: Authoritative count of needs-fix -> implementing re-entries. Allowed range 0..2.
-      value: "0"
-    validations:
-      required: true
-
-  - type: input
-    id: owner_scope_reset
-    attributes:
-      label: owner_scope_reset
-      description: Use "none" unless the counter was reset after an Owner-approved scope revision; otherwise link the approval record.
-      value: "none"
-    validations:
-      required: true
+        ### Atomic transition rule
+        - Initial implementation: `ready-for-implementation / 0 -> implementing / 0`.
+        - First fix re-entry: `needs-fix / 0 -> implementing / 1` — allowed.
+        - Second fix re-entry: `needs-fix / 1 -> implementing / 2` — allowed.
+        - Third attempted fix re-entry from `needs-fix / 2` — do not increment; route to `blocked-owner`.
+        - Counter reset requires a new `scope_revision` plus an explicit Owner approval link in `owner_scope_reset`.
 
   - type: textarea
     id: blockers
