@@ -54,6 +54,7 @@ Adapter = Callable[
 ClientFactory = Callable[[LiveRunConfig], RunnerClient]
 HEARTBEAT_INTERVAL_SECONDS: Final[float] = 30.0
 RUN_TIMEOUT_SECONDS: Final[float] = 12 * 60
+FINALIZATION_TIMEOUT_SECONDS: Final[float] = 1.0
 CLEANUP_TIMEOUT_SECONDS: Final[float] = 1.0
 
 
@@ -132,11 +133,23 @@ async def _close_browser_with_bound(
     wall_deadline: float,
     cleanup_budget: float,
 ) -> None:
-    remaining = min(cleanup_budget, wall_deadline - asyncio.get_running_loop().time())
-    if remaining <= 0:
+    loop = asyncio.get_running_loop()
+    remaining = wall_deadline - loop.time()
+    timeout = cleanup_budget if remaining <= 0 else min(cleanup_budget, remaining)
+    if timeout <= 0:
         return
+    close_task = asyncio.ensure_future(browser.close())
     try:
-        await asyncio.wait_for(browser.close(), timeout=remaining)
+        await asyncio.wait_for(asyncio.shield(close_task), timeout=timeout)
+    except TimeoutError:
+        close_task.cancel()
+        remaining_after = max(0.0, wall_deadline - loop.time())
+        if remaining_after > 0:
+            with suppress(asyncio.CancelledError, TimeoutError, Exception):
+                await asyncio.wait_for(
+                    asyncio.shield(close_task),
+                    timeout=min(0.02, remaining_after),
+                )
     except Exception:
         return
 
@@ -157,8 +170,10 @@ async def _run_adapter_with_heartbeat(
     async def cancel_adapter() -> None:
         if not adapter_task.done():
             adapter_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await adapter_task
+            remaining = max(0.0, run_deadline - loop.time())
+            if remaining > 0:
+                with suppress(asyncio.CancelledError, TimeoutError, Exception):
+                    await asyncio.wait_for(asyncio.shield(adapter_task), timeout=remaining)
 
     while True:
         remaining = run_deadline - loop.time()
@@ -204,8 +219,11 @@ async def run_job(
 
     loop = asyncio.get_running_loop()
     wall_deadline = loop.time() + RUN_TIMEOUT_SECONDS
-    cleanup_budget = min(CLEANUP_TIMEOUT_SECONDS, max(0.0, RUN_TIMEOUT_SECONDS / 10))
-    work_deadline = wall_deadline - cleanup_budget
+    cleanup_budget = min(CLEANUP_TIMEOUT_SECONDS, max(0.0, RUN_TIMEOUT_SECONDS / 5))
+    finalization_budget = min(FINALIZATION_TIMEOUT_SECONDS, max(0.0, RUN_TIMEOUT_SECONDS / 5))
+    finalization_deadline = wall_deadline - cleanup_budget
+    work_deadline = finalization_deadline - finalization_budget
+
     client = client_factory(config)
     claimed = await _await_with_deadline(
         asyncio.to_thread(client.claim_job_run, config.job_id, config.runner_id),
@@ -213,7 +231,10 @@ async def run_job(
     )
     if not claimed.claimed:
         raise RunnerError("JOB_ALREADY_CLAIMED")
+
+    terminal_call_started = False
     if claimed.job_type != config.job_type:
+        terminal_call_started = True
         await _finish_run(
             client,
             claimed.run_id,
@@ -222,7 +243,7 @@ async def run_job(
             records_read=0,
             error_code="JOB_TYPE_MISMATCH",
             duration_ms=0,
-            deadline=work_deadline,
+            deadline=finalization_deadline,
         )
         raise RunnerError("JOB_TYPE_MISMATCH")
 
@@ -231,9 +252,11 @@ async def run_job(
         if session_factory is None
         else ReadonlyBrowserSession(session_factory=session_factory)
     )
+    browser_started = False
+    started_at = 0.0
     try:
-        started_at = 0.0
         await _await_with_deadline(browser.start(), work_deadline)
+        browser_started = True
         started_at = time.monotonic()
         records_read = await _run_adapter_with_heartbeat(
             client,
@@ -246,6 +269,7 @@ async def run_job(
         duration_ms = max(0, int((time.monotonic() - started_at) * 1000))
         if isinstance(records_read, bool) or records_read < 0:
             raise RunnerError("RUNNER_RESULT_INVALID")
+        terminal_call_started = True
         await _finish_run(
             client,
             claimed.run_id,
@@ -254,21 +278,23 @@ async def run_job(
             records_read=records_read,
             error_code=None,
             duration_ms=duration_ms,
-            deadline=work_deadline,
+            deadline=finalization_deadline,
         )
         return SafeRunSummary(config.job_id, claimed.run_id, "succeeded", records_read)
     except Exception as error:
         error_code = safe_error_code(error)
         duration_ms = max(0, int((time.monotonic() - started_at) * 1000)) if started_at else 0
-        await _finish_run_best_effort(
-            client,
-            claimed.run_id,
-            config.runner_id,
-            records_read=0,
-            error_code=error_code,
-            duration_ms=duration_ms,
-            deadline=wall_deadline,
-        )
+        if browser_started and not terminal_call_started:
+            terminal_call_started = True
+            await _finish_run_best_effort(
+                client,
+                claimed.run_id,
+                config.runner_id,
+                records_read=0,
+                error_code=error_code,
+                duration_ms=duration_ms,
+                deadline=finalization_deadline,
+            )
         raise
     finally:
         await _close_browser_with_bound(

@@ -1,4 +1,5 @@
 import asyncio
+import time
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
@@ -85,8 +86,13 @@ class FakeSession:
 
 
 class SlowStartSession(FakeSession):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.started_event: asyncio.Event = asyncio.Event()
+
     async def start(self) -> None:
-        await asyncio.sleep(1)
+        self.started_event.set()
+        await asyncio.Event().wait()
 
 
 class SlowStopSession(FakeSession):
@@ -94,10 +100,38 @@ class SlowStopSession(FakeSession):
 
     async def stop(self) -> None:
         try:
-            await asyncio.sleep(1)
+            await asyncio.Event().wait()
         except asyncio.CancelledError:
             self.cancelled = True
             raise
+
+
+@dataclass
+class BlockingFinishClient(FakeClient):
+    block_status: str | None = None
+    finish_started: asyncio.Event = field(default_factory=asyncio.Event)
+
+    def finish_job_run(
+        self,
+        run_id: str,
+        runner_id: str,
+        status: str,
+        *,
+        records_read: int,
+        error_code: str | None,
+        duration_ms: int = 0,
+    ) -> None:
+        super().finish_job_run(
+            run_id,
+            runner_id,
+            status,
+            records_read=records_read,
+            error_code=error_code,
+            duration_ms=duration_ms,
+        )
+        if self.block_status is None or status == self.block_status:
+            self.finish_started.set()
+            time.sleep(0.5)
 
 
 class FakeFetch:
@@ -328,5 +362,168 @@ async def test_run_job_keeps_browser_cleanup_inside_the_hard_timeout(
     )
 
     assert summary.status == "succeeded"
+    assert session.cancelled is True
+    assert session.closed is False
+
+
+@pytest.mark.asyncio
+async def test_slow_successful_finish_job_run_does_not_double_finish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+    client = BlockingFinishClient([], block_status="succeeded")
+    session = FakeSession()
+
+    async def adapter(*_: object) -> int:
+        return 2
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "RUNNER_TIMEOUT"
+    assert [call[1] for call in client.finished] == ["succeeded"]
+    assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_slow_failed_finalization_preserves_cleanup_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+    client = BlockingFinishClient([], block_status="failed")
+    session = FakeSession()
+
+    async def adapter(*_: object) -> int:
+        raise RuntimeError("ADAPTER_CRASH")
+
+    with pytest.raises(RuntimeError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        )
+
+    assert str(error.value) == "ADAPTER_CRASH"
+    assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_running_at_deadline_does_not_double_finish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+    monkeypatch.setattr(cli_module, "HEARTBEAT_INTERVAL_SECONDS", 0.005)
+
+    @dataclass
+    class SlowHeartbeatClient(FakeClient):
+        def heartbeat_job(self, job_id: str, runner_id: str) -> None:
+            super().heartbeat_job(job_id, runner_id)
+            time.sleep(0.05)
+
+    client = SlowHeartbeatClient([])
+    session = FakeSession()
+
+    async def adapter(*_: object) -> int:
+        await asyncio.Event().wait()
+        return 2
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "RUNNER_TIMEOUT"
+    assert len(client.finished) == 1
+    assert client.finished[0][:4] == (RUN_ID, "failed", 0, "RUNNER_TIMEOUT")
+    assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_exhausted_finalization_budget_does_not_issue_terminal_call() -> None:
+    from mindx_runner.cli import _finish_run_best_effort
+
+    client = FakeClient([])
+    loop = asyncio.get_running_loop()
+    past_deadline = loop.time() - 1.0
+
+    await _finish_run_best_effort(
+        client,
+        RUN_ID,
+        RUNNER_ID,
+        records_read=0,
+        error_code="RUNNER_TIMEOUT",
+        duration_ms=0,
+        deadline=past_deadline,
+    )
+
+    assert client.finished == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("invalid_result", [-1, True, False, -99])
+async def test_invalid_adapter_result_finalizes_only_once(
+    invalid_result: Any,
+) -> None:
+    client = FakeClient([])
+    session = FakeSession()
+
+    async def adapter(*_: object) -> int:
+        return invalid_result  # type: ignore[return-value]
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "RUNNER_RESULT_INVALID"
+    assert len(client.finished) == 1
+    assert client.finished[0][:4] == (RUN_ID, "failed", 0, "RUNNER_RESULT_INVALID")
+    assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_slow_browser_cleanup_is_bound() -> None:
+    from mindx_runner.browser_driver import ReadonlyBrowserSession
+    from mindx_runner.cli import _close_browser_with_bound
+
+    session = SlowStopSession()
+    browser = ReadonlyBrowserSession(session_factory=lambda **_: session)
+    await browser.start()
+
+    loop = asyncio.get_running_loop()
+    wall_deadline = loop.time() + 0.05
+    cleanup_budget = 0.02
+
+    start_time = loop.time()
+    await _close_browser_with_bound(
+        browser,
+        wall_deadline=wall_deadline,
+        cleanup_budget=cleanup_budget,
+    )
+    elapsed = loop.time() - start_time
+
+    assert elapsed < 0.1
     assert session.cancelled is True
     assert session.closed is False
