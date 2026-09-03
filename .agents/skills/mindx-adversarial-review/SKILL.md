@@ -61,6 +61,17 @@ Try to break the change through relevant dimensions:
 
 When a finding depends on runtime behavior that cannot be proven from the diff, request the smallest deterministic/runtime evidence needed instead of guessing.
 
+## Fix-loop interpretation
+
+`MAX_FIX_LOOPS = 2` means exactly two fix implementation re-entries are allowed for one unchanged `scope_revision`.
+
+- `fix_reentries=0`: no fix re-entry has started yet.
+- atomic controller transition `needs-fix/0 -> implementing/1`: first fix re-entry is allowed.
+- atomic controller transition `needs-fix/1 -> implementing/2`: second fix re-entry is allowed.
+- if the task later returns to `needs-fix` while `fix_reentries=2`, a third implementation re-entry is forbidden and must route to `blocked-owner`.
+
+A task currently in `implementing` or `ready-for-review` with `fix_reentries=2` is not invalid merely because the second permitted re-entry has already been consumed.
+
 ## Finding format
 
 For each material finding include:
@@ -82,4 +93,4 @@ Return exactly one overall recommendation:
 
 `RECOMMEND_PASS` is not `VERIFIED`.
 
-The authoritative `fix_reentries` counter lives in the linked GitHub issue. At `fix_reentries >= 2`, another autonomous implementation re-entry is forbidden and requires `blocked-owner` escalation.
+The authoritative `fix_reentries` counter lives in the linked GitHub issue. Only a new attempted `needs-fix -> implementing` transition with current `fix_reentries >= 2` is forbidden; do not treat a valid second re-entry already at count `2` as an automatic blocker.
