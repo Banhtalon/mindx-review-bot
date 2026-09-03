@@ -66,4 +66,11 @@ jobs:
 
       - name: Pytest browser-runner
         working-directory: apps/browser-runner
-        run: uv run pytest
+        run: |
+          uv run pytest -v --tb=short 2>&1 | tee pytest_output.log || {
+            echo "### ❌ Pytest Failures" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            cat pytest_output.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
