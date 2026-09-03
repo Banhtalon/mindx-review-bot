@@ -1,6 +1,6 @@
 ---
 name: mindx-verify
-description: Verifies MindX Review Bot changes using current-head deterministic gates, current project state, authoritative task control, and runtime/browser proof when required.
+description: Verifies MindX Review Bot changes using current-head deterministic gates, current project state, authoritative task control, independent review controls, and runtime/browser proof when required.
 ---
 
 # MindX Verify
@@ -19,7 +19,8 @@ No model opinion, self-review, or old test result can create final `VERIFIED` st
 4. task acceptance criteria
 5. PR diff
 6. current verification evidence
-7. relevant `docs/evidence/index.json` entries when a live/hosted readiness claim is made
+7. current PR review/approval state and unresolved review threads
+8. relevant `docs/evidence/index.json` entries when a live/hosted readiness claim is made
 
 If control state is missing, malformed, conflicting, or ambiguous, verification is `BLOCKED`.
 
@@ -60,6 +61,8 @@ If a required live prerequisite is unavailable, use `blocked-owner` or `blocked-
 
 Verification evidence must correspond to the current PR head/diff. If code changes after a gate ran, rerun every gate whose result could be invalidated by that change.
 
+A prior approval that is invalidated by a new commit is not current review evidence.
+
 ## Task-control checks
 
 Before moving to `done`, verify:
@@ -71,7 +74,21 @@ Before moving to `done`, verify:
 - any scope-reset counter reset has an Owner-linked approval record;
 - no blocked state is being bypassed.
 
-A failed deterministic gate that requires implementation changes must route to `needs-fix`; the next implementation re-entry consumes one authoritative `fix_reentries` count.
+`MAX_FIX_LOOPS = 2` means `fix_reentries=1` and `fix_reentries=2` are both valid consumed/permitted fix re-entry counts. A third fix implementation attempt is blocked only when a new `needs-fix -> implementing` transition is requested while the current count is already `2`.
+
+A failed deterministic gate that requires implementation changes must route to `needs-fix`; the next implementation re-entry follows that atomic controller rule.
+
+## Independent review checks
+
+Before merge/`done`, verify:
+
+- active branch rules require at least one independent approval;
+- approval is current for the current PR head and not self-approval by the PR author;
+- stale approvals are dismissed after new commits;
+- all material review conversations are resolved;
+- no unresolved P0/P1 finding remains.
+
+A green `verify` check alone is not sufficient if these review controls fail.
 
 ## Completion checklist
 
@@ -79,6 +96,8 @@ Before moving to `done`, confirm:
 
 - acceptance criteria satisfied;
 - required review completed according to risk routing;
+- required independent approval is current;
+- material review threads are resolved;
 - no unresolved material finding;
 - no out-of-scope diff;
 - required deterministic gates PASS on current PR head;
@@ -87,12 +106,12 @@ Before moving to `done`, confirm:
 - `docs/CURRENT_STATE.md` does not contradict the claimed result;
 - no synthetic/local evidence is mislabeled live;
 - any live/hosted claim is supported by the relevant evidence index;
-- repository branch protection/required CI prerequisites are active when this workflow is being treated as controlled.
+- repository branch protection/required CI/review prerequisites are active when this workflow is being treated as controlled.
 
 ## Output
 
 Report gate-by-gate PASS/FAIL/BLOCKED evidence.
 
-Only when all required deterministic gates and control-state checks are PASS may the workflow set `VERIFIED` / `done`.
+Only when all required deterministic gates, control-state checks, and enforced independent-review checks are PASS may the workflow set `VERIFIED` / `done`.
 
-Do not manufacture or infer missing command results.
+Do not manufacture or infer missing command or review results.
