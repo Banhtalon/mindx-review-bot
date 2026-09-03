@@ -4,7 +4,7 @@ Link issue/task/spec:
 
 ## Authoritative Task Control
 
-Linked GitHub issue:
+Linked standalone GitHub issue:
 
 Current control snapshot (reference only; issue is authoritative):
 
@@ -72,7 +72,7 @@ Record results from the **current PR head** only.
 
 - [ ] `AGENTS.md` available
 - [ ] `docs/CURRENT_STATE.md` reviewed
-- [ ] Linked issue Agent Control Block + workflow label checked
+- [ ] Linked standalone issue Agent Control Block + workflow label checked
 - [ ] Requirement and acceptance criteria available
 - [ ] Diff is scoped
 - [ ] Deterministic evidence is attached/current
@@ -93,9 +93,20 @@ If yes, reason:
 
 Authoritative fix-loop state: see linked issue `fix_reentries`.
 
+`MAX_FIX_LOOPS = 2` means fix re-entry counts `1` and `2` are both permitted; a new third re-entry request from `needs-fix` while the current count is already `2` is blocked.
+
 ## Known Limitations / Blockers
 
-Use `blocked-owner` for missing business/scope/live-credential decisions and `blocked-external` for unavailable external prerequisites.
+Use `blocked-owner` for missing business/scope/live-credential/reviewer decisions and `blocked-external` for unavailable external prerequisites.
+
+## Independent Merge Review
+
+- [ ] At least one current independent GitHub approval exists
+- [ ] Approval is not self-approval by the PR author
+- [ ] Approval was not invalidated by a later commit
+- [ ] All material review conversations are resolved
+
+> The active `main` ruleset is expected to enforce these conditions. A green `verify` check alone is not sufficient to merge.
 
 ## Final Verification
 
@@ -107,4 +118,4 @@ Use `blocked-owner` for missing business/scope/live-credential decisions and `bl
 - [ ] `docs/CURRENT_STATE.md` does not contradict the result
 - [ ] Synthetic/local evidence is not mislabeled as live
 
-> AI reviewer recommendations are not final verification. Only required deterministic evidence and valid control state may produce `VERIFIED` / `done`.
+> AI reviewer recommendations are not final verification. Only required deterministic evidence, valid control state, and current enforced independent review may produce `VERIFIED` / `done`.
