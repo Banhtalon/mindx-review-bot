@@ -44,6 +44,9 @@ jobs:
       - name: Verify no live write
         run: npm run verify:no-live-write
 
+      - name: Start local Supabase
+        run: npx supabase start
+
       - name: Reset local Supabase schema
         run: npx supabase db reset
 
