@@ -1,51 +1,52 @@
 ---
 name: mindx-spec-review
-description: Performs a fresh specification-compliance review of MindX Review Bot changes against requirements, acceptance criteria, scope, and tests. Use before adversarial review or final verification.
+description: Fresh specification-compliance review against requirements, acceptance criteria, current project state, scope, and deterministic evidence.
 ---
 
 # MindX Spec Review
 
 ## Review package
 
-Read only what is needed for independent review:
+Read independently:
 
 1. `AGENTS.md`
-2. linked specification/acceptance criteria
-3. PR diff
-4. current deterministic test/CI evidence
-5. known limitations
+2. `docs/CURRENT_STATE.md`
+3. linked GitHub issue Agent Control Block and current workflow-state label
+4. linked specification and acceptance criteria
+5. PR diff
+6. deterministic test/CI evidence from the current PR head
+7. known limitations/blockers
+8. relevant `docs/evidence/index.json` entries when a live/hosted readiness claim is made
 
-Do not rely on the implementer's reasoning transcript.
+Do not rely on implementer reasoning transcripts.
+
+If task control state is missing, malformed, conflicting, or ambiguous, return `BLOCKED`.
 
 ## Review questions
 
 Check whether:
 
 - every acceptance criterion is implemented;
-- implementation behavior matches the written requirement;
+- behavior matches the written requirement;
 - required behavior is missing;
 - extra behavior was added without approval;
-- unrelated files/scope changed;
-- tests actually exercise the acceptance criteria;
-- tests/guards were weakened to fit the implementation;
-- existing safety/privacy boundaries remain intact;
-- a synthetic/local PASS is being incorrectly represented as live proof.
+- unrelated scope changed;
+- tests exercise the acceptance criteria;
+- tests/guards were weakened;
+- safety/privacy boundaries remain intact;
+- `docs/CURRENT_STATE.md` contradicts a readiness or scope claim;
+- synthetic/local evidence is mislabeled as live;
+- any live/hosted claim is supported by the relevant evidence index;
+- issue `state`, workflow label, `scope_revision`, and `fix_reentries` are consistent.
 
 ## Output
 
-Return findings ordered by severity with:
+Return findings ordered by severity with requirement, evidence, expected behavior, and required fix/evidence.
 
-- requirement/AC affected;
-- observed implementation evidence;
-- expected behavior;
-- concrete fix or missing evidence required.
-
-Final verdict must be one of:
+Final verdict must be exactly one of:
 
 - `RECOMMEND_PASS`
 - `NEEDS_FIX`
 - `BLOCKED`
 
 Do not output `VERIFIED`.
-
-If `RECOMMEND_PASS`, the task still requires deterministic final verification.
