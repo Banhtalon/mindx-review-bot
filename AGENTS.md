@@ -9,7 +9,7 @@
 3. `docs/spec/KE_HOACH_MVP_BOT_NHAN_XET_MINDX_V4_BROWSER_USE_SUPABASE.md` — source of truth cho product requirements;
 4. specification/plan được link trong task hiện tại.
 
-Chỉ triển khai phase/task được Owner chỉ định hoặc task đã ở trạng thái `ready-for-implementation`.
+Chỉ triển khai phase/task được Owner chỉ định hoặc task đã ở trạng thái được controller cho phép.
 
 `docs/CURRENT_STATE.md` không được tự ý ghi đè business rule trong master spec.
 
@@ -69,7 +69,7 @@ Không được:
 - tự reset fix-loop counter hoặc workflow state;
 - tự tuyên bố task đã VERIFIED.
 
-Nếu requirement hoặc task control state mơ hồ/xung đột: dừng và trả `BLOCKED`, không đoán.
+Gemini chỉ bắt đầu sửa code khi linked issue đã ở `implementing` và label `implementing` khớp. Nếu requirement hoặc task control state mơ hồ/xung đột: dừng và trả `BLOCKED`, không đoán.
 
 ### Terra xHigh — fresh adversarial reviewer
 
@@ -154,13 +154,18 @@ Rules:
 
 - exactly one primary workflow-state label phải khớp với `state`;
 - worker chỉ đọc control state, không được unattended-edit issue/label/counter;
-- mỗi lần từ `needs-fix` quay lại `implementing` phải tăng `fix_reentries` đúng 1 trước khi code;
-- deterministic verification fail cần code change cũng phải đi qua `needs-fix` và tiêu tốn re-entry kế tiếp;
-- `fix_reentries >= 2` => `blocked-owner`, không được tiếp tục autonomous fix;
+- controller thực hiện transition trước khi worker code;
+- initial implementation: `ready-for-implementation / 0 -> implementing / 0`;
+- fix re-entry chỉ hợp lệ khi current state là `needs-fix` và current `fix_reentries < MAX_FIX_LOOPS`;
+- transition fix phải atomic: controller đồng thời đổi `state/label` sang `implementing` và tăng `fix_reentries` đúng 1;
+- `needs-fix / 0 -> implementing / 1` là fix re-entry thứ nhất, được phép;
+- `needs-fix / 1 -> implementing / 2` là fix re-entry thứ hai, được phép;
+- nếu một re-entry mới được yêu cầu khi task đang `needs-fix` và current `fix_reentries >= 2`, đó là lần thứ ba: không increment, chuyển `blocked-owner`, không code;
+- deterministic verification fail cần code change cũng phải đi qua `needs-fix` và tiêu tốn re-entry kế tiếp theo cùng rule;
 - missing/malformed/conflicting control state => fail closed, trả `BLOCKED`, không sửa code;
 - reset counter chỉ hợp lệ khi `scope_revision` tăng và có `owner_scope_reset` link tới Owner approval record.
 
-`MAX_FIX_LOOPS = 2`.
+`MAX_FIX_LOOPS = 2` nghĩa là **cho phép đúng 2 fix implementation re-entries; chặn lần thứ 3**.
 
 ## Risk routing
 
@@ -204,6 +209,7 @@ Một task chỉ hoàn thành khi:
 - security/privacy checks pass;
 - evidence được tạo;
 - diff được review theo risk routing;
+- không có unresolved material review thread;
 - không có thay đổi ngoài scope;
 - final deterministic verification pass trên current PR head.
 
@@ -234,10 +240,13 @@ Authenticated live-web changes cần thêm browser/E2E evidence phù hợp; unit
 ## Git / PR rules
 
 - Không push feature/fix trực tiếp vào `main`.
-- `main` phải được branch protection/ruleset chặn direct worker push trước khi workflow được coi là controlled.
+- `main` phải được active ruleset chặn direct push/force-push/delete.
+- Required current-head `verify` phải pass và branch phải up-to-date trước merge.
+- Branch rules phải yêu cầu ít nhất 1 approval độc lập hiện hành, dismiss stale approval khi có commit mới, và require review-thread resolution trước merge.
+- PR author không được tự dùng self-approval như independent review evidence.
 - Dùng branch/worktree riêng cho task.
 - PR phải ghi requirement, acceptance criteria, changed/not-changed scope, tests, current-head verification evidence, known limitations và linked task control state.
-- Không merge khi required CI còn đỏ.
+- Không merge khi required CI còn đỏ hoặc required review control chưa đạt.
 - Không dùng review transcript của implementer làm bằng chứng thay cho fresh review hoặc machine verification.
 
 ## Secrets
@@ -259,8 +268,8 @@ Phân biệt hai loại automation:
 1. `.github/workflows/cron-dispatch.yml` là pre-existing read-only **product-job scheduler**; nó có trước migration này, recent scheduled run đang failure và Phase 2 hosted/off-PC vẫn BLOCKED. Migration này không coi nó là bằng chứng pilot cho development agents.
 2. **New unattended development-agent automation** (Antigravity Scheduled Tasks / equivalent) chưa được bật cho tới khi hoàn thành ít nhất một manual pilot:
 
-Owner → Sol plan → Gemini implement → CI → Terra fresh review → Gemini fix nếu cần → final CI → merge.
+Owner → Sol plan → controller transition → Gemini implement → CI → Terra fresh review → controller transition nếu needs-fix → Gemini fix → final CI → merge.
 
-Scheduled development worker phải fail closed nếu Agent Control Block thiếu/sai, label/state mâu thuẫn, `fix_reentries >= 2`, scope reset thiếu Owner approval, task blocked hoặc spec/plan bị thiếu.
+Scheduled development controller phải fail closed nếu Agent Control Block thiếu/sai, label/state mâu thuẫn, third fix re-entry would be attempted at current `fix_reentries >= 2`, scope reset thiếu Owner approval, task blocked hoặc spec/plan bị thiếu. Worker chỉ code sau khi controller đã đưa task sang `implementing` hợp lệ.
 
 Sau pilot mới được đề xuất automation/background handoff cho development workers.
