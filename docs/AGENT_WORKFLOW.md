@@ -17,7 +17,7 @@ GitHub is the shared control plane:
 - CI provides deterministic gates;
 - labels/state communicate handoff without copying chat transcripts between models.
 
-A workflow is not considered controlled until `main` is protected, the required CI check is enforced on the current PR head, and the workflow labels exist.
+A workflow is not considered controlled until `main` is protected, the required current-head CI check is enforced, current independent review cannot be bypassed, unresolved review threads block merge, and the workflow labels exist.
 
 ## Roles
 
@@ -62,7 +62,7 @@ Primary use:
 - review-finding fixes;
 - PR/evidence preparation.
 
-Gemini must stop instead of guessing when spec/business rules are ambiguous.
+Gemini must stop instead of guessing when spec/business rules are ambiguous. Gemini implementation starts only after a controller has moved the authoritative task state to valid `implementing`.
 
 ### Terra xHigh
 
@@ -110,10 +110,14 @@ Rules:
 - the GitHub issue is authoritative; the PR template is only a display/reference surface;
 - exactly one primary workflow-state label must match `state`;
 - implementation workers must have read access to issue state but must not be granted unattended issue/label administration permission;
-- a controller/Owner updates the state and counter;
-- every transition from `needs-fix` back into `implementing` increments `fix_reentries` by exactly 1 before implementation starts;
-- every deterministic verification failure that requires code changes routes through `needs-fix`, so the next implementation re-entry also consumes one count;
-- `fix_reentries >= 2` blocks another autonomous implementation re-entry and routes to `blocked-owner`;
+- a controller/Owner updates state/counter before invoking implementation;
+- initial implementation transition is `ready-for-implementation / fix_reentries=0 -> implementing / fix_reentries=0`;
+- a fix re-entry is allowed only when current state is `needs-fix` and current `fix_reentries < MAX_FIX_LOOPS`;
+- the fix transition is atomic: controller changes `state` and primary label to `implementing` and increments `fix_reentries` exactly once in the same control update;
+- `needs-fix / 0 -> implementing / 1` authorizes fix re-entry #1;
+- `needs-fix / 1 -> implementing / 2` authorizes fix re-entry #2;
+- when a later fix re-entry is requested from `needs-fix` with current `fix_reentries >= 2`, that is the third attempt: do not increment, route to `blocked-owner`, and invoke no implementation;
+- every deterministic verification failure that requires code changes routes through `needs-fix`, so the next implementation re-entry consumes one count under the same rule;
 - missing, malformed, conflicting, or ambiguous control state is fail-closed: scheduled/background workers must make no code change and return `BLOCKED`;
 - a worker may not reset `fix_reentries` itself.
 
@@ -140,30 +144,29 @@ needs-plan
 Sol High
    |
    v
-ready-for-implementation
-   |
-   v
-implementing
-   |
-   v
-ready-for-review
-   |
-   +--> NEEDS_FIX --> needs-fix --(controller increments fix_reentries)--> implementing
-   |
-   +--> BLOCKED --> blocked-owner / blocked-external
-   |
-   +--> RECOMMEND_PASS
-              |
-              v
-        ready-for-verify
-              |
-              v
-       deterministic gates
-          |          |
-        FAIL        PASS
-          |          |
-          v          v
-      needs-fix     done
+ready-for-implementation --(controller, counter stays 0)--> implementing
+                                                        |
+                                                        v
+                                                ready-for-review
+                                                        |
+                         +------------------------------+------------------+
+                         |                              |                  |
+                         v                              v                  v
+                    NEEDS_FIX                       BLOCKED         RECOMMEND_PASS
+                         |                              |                  |
+                         v                              v                  v
+                     needs-fix               blocked-owner /       ready-for-verify
+                         |                    blocked-external             |
+                         |                                               v
+                         |                                      deterministic gates
+                         |                                         |            |
+                         |                                       FAIL          PASS
+                         |                                         |            |
+                         +<------------------------------------ needs-fix        done
+                         |
+                         +-- if counter 0: atomic -> implementing / 1
+                         +-- if counter 1: atomic -> implementing / 2
+                         +-- if counter 2: blocked-owner; no third re-entry
 ```
 
 ## Bounded loop
@@ -174,11 +177,14 @@ For an unchanged task scope:
 
 The authoritative count is `fix_reentries` in the linked GitHub issue control block, not a self-reported PR field.
 
-After two implementation re-entries:
+Meaning:
 
-- stop autonomous iteration;
-- move to `blocked-owner`;
-- summarize unresolved findings and decision needed.
+- count `0`: zero fix re-entries consumed;
+- count `1`: first fix re-entry is/was permitted;
+- count `2`: second fix re-entry is/was permitted;
+- a new third re-entry request while current count is `2` is blocked.
+
+So **exactly two fix implementation re-entries are allowed; the third is blocked**.
 
 ## Task sizing and routing
 
@@ -188,7 +194,7 @@ Examples: copy change, isolated CSS, trivial validation, mechanical test update.
 
 Flow:
 
-Gemini -> scoped tests -> deterministic verification -> merge.
+controller -> Gemini -> scoped tests -> deterministic verification -> merge.
 
 Terra optional unless a safety boundary is touched.
 
@@ -198,7 +204,7 @@ Examples: CRUD slice, import behavior, new page/API behavior, non-trivial auth-a
 
 Flow:
 
-Sol plan -> Gemini -> tests/CI -> fresh spec review -> Terra if risk warrants -> final verification.
+Sol plan -> controller -> Gemini -> tests/CI -> fresh spec review -> Terra if risk warrants -> final verification.
 
 ### High risk
 
@@ -206,7 +212,7 @@ Examples: migrations, student matching/identity, authentication/session, browser
 
 Flow:
 
-Sol spec/architecture -> fresh plan critique -> Sol final plan -> Gemini implementation -> deterministic tests -> fresh spec review -> Terra adversarial review -> Gemini fix -> full verification.
+Sol spec/architecture -> fresh plan critique -> Sol final plan -> controller -> Gemini implementation -> deterministic tests -> fresh spec review -> Terra adversarial review -> controller -> Gemini fix -> full verification.
 
 ## Review package
 
@@ -239,6 +245,7 @@ Ask:
 - Were tests weakened or rewritten to hide a regression?
 - Does `CURRENT_STATE.md` contradict any claimed readiness or scope?
 - If live/hosted readiness is claimed, does the evidence index actually support it?
+- Does the linked issue control block match exactly one primary workflow-state label?
 
 ### Pass 2 — adversarial attack
 
@@ -263,26 +270,43 @@ Reviewer output is one of:
 - `NEEDS_FIX` with findings ordered by severity;
 - `BLOCKED` with missing evidence/decision.
 
+## Independent review enforcement
+
+A green `verify` check is necessary but not sufficient for merge.
+
+The active `main` ruleset must also enforce:
+
+- at least one current independent PR approval;
+- stale approvals are dismissed when new commits are pushed;
+- unresolved review conversations block merge;
+- the PR author cannot use self-approval as independent review evidence.
+
+For a personal repository, this means a second GitHub identity/app capable of valid independent approval is required if the PR is authored by the Owner account. If no such reviewer identity exists, merge remains blocked rather than weakening the review requirement.
+
 ## Gemini fix protocol
 
 For each accepted finding:
 
 1. read the linked issue Agent Control Block;
-2. fail closed if the issue state/counter/label is invalid or `fix_reentries >= 2`;
-3. reproduce or prove the issue where practical;
-4. add regression test first when behavior can be tested deterministically;
-5. make smallest scoped fix;
-6. run focused gates;
-7. run required final gates before returning to review;
-8. update PR evidence.
+2. require the issue to be in valid `implementing` state before code changes;
+3. for a fix re-entry, confirm the controller atomically transitioned from `needs-fix` and incremented the count exactly once;
+4. accept resulting `fix_reentries=1` or `2` as valid permitted fix re-entry counts;
+5. reproduce or prove the issue where practical;
+6. add regression test first when behavior can be tested deterministically;
+7. make smallest scoped fix;
+8. run focused gates;
+9. run required final gates before returning to review;
+10. update PR evidence.
+
+If the task is still `needs-fix` with current `fix_reentries >= 2`, do not perform a third autonomous fix; route `blocked-owner`.
 
 Do not perform unrelated cleanup while fixing a finding.
 
 ## Verification protocol
 
-A model may say `RECOMMEND_PASS`, but a task reaches `done` only when required gates pass on the current PR head.
+A model may say `RECOMMEND_PASS`, but a task reaches `done` only when required gates pass on the current PR head, required independent review is current, and material review conversations are resolved.
 
-If review and CI disagree, CI/runtime evidence wins for final verification, while reviewer findings remain unresolved until explicitly fixed/waived.
+If review and CI disagree, CI/runtime evidence wins for deterministic behavior verification, while reviewer findings remain unresolved until explicitly fixed/waived.
 
 No test result from an earlier commit may be reused as proof for a later changed diff unless the relevant gate reruns.
 
@@ -307,23 +331,24 @@ Before enabling Antigravity Scheduled Tasks or equivalent development workers, v
 
 - `main` is protected and direct worker pushes are blocked;
 - required current-head CI is enforced before merge;
+- independent review controls are enforced by the ruleset;
 - workflow-state labels exist;
 - the linked issue Agent Control Block is present and valid;
 - agents cannot edit/reset the authoritative control counter unattended;
 - blocked states stop execution;
 - retry/review loops are bounded by the authoritative counter;
 - secrets/permissions are scoped;
-- one manual Sol -> Gemini -> Terra pipeline completed successfully.
+- one manual Sol -> controller -> Gemini -> Terra pipeline completed successfully.
 
-After that, Antigravity Scheduled Tasks may be used as a Gemini worker trigger for unambiguous `ready-for-implementation` / `needs-fix` work, while review remains independently triggered for `ready-for-review`.
+A scheduled controller may watch unambiguous `ready-for-implementation` / `needs-fix` tasks, perform the valid control transition, then invoke Gemini. The implementation worker itself starts only from `implementing`.
 
-Scheduled workers must fail closed when:
+Scheduled workers/controllers must fail closed when:
 
 - task issue is missing;
 - Agent Control Block is missing/malformed;
 - workflow label and `state` disagree;
 - multiple primary state labels exist;
-- `fix_reentries >= 2` for a `needs-fix` re-entry;
+- a third fix re-entry would be attempted while current `fix_reentries >= 2`;
 - a scope reset lacks Owner-linked approval;
 - linked spec/plan is missing;
 - task is `blocked-owner` or `blocked-external`.
@@ -335,7 +360,8 @@ Move to `blocked-owner` when:
 - business rule is missing/ambiguous;
 - acceptance criteria conflict;
 - material architecture change is required;
-- authoritative fix re-entry counter reaches the limit;
+- a third fix implementation re-entry would be required for the same scope revision;
+- independent GitHub approval cannot be obtained under the active ruleset;
 - live credential/re-authentication is required;
 - a safety rule would need an exception;
 - a live write path would need enabling;
