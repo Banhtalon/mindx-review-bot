@@ -14,6 +14,7 @@
     {"id": "V4-S0-09", "requirement": "Encrypted browser state lifecycle", "path": "spike-0/V4-S0-09.md", "status": "PASS"},
     {"id": "V4-S0-10", "requirement": "Synthetic privacy and LLM boundary", "path": "spike-0/V4-S0-10.md", "status": "PASS"},
     {"id": "V4-S0-11", "requirement": "Pinned dependency and minute estimate", "path": "spike-0/V4-S0-11.md", "status": "BLOCKED"},
-    {"id": "V4-S0-05-RUNNER", "requirement": "Guarded live runner contract", "path": "spike-0/V4-S0-05-live-runner-contract.md", "status": "BLOCKED"}
+    {"id": "V4-S0-05-RUNNER", "requirement": "Guarded live runner contract", "path": "spike-0/V4-S0-05-live-runner-contract.md", "status": "BLOCKED"},
+    {"id": "V4-S0-05-OWNER-SMOKE-2026-08-14", "requirement": "Owner-controlled read-only browser smoke", "path": "spike-0/V4-S0-05-owner-readonly-smoke-2026-08-14.md", "status": "BLOCKED"}
   ]
 }
