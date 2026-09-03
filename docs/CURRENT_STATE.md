@@ -1,8 +1,8 @@
 # Current Project State
 
-Last workflow baseline: `main` after CLI timeout hardening merge `1c13cb4f3bda8ec8d31da1ede25f2f2a0f1646c9`.
+Last workflow baseline on `main`: CLI timeout hardening merge `1c13cb4f3bda8ec8d31da1ede25f2f2a0f1646c9`.
 
-This file is a routing/status summary for agents. It does not replace the V4 master specification.
+This file is a routing/status summary for agents. It does not replace the V4 master specification. Live GitHub issue/ruleset/CI state is authoritative for rapidly changing workflow-control fields.
 
 ## Current approved work
 
@@ -10,23 +10,38 @@ This file is a routing/status summary for agents. It does not replace the V4 mas
 
 No product feature or Phase 6 implementation is currently approved by this file.
 
+Migration control record: GitHub issue #7 (`[agent] Agent Workflow Migration control record`). Read its live Agent Control Block and primary workflow label before acting; do not copy a stale counter snapshot from this file.
+
 ## Baseline health
 
-- Latest merged CLI timeout hardening has a successful GitHub Actions CI run.
+- Latest merged CLI timeout hardening on `main` has successful GitHub Actions evidence.
 - Existing repository verification includes web lint/typecheck/tests/build, no-secret and no-live-write guards, local Supabase/RLS checks, and Python runner Ruff/Mypy/Pytest.
-- Migration PR #6 current-head CI is GREEN as of the first migration review round.
+- Migration PR #6 had a full current-head `verify` PASS at `ff8283109327662dbf52d0c65d60846a291da303` before the second Terra-finding fix pass.
+- Any later migration commit invalidates that cached CI evidence; the live current PR head must rerun `verify` before merge.
 - Migration work must not weaken any existing gate.
 
 ## Workflow-control readiness
 
-The development-agent workflow is **not yet controlled/ready for unattended execution** because repository-level prerequisites remain incomplete:
+Repository controls now confirmed live on 2026-09-03:
 
-- `main` is currently unprotected (`protected: false` observed on 2026-09-03);
-- required current-head CI is therefore not yet enforced by branch protection/ruleset;
-- canonical workflow-state labels are not yet confirmed/created;
-- these settings require Owner repository configuration before the workflow may be treated as controlled.
+- active ruleset `protect-main` targets the default branch;
+- `main` is protected;
+- pull request is required before merge;
+- required GitHub Actions check is `verify`;
+- strict up-to-date policy is enabled;
+- bypass list is empty and current user cannot bypass;
+- deletion and non-fast-forward/force-push protection are active;
+- all nine canonical workflow-state labels exist.
 
-Do not enable new unattended development agents while any item above remains open.
+However the workflow is **not yet fully controlled for merge/unattended development** because independent-review enforcement is still incomplete in the active ruleset:
+
+- required approving review count is currently `0`;
+- stale approvals are not dismissed after new commits;
+- review-thread resolution is not required before merge.
+
+Before PR #6 may merge, the ruleset must require at least one current independent approval, dismiss stale approvals after pushes, and require review-conversation resolution. If the PR author has no separate GitHub reviewer identity/app able to provide a valid independent approval, treat that as `blocked-owner`; do not weaken the rule silently.
+
+New unattended development-agent automation remains blocked until the migration is merged and one manual pilot succeeds.
 
 ## Product state summary
 
@@ -56,7 +71,7 @@ Observed state:
 - Phase 2 hosted/off-PC closure remains BLOCKED;
 - this migration does not claim the scheduler is healthy, pilot-approved, or evidence that unattended development agents are safe.
 
-Owner decision remains open: keep, disable, or repair the pre-existing product schedule. Until that decision and Phase 2 hosted verification are resolved, do not convert cron failures into PASS by inference.
+Owner decision remains open: keep, disable, or repair the pre-existing product schedule. This is a separate product/ops decision, not permission to bypass the manual development-agent pilot. Until Phase 2 hosted verification is resolved, do not convert cron failures into PASS by inference.
 
 ### Phase 3 — Teaching reader / reconciliation
 
@@ -105,11 +120,11 @@ Still mandatory:
 
 Target pipeline:
 
-Owner -> Sol High plan/spec -> GitHub issue control state/artifact -> Gemini 3.8 Flash implementation/test/fix -> deterministic CI -> Terra xHigh fresh adversarial review -> Gemini fix if required -> final deterministic verification -> merge.
+Owner -> Sol High plan/spec -> GitHub issue control state -> controller transition -> Gemini 3.8 Flash implementation/test/fix -> deterministic CI -> Terra xHigh fresh adversarial review -> controller transition if needed -> Gemini fix -> final deterministic verification -> independent current approval/thread resolution -> merge.
 
 Superpowers remains the shared methodology.
 
-`MAX_FIX_LOOPS = 2`, enforced by the authoritative per-task `fix_reentries` value in the linked GitHub issue Agent Control Block. Workers may not reset that counter; a reset requires a new `scope_revision` plus Owner-linked approval.
+`MAX_FIX_LOOPS = 2` means exactly two fix implementation re-entries are permitted for one unchanged `scope_revision`; the third attempted `needs-fix -> implementing` transition is blocked. The authoritative count lives in the linked GitHub issue Agent Control Block. Workers may not reset it; a reset requires a new `scope_revision` plus Owner-linked approval.
 
 No model may declare final `VERIFIED`.
 
@@ -117,9 +132,15 @@ No model may declare final `VERIFIED`.
 
 Workflow migration blockers:
 
-- protect `main` / require PR and current-head CI;
-- create/confirm canonical workflow-state labels;
-- decide treatment of the failing pre-existing `cron-dispatch` schedule.
+- update `protect-main` to require at least one independent current approval;
+- enable stale-approval dismissal after new commits;
+- require review-thread resolution before merge;
+- rerun current-head `verify` after the second Terra-finding fix pass;
+- obtain fresh Terra re-review with no unresolved P0/P1.
+
+Separate product/ops decision:
+
+- decide whether to keep, temporarily disable, or repair the failing pre-existing `cron-dispatch` schedule.
 
 Product work that requires any of the following must use `blocked-owner` or `blocked-external` rather than guessing:
 
@@ -133,14 +154,17 @@ Product work that requires any of the following must use `blocked-owner` or `blo
 
 ## Next sequence
 
-1. Resolve migration review findings and rerun current-head CI.
-2. Owner protects `main`, requires current-head CI, and creates/validates workflow-state labels.
-3. Fresh Terra re-review confirms no P0/P1 workflow-control blocker remains.
-4. Merge Agent Workflow Migration PR.
-5. Select exactly one small/medium real task as a manual pilot.
-6. Run manual Sol -> Gemini -> CI -> Terra -> CI handoff using a linked Agent Control Block.
-7. Evaluate scope control, finding quality, time/token cost, and deterministic evidence.
-8. Only then consider enabling Antigravity Scheduled Tasks/background development-agent handoff.
+1. Complete Terra review #2 finding fixes under authoritative issue #7 re-entry state.
+2. Owner updates independent-review ruleset controls.
+3. Current PR head reruns `verify` and passes.
+4. Controller returns issue #7 and PR #6 to `ready-for-review` with matching primary labels.
+5. Fresh Terra re-review confirms no unresolved P0/P1 workflow-control blocker remains.
+6. Required GitHub approval is current and all material review threads are resolved.
+7. Merge Agent Workflow Migration PR.
+8. Select exactly one small/medium real task as a manual pilot.
+9. Run manual Sol -> controller -> Gemini -> CI -> Terra -> controller/Gemini fix if needed -> CI handoff using a linked Agent Control Block.
+10. Evaluate scope control, finding quality, time/token cost, and deterministic evidence.
+11. Only then consider enabling Antigravity Scheduled Tasks/background development-agent handoff.
 
 ## Update rule
 
