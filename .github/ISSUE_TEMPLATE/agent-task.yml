@@ -1,0 +1,103 @@
+name: Agent task
+description: Create a controlled Sol/Gemini/Terra development task with authoritative workflow state.
+title: "[agent] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is the authoritative control record for one agent-driven task.
+        Workers may read this state but must not reset/edit the control fields unattended.
+
+  - type: textarea
+    id: requirement
+    attributes:
+      label: Requirement
+      description: Describe the requested behavior and link the governing product requirement/spec.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List objective acceptance criteria before implementation begins.
+    validations:
+      required: true
+
+  - type: input
+    id: spec
+    attributes:
+      label: Specification / plan
+      description: Link the approved spec/plan artifact.
+      placeholder: docs/... or URL
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - small
+        - medium
+        - high
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ## Agent Control Block
+        The values below are authoritative and must match exactly one workflow-state label.
+
+  - type: dropdown
+    id: state
+    attributes:
+      label: state
+      options:
+        - needs-plan
+        - ready-for-implementation
+        - implementing
+        - ready-for-review
+        - needs-fix
+        - ready-for-verify
+        - done
+        - blocked-owner
+        - blocked-external
+    validations:
+      required: true
+
+  - type: input
+    id: scope_revision
+    attributes:
+      label: scope_revision
+      description: Positive integer. Increment only for an Owner-approved material scope revision.
+      value: "1"
+    validations:
+      required: true
+
+  - type: input
+    id: fix_reentries
+    attributes:
+      label: fix_reentries
+      description: Authoritative count of needs-fix -> implementing re-entries. Allowed range 0..2.
+      value: "0"
+    validations:
+      required: true
+
+  - type: input
+    id: owner_scope_reset
+    attributes:
+      label: owner_scope_reset
+      description: Use "none" unless the counter was reset after an Owner-approved scope revision; otherwise link the approval record.
+      value: "none"
+    validations:
+      required: true
+
+  - type: textarea
+    id: blockers
+    attributes:
+      label: Known blockers / limitations
+      description: Record blocked-owner or blocked-external prerequisites without guessing.
+    validations:
+      required: false
