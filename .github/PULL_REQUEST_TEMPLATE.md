@@ -2,6 +2,19 @@
 
 Link issue/task/spec:
 
+## Authoritative Task Control
+
+Linked GitHub issue:
+
+Current control snapshot (reference only; issue is authoritative):
+
+- state:
+- scope_revision:
+- fix_reentries:
+- owner_scope_reset:
+
+> Do not edit/reset authoritative task state through this PR body. Workflow state/counter live in the linked GitHub issue and must match exactly one primary workflow-state label.
+
 ## Specification / Plan
 
 - Spec:
@@ -53,10 +66,14 @@ Record results from the **current PR head** only.
 
 - [ ] Runtime/browser evidence recorded without secrets/PII
 - [ ] Read-only/no-mutation boundary verified
+- [ ] Relevant `docs/evidence/index.json` entries support any live/hosted readiness claim
 
 ## Review Package
 
-- [ ] Requirement and acceptance criteria are available
+- [ ] `AGENTS.md` available
+- [ ] `docs/CURRENT_STATE.md` reviewed
+- [ ] Linked issue Agent Control Block + workflow label checked
+- [ ] Requirement and acceptance criteria available
 - [ ] Diff is scoped
 - [ ] Deterministic evidence is attached/current
 - [ ] Known limitations/blockers are stated
@@ -74,7 +91,7 @@ If yes, reason:
 
 `READY_FOR_REVIEW | NEEDS_FIX | BLOCKED`
 
-Fix loop: `0 / 2`
+Authoritative fix-loop state: see linked issue `fix_reentries`.
 
 ## Known Limitations / Blockers
 
@@ -83,9 +100,11 @@ Use `blocked-owner` for missing business/scope/live-credential decisions and `bl
 ## Final Verification
 
 - [ ] Required reviews resolved
-- [ ] Required deterministic gates green on current diff
+- [ ] Required deterministic gates green on current PR head
+- [ ] Linked issue control state is valid and consistent with its workflow label
 - [ ] No unresolved material findings
 - [ ] No out-of-scope change
+- [ ] `docs/CURRENT_STATE.md` does not contradict the result
 - [ ] Synthetic/local evidence is not mislabeled as live
 
-> AI reviewer recommendations are not final verification. Only required deterministic evidence may produce `VERIFIED` / `done`.
+> AI reviewer recommendations are not final verification. Only required deterministic evidence and valid control state may produce `VERIFIED` / `done`.
