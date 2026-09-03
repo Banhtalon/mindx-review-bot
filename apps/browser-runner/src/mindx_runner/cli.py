@@ -6,7 +6,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Final, Protocol
+from typing import Any, Final, Protocol
 
 from .browser_driver import ReadonlyBrowserSession, SessionFactory
 from .live_runner import LiveRunConfig, load_live_config, safe_error_code
@@ -54,6 +54,7 @@ Adapter = Callable[
 ClientFactory = Callable[[LiveRunConfig], RunnerClient]
 HEARTBEAT_INTERVAL_SECONDS: Final[float] = 30.0
 RUN_TIMEOUT_SECONDS: Final[float] = 12 * 60
+CANCELLATION_GRACE_SECONDS: Final[float] = 1.0
 FINALIZATION_TIMEOUT_SECONDS: Final[float] = 1.0
 CLEANUP_TIMEOUT_SECONDS: Final[float] = 1.0
 
@@ -135,7 +136,9 @@ async def _close_browser_with_bound(
 ) -> None:
     loop = asyncio.get_running_loop()
     remaining = wall_deadline - loop.time()
-    timeout = cleanup_budget if remaining <= 0 else min(cleanup_budget, remaining)
+    if remaining <= 0:
+        return
+    timeout = min(cleanup_budget, remaining)
     if timeout <= 0:
         return
     close_task = asyncio.ensure_future(browser.close())
@@ -151,7 +154,9 @@ async def _close_browser_with_bound(
                     timeout=min(0.02, remaining_after),
                 )
     except Exception:
-        return
+        pass
+    finally:
+        await asyncio.sleep(0)
 
 
 async def _run_adapter_with_heartbeat(
@@ -161,22 +166,42 @@ async def _run_adapter_with_heartbeat(
     browser: ReadonlyBrowserSession,
     adapter: Adapter,
     *,
+    work_deadline: float | None = None,
+    cancellation_deadline: float | None = None,
     deadline: float | None = None,
 ) -> int:
     adapter_task: asyncio.Future[int] = asyncio.ensure_future(adapter(config, claimed, browser))
+
+    def _consume_task(task: asyncio.Future[Any]) -> None:
+        if not task.cancelled():
+            with suppress(Exception):
+                task.exception()
+
+    adapter_task.add_done_callback(_consume_task)
     loop = asyncio.get_running_loop()
-    run_deadline = deadline if deadline is not None else loop.time() + RUN_TIMEOUT_SECONDS
+    work_limit = (
+        work_deadline
+        if work_deadline is not None
+        else (deadline if deadline is not None else loop.time() + RUN_TIMEOUT_SECONDS)
+    )
+    cancel_limit = (
+        cancellation_deadline
+        if cancellation_deadline is not None
+        else work_limit + CANCELLATION_GRACE_SECONDS
+    )
 
     async def cancel_adapter() -> None:
         if not adapter_task.done():
             adapter_task.cancel()
-            remaining = max(0.0, run_deadline - loop.time())
+            remaining = cancel_limit - loop.time()
             if remaining > 0:
                 with suppress(asyncio.CancelledError, TimeoutError, Exception):
                     await asyncio.wait_for(asyncio.shield(adapter_task), timeout=remaining)
+            else:
+                await asyncio.sleep(0)
 
     while True:
-        remaining = run_deadline - loop.time()
+        remaining = work_limit - loop.time()
         if remaining <= 0:
             await cancel_adapter()
             raise RunnerError("RUNNER_TIMEOUT")
@@ -186,7 +211,7 @@ async def _run_adapter_with_heartbeat(
                 timeout=min(HEARTBEAT_INTERVAL_SECONDS, remaining),
             )
         except TimeoutError as error:
-            if loop.time() >= run_deadline:
+            if loop.time() >= work_limit:
                 await cancel_adapter()
                 raise RunnerError("RUNNER_TIMEOUT") from error
             try:
@@ -196,7 +221,7 @@ async def _run_adapter_with_heartbeat(
                         config.job_id,
                         config.runner_id,
                     ),
-                    run_deadline,
+                    work_limit,
                 )
             except BaseException:
                 await cancel_adapter()
@@ -219,10 +244,16 @@ async def run_job(
 
     loop = asyncio.get_running_loop()
     wall_deadline = loop.time() + RUN_TIMEOUT_SECONDS
-    cleanup_budget = min(CLEANUP_TIMEOUT_SECONDS, max(0.0, RUN_TIMEOUT_SECONDS / 5))
-    finalization_budget = min(FINALIZATION_TIMEOUT_SECONDS, max(0.0, RUN_TIMEOUT_SECONDS / 5))
+    cleanup_budget = min(CLEANUP_TIMEOUT_SECONDS, max(0.0, RUN_TIMEOUT_SECONDS * 0.15))
+    finalization_budget = min(FINALIZATION_TIMEOUT_SECONDS, max(0.0, RUN_TIMEOUT_SECONDS * 0.30))
+    cancellation_grace_budget = min(
+        CANCELLATION_GRACE_SECONDS,
+        max(0.0, RUN_TIMEOUT_SECONDS * 0.15),
+    )
+
     finalization_deadline = wall_deadline - cleanup_budget
-    work_deadline = finalization_deadline - finalization_budget
+    cancellation_deadline = finalization_deadline - finalization_budget
+    work_deadline = cancellation_deadline - cancellation_grace_budget
 
     client = client_factory(config)
     claimed = await _await_with_deadline(
@@ -264,7 +295,8 @@ async def run_job(
             claimed,
             browser,
             adapter,
-            deadline=work_deadline,
+            work_deadline=work_deadline,
+            cancellation_deadline=cancellation_deadline,
         )
         duration_ms = max(0, int((time.monotonic() - started_at) * 1000))
         if isinstance(records_read, bool) or records_read < 0:

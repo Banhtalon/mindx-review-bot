@@ -1,5 +1,6 @@
 import asyncio
 import time
+from contextlib import suppress
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
@@ -131,7 +132,7 @@ class BlockingFinishClient(FakeClient):
         )
         if self.block_status is None or status == self.block_status:
             self.finish_started.set()
-            time.sleep(0.5)
+            time.sleep(0.09)
 
 
 class FakeFetch:
@@ -527,3 +528,255 @@ async def test_slow_browser_cleanup_is_bound() -> None:
     assert elapsed < 0.1
     assert session.cancelled is True
     assert session.closed is False
+
+
+@pytest.mark.asyncio
+async def test_close_browser_with_bound_skips_when_wall_deadline_expired() -> None:
+    from mindx_runner.browser_driver import ReadonlyBrowserSession
+    from mindx_runner.cli import _close_browser_with_bound
+
+    close_calls = 0
+
+    class TrackingSession(FakeSession):
+        async def stop(self) -> None:
+            nonlocal close_calls
+            close_calls += 1
+            await super().stop()
+
+    session = TrackingSession()
+    browser = ReadonlyBrowserSession(session_factory=lambda **_: session)
+    await browser.start()
+
+    loop = asyncio.get_running_loop()
+    past_wall_deadline = loop.time() - 1.0
+
+    start_time = loop.time()
+    await _close_browser_with_bound(
+        browser,
+        wall_deadline=past_wall_deadline,
+        cleanup_budget=1.0,
+    )
+    elapsed = loop.time() - start_time
+
+    assert close_calls == 0
+    assert session.closed is False
+    assert elapsed < 0.05
+
+
+@pytest.mark.asyncio
+async def test_adapter_cooperative_cancellation_finishes_before_finalization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+
+    adapter_finished = False
+    adapter_done_at_finalization: bool | None = None
+
+    @dataclass
+    class TrackingFinishClient(FakeClient):
+        def finish_job_run(
+            self,
+            run_id: str,
+            runner_id: str,
+            status: str,
+            *,
+            records_read: int,
+            error_code: str | None,
+            duration_ms: int = 0,
+        ) -> None:
+            nonlocal adapter_done_at_finalization
+            adapter_done_at_finalization = adapter_finished
+            super().finish_job_run(
+                run_id,
+                runner_id,
+                status,
+                records_read=records_read,
+                error_code=error_code,
+                duration_ms=duration_ms,
+            )
+
+    client = TrackingFinishClient([])
+    session = FakeSession()
+
+    async def adapter(*_: object) -> int:
+        nonlocal adapter_finished
+        try:
+            await asyncio.Event().wait()
+        finally:
+            adapter_finished = True
+        return 2
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "RUNNER_TIMEOUT"
+    assert adapter_done_at_finalization is True
+    assert len(client.finished) == 1
+    assert client.finished[0][:4] == (RUN_ID, "failed", 0, "RUNNER_TIMEOUT")
+    assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_adapter_delayed_cancellation_within_grace_completes_before_finalization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+
+    adapter_ended_at = 0.0
+    finalization_started_at = 0.0
+
+    @dataclass
+    class TimingFinishClient(FakeClient):
+        def finish_job_run(
+            self,
+            run_id: str,
+            runner_id: str,
+            status: str,
+            *,
+            records_read: int,
+            error_code: str | None,
+            duration_ms: int = 0,
+        ) -> None:
+            nonlocal finalization_started_at
+            finalization_started_at = time.monotonic()
+            super().finish_job_run(
+                run_id,
+                runner_id,
+                status,
+                records_read=records_read,
+                error_code=error_code,
+                duration_ms=duration_ms,
+            )
+
+    client = TimingFinishClient([])
+    session = FakeSession()
+
+    async def adapter(*_: object) -> int:
+        nonlocal adapter_ended_at
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await asyncio.sleep(0.003)
+            adapter_ended_at = time.monotonic()
+            raise
+        return 2
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "RUNNER_TIMEOUT"
+    assert adapter_ended_at > 0.0
+    assert finalization_started_at >= adapter_ended_at
+    assert len(client.finished) == 1
+    assert client.finished[0][:4] == (RUN_ID, "failed", 0, "RUNNER_TIMEOUT")
+    assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_adapter_exceeding_cancellation_grace_does_not_hang_or_double_finish(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+    client = FakeClient([])
+    session = FakeSession()
+
+    rogue_task: asyncio.Task[Any] | None = None
+
+    async def rogue_adapter(*_: object) -> int:
+        nonlocal rogue_task
+        rogue_task = asyncio.current_task()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            await asyncio.sleep(10)
+            raise
+        return 2
+
+    try:
+        start_time = asyncio.get_running_loop().time()
+        with pytest.raises(RunnerError) as error:
+            await asyncio.wait_for(
+                run_job(
+                    JOB_ID,
+                    ENVIRONMENT,
+                    client_factory=lambda _: client,
+                    session_factory=lambda **_: session,
+                    adapter=rogue_adapter,
+                ),
+                timeout=0.3,
+            )
+        elapsed = asyncio.get_running_loop().time() - start_time
+
+        assert error.value.code == "RUNNER_TIMEOUT"
+        assert elapsed < 0.25
+        assert len(client.finished) <= 1
+        if client.finished:
+            assert client.finished[0][:4] == (RUN_ID, "failed", 0, "RUNNER_TIMEOUT")
+        assert session.closed is True
+    finally:
+        if rogue_task is not None and not rogue_task.done():
+            rogue_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await rogue_task
+
+
+@pytest.mark.asyncio
+async def test_browser_cleanup_does_not_overlap_with_cooperative_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from mindx_runner import cli as cli_module
+
+    monkeypatch.setattr(cli_module, "RUN_TIMEOUT_SECONDS", 0.1)
+    client = FakeClient([])
+
+    adapter_active = False
+    cleanup_started_while_adapter_active = False
+
+    async def adapter(*_: object) -> int:
+        nonlocal adapter_active
+        adapter_active = True
+        try:
+            await asyncio.Event().wait()
+        finally:
+            adapter_active = False
+        return 2
+
+    class TrackingSession(FakeSession):
+        async def stop(self) -> None:
+            nonlocal cleanup_started_while_adapter_active
+            if adapter_active:
+                cleanup_started_while_adapter_active = True
+            await super().stop()
+
+    session = TrackingSession()
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "RUNNER_TIMEOUT"
+    assert cleanup_started_while_adapter_active is False
+    assert session.closed is True
