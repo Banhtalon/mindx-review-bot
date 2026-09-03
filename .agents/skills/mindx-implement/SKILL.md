@@ -1,6 +1,6 @@
 ---
 name: mindx-implement
-description: Implements approved MindX Review Bot tasks with TDD, scoped changes, deterministic verification, and safety guards. Use when coding, debugging, fixing CI, or addressing accepted review findings.
+description: Implements approved MindX Review Bot tasks with TDD, scoped changes, deterministic verification, authoritative task-state checks, and safety guards.
 ---
 
 # MindX Implement
@@ -9,15 +9,29 @@ description: Implements approved MindX Review Bot tasks with TDD, scoped changes
 
 1. `AGENTS.md`
 2. `docs/CURRENT_STATE.md`
-3. linked specification/acceptance criteria
-4. linked implementation plan
-5. current task/PR state
+3. linked GitHub issue Agent Control Block and current workflow-state label
+4. linked specification/acceptance criteria
+5. linked implementation plan
+6. current PR state
 
 ## Entry condition
 
-Start implementation only when the task is explicitly approved or marked `ready-for-implementation` / `needs-fix`.
+Start implementation only when the linked issue control state is valid and is explicitly `ready-for-implementation` or `needs-fix`.
 
-If the specification is ambiguous, conflicts with an ADR, or requires a new business rule, stop with `BLOCKED` rather than inventing behavior.
+Before any `needs-fix` re-entry, a controller must already have incremented authoritative `fix_reentries` by exactly 1. If `fix_reentries >= 2`, do not start another autonomous fix; return `BLOCKED` / `blocked-owner`.
+
+Fail closed and make no code change if:
+
+- linked issue is missing;
+- Agent Control Block is missing/malformed;
+- multiple primary workflow-state labels exist;
+- issue `state` and label disagree;
+- `scope_revision` is invalid;
+- `fix_reentries` is invalid/out of range;
+- a counter reset lacks an Owner-linked scope-reset record;
+- specification/plan is ambiguous or conflicts with an ADR.
+
+Workers must not edit/reset the authoritative issue counter or workflow labels unattended.
 
 ## Method
 
@@ -73,12 +87,13 @@ Authenticated live-web behavior needs appropriate runtime/browser evidence when 
 
 Before `ready-for-review`, provide:
 
+- linked issue and Agent Control Block state;
 - requirement/spec link;
 - acceptance criteria status;
 - changed files/behavior;
 - explicitly not changed scope;
 - tests added/updated;
-- verification results from current diff;
+- verification results from current PR head;
 - known limitations/blockers.
 
 Do not provide chain-of-thought as review evidence.
@@ -87,13 +102,16 @@ Do not provide chain-of-thought as review evidence.
 
 For each accepted Terra finding:
 
-1. reproduce/prove where practical;
-2. add regression coverage;
-3. apply smallest fix;
-4. rerun focused gates;
-5. rerun required final gates;
-6. update PR evidence.
+1. confirm the controller has routed the issue to `needs-fix`;
+2. confirm authoritative `fix_reentries` was incremented before re-entry;
+3. fail closed if the counter/state is invalid or at the limit;
+4. reproduce/prove where practical;
+5. add regression coverage;
+6. apply smallest fix;
+7. rerun focused gates;
+8. rerun required final gates;
+9. update PR evidence.
 
-The same scope may complete at most `MAX_FIX_LOOPS = 2` before owner escalation.
+`MAX_FIX_LOOPS = 2` is controlled by the linked issue `fix_reentries` value, not a PR self-report field.
 
 Never output final `VERIFIED`; deterministic gates own that state.
