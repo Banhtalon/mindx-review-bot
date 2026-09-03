@@ -66,19 +66,23 @@ Không được:
 - mở rộng scope không xin escalation;
 - làm yếu test/safety gate để lấy PASS;
 - waive acceptance criteria;
+- tự reset fix-loop counter hoặc workflow state;
 - tự tuyên bố task đã VERIFIED.
 
-Nếu requirement mơ hồ hoặc xung đột kiến trúc: dừng và trả `BLOCKED`, không đoán.
+Nếu requirement hoặc task control state mơ hồ/xung đột: dừng và trả `BLOCKED`, không đoán.
 
 ### Terra xHigh — fresh adversarial reviewer
 
-Terra bắt đầu từ fresh context và chỉ cần:
+Terra bắt đầu từ fresh context và phải đọc tối thiểu:
 
 - `AGENTS.md`;
+- `docs/CURRENT_STATE.md`;
+- linked GitHub issue Agent Control Block + workflow-state label;
 - task specification;
 - acceptance criteria;
 - PR diff;
-- test/CI evidence.
+- current-head test/CI evidence;
+- relevant `docs/evidence/index.json` entries nếu có claim live/hosted readiness.
 
 Không dựa vào chain-of-thought hoặc reasoning transcript của implementer.
 
@@ -121,7 +125,7 @@ RED → GREEN → REFACTOR → VERIFY.
 
 Role-specific project skills nằm ở `.agents/skills/` và không được làm yếu các Superpowers/safety rules này.
 
-## Task states
+## Task states and authoritative loop counter
 
 Canonical states:
 
@@ -135,11 +139,28 @@ Canonical states:
 - `blocked-owner`;
 - `blocked-external`.
 
-Review/fix loop cho cùng một scope bị giới hạn:
+Mỗi agent-driven task phải link đúng một GitHub issue có **Agent Control Block**:
+
+```text
+state: <canonical state>
+scope_revision: <positive integer>
+fix_reentries: <0..2>
+owner_scope_reset: <none | Owner approval link>
+```
+
+GitHub issue là authoritative source. PR chỉ tham chiếu, không sở hữu counter.
+
+Rules:
+
+- exactly one primary workflow-state label phải khớp với `state`;
+- worker chỉ đọc control state, không được unattended-edit issue/label/counter;
+- mỗi lần từ `needs-fix` quay lại `implementing` phải tăng `fix_reentries` đúng 1 trước khi code;
+- deterministic verification fail cần code change cũng phải đi qua `needs-fix` và tiêu tốn re-entry kế tiếp;
+- `fix_reentries >= 2` => `blocked-owner`, không được tiếp tục autonomous fix;
+- missing/malformed/conflicting control state => fail closed, trả `BLOCKED`, không sửa code;
+- reset counter chỉ hợp lệ khi `scope_revision` tăng và có `owner_scope_reset` link tới Owner approval record.
 
 `MAX_FIX_LOOPS = 2`.
-
-Sau 2 vòng mà vẫn còn finding material, chuyển `blocked-owner` thay vì tự review/fix vô hạn.
 
 ## Risk routing
 
@@ -176,6 +197,7 @@ Thay đổi text/CSS/mechanical nhỏ có thể không cần Terra nếu không 
 Một task chỉ hoàn thành khi:
 
 - acceptance criteria rõ và không còn blocker chưa xử lý;
+- Agent Control Block hợp lệ và state/counter không mâu thuẫn;
 - test RED được chứng minh cho behavior mới/bug fix khi phù hợp;
 - implementation GREEN;
 - required lint/typecheck/test/build pass;
@@ -183,7 +205,7 @@ Một task chỉ hoàn thành khi:
 - evidence được tạo;
 - diff được review theo risk routing;
 - không có thay đổi ngoài scope;
-- final deterministic verification pass.
+- final deterministic verification pass trên current PR head.
 
 ## Required commands
 
@@ -212,8 +234,9 @@ Authenticated live-web changes cần thêm browser/E2E evidence phù hợp; unit
 ## Git / PR rules
 
 - Không push feature/fix trực tiếp vào `main`.
+- `main` phải được branch protection/ruleset chặn direct worker push trước khi workflow được coi là controlled.
 - Dùng branch/worktree riêng cho task.
-- PR phải ghi requirement, acceptance criteria, changed/not-changed scope, tests, verification evidence và known limitations.
+- PR phải ghi requirement, acceptance criteria, changed/not-changed scope, tests, current-head verification evidence, known limitations và linked task control state.
 - Không merge khi required CI còn đỏ.
 - Không dùng review transcript của implementer làm bằng chứng thay cho fresh review hoặc machine verification.
 
@@ -231,8 +254,13 @@ Không yêu cầu Owner gửi mật khẩu, OTP, cookie hoặc token vào chat.
 
 ## Background automation gate
 
-Scheduled/unattended agents chưa được bật cho product work cho tới khi hoàn thành ít nhất một manual pilot theo pipeline:
+Phân biệt hai loại automation:
+
+1. `.github/workflows/cron-dispatch.yml` là pre-existing read-only **product-job scheduler**; nó có trước migration này, recent scheduled run đang failure và Phase 2 hosted/off-PC vẫn BLOCKED. Migration này không coi nó là bằng chứng pilot cho development agents.
+2. **New unattended development-agent automation** (Antigravity Scheduled Tasks / equivalent) chưa được bật cho tới khi hoàn thành ít nhất một manual pilot:
 
 Owner → Sol plan → Gemini implement → CI → Terra fresh review → Gemini fix nếu cần → final CI → merge.
 
-Sau pilot mới được đề xuất automation/background handoff.
+Scheduled development worker phải fail closed nếu Agent Control Block thiếu/sai, label/state mâu thuẫn, `fix_reentries >= 2`, scope reset thiếu Owner approval, task blocked hoặc spec/plan bị thiếu.
+
+Sau pilot mới được đề xuất automation/background handoff cho development workers.
