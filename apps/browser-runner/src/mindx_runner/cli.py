@@ -267,7 +267,7 @@ async def run_job(
             records_read=0,
             error_code=error_code,
             duration_ms=duration_ms,
-            deadline=work_deadline,
+            deadline=wall_deadline,
         )
         raise
     finally:
@@ -276,6 +276,7 @@ async def run_job(
             wall_deadline=wall_deadline,
             cleanup_budget=cleanup_budget,
         )
+
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="mindx-runner")
