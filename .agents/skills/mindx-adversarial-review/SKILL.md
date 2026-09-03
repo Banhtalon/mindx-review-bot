@@ -1,6 +1,6 @@
 ---
 name: mindx-adversarial-review
-description: Performs fresh-context adversarial review for risky MindX Review Bot changes, attacking edge cases, regressions, identity, auth/session, data integrity, privacy, and live-write safety. Use after spec compliance on medium/high-risk changes.
+description: Fresh-context adversarial review for risky MindX Review Bot changes, attacking edge cases, regressions, identity, auth/session, data integrity, privacy, and live-write safety.
 ---
 
 # MindX Adversarial Review
@@ -12,12 +12,17 @@ Start from fresh context.
 Review package:
 
 1. `AGENTS.md`
-2. task specification and acceptance criteria
-3. PR diff
-4. deterministic test/CI evidence
-5. known limitations/blockers
+2. `docs/CURRENT_STATE.md`
+3. linked GitHub issue Agent Control Block and current workflow-state label
+4. task specification and acceptance criteria
+5. PR diff
+6. deterministic test/CI evidence from the current PR head
+7. known limitations/blockers
+8. relevant `docs/evidence/index.json` entries when any live/hosted readiness claim is made
 
 Do not use implementer chain-of-thought or self-review as evidence.
+
+If task control state is missing, malformed, conflicting, or ambiguous, return `BLOCKED`.
 
 ## Mandatory use
 
@@ -49,7 +54,10 @@ Try to break the change through relevant dimensions:
 - secret/PII leakage in logs/evidence/model payloads;
 - accidental Save/Submit/comment mutation;
 - hidden scope expansion;
-- rollback/regression against existing behavior.
+- rollback/regression against existing behavior;
+- mismatch between `docs/CURRENT_STATE.md` and claimed readiness;
+- invalid issue `state`, `scope_revision`, `fix_reentries`, or workflow label;
+- live/hosted claims unsupported by the evidence index.
 
 When a finding depends on runtime behavior that cannot be proven from the diff, request the smallest deterministic/runtime evidence needed instead of guessing.
 
@@ -74,4 +82,4 @@ Return exactly one overall recommendation:
 
 `RECOMMEND_PASS` is not `VERIFIED`.
 
-The same unchanged task scope is limited to `MAX_FIX_LOOPS = 2`. After that, unresolved material findings require `blocked-owner` escalation.
+The authoritative `fix_reentries` counter lives in the linked GitHub issue. At `fix_reentries >= 2`, another autonomous implementation re-entry is forbidden and requires `blocked-owner` escalation.
