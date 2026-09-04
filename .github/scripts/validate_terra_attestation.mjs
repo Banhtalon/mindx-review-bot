@@ -1,13 +1,45 @@
-/* global console */
+﻿/* global console */
 
 import { readFileSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
 import process from "node:process";
 import { URL } from "node:url";
 
+export const CANONICAL_WORKFLOW_STATES = [
+  "needs-plan",
+  "ready-for-implementation",
+  "implementing",
+  "ready-for-review",
+  "needs-fix",
+  "ready-for-verify",
+  "done",
+  "blocked-owner",
+  "blocked-external",
+];
+
+export const REVIEWABLE_CONTROL_STATES = [
+  "ready-for-review",
+  "ready-for-verify",
+];
+
+function findDuplicateKeysInJson(jsonString) {
+  const keyRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"\s*:/g;
+  const seen = new Set();
+  let match;
+  while ((match = keyRegex.exec(jsonString)) !== null) {
+    const key = match[1];
+    if (seen.has(key)) {
+      return key;
+    }
+    seen.add(key);
+  }
+  return null;
+}
+
 /**
  * Parses a string content (either JSON or YAML-like key-value pairs)
  * into a structured attestation object.
+ * Duplicate keys fail closed.
  */
 export function parseTerraAttestationBlock(content) {
   if (!content || typeof content !== "string") {
@@ -18,6 +50,10 @@ export function parseTerraAttestationBlock(content) {
 
   // Try JSON parsing first if wrapped in { ... }
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+    const dupKey = findDuplicateKeysInJson(trimmed);
+    if (dupKey) {
+      return { malformed: true, error: `Duplicate key '${dupKey}' in JSON attestation block` };
+    }
     try {
       const parsed = JSON.parse(trimmed);
       return normalizeAttestation(parsed);
@@ -27,6 +63,7 @@ export function parseTerraAttestationBlock(content) {
   }
 
   // Parse YAML / key-value lines
+  const seenKeys = new Set();
   const result = {};
   const lines = trimmed.split(/\r?\n/);
   for (const line of lines) {
@@ -36,6 +73,14 @@ export function parseTerraAttestationBlock(content) {
     if (colonIdx === -1) continue;
 
     const key = trimmedLine.slice(0, colonIdx).trim();
+    if (seenKeys.has(key)) {
+      return {
+        malformed: true,
+        error: `Duplicate key '${key}' in attestation block`,
+      };
+    }
+    seenKeys.add(key);
+
     let val = trimmedLine.slice(colonIdx + 1).trim();
 
     // Remove quotes
@@ -76,6 +121,7 @@ function normalizeAttestation(raw) {
     "p0",
     "p1",
     "material_findings_resolved",
+    "reviewed_at_utc",
   ];
 
   for (const key of requiredKeys) {
@@ -112,10 +158,12 @@ function normalizeAttestation(raw) {
     };
   }
 
-  if (raw.reviewed_at_utc && isNaN(Date.parse(String(raw.reviewed_at_utc)))) {
+  const reviewedAt = String(raw.reviewed_at_utc).trim();
+  const timestamp = Date.parse(reviewedAt);
+  if (isNaN(timestamp)) {
     return {
       malformed: true,
-      error: "reviewed_at_utc must be a valid ISO-8601 date string",
+      error: `Invalid reviewed_at_utc timestamp: '${reviewedAt}' is not a valid ISO-8601 date string`,
       raw,
     };
   }
@@ -133,7 +181,7 @@ function normalizeAttestation(raw) {
     p0: p0Num,
     p1: p1Num,
     material_findings_resolved: matResolved,
-    reviewed_at_utc: raw.reviewed_at_utc ? String(raw.reviewed_at_utc) : undefined,
+    reviewed_at_utc: reviewedAt,
     raw,
   };
 }
@@ -233,6 +281,120 @@ export function parseAttestationsFromComments(comments) {
 }
 
 /**
+ * Parses Agent Control Block from issue/PR body markdown.
+ */
+export function parseControlBlock(text) {
+  if (!text) return {};
+  const blockMatch = /```text[\r\n]+([\s\S]*?)```/i.exec(text) || [null, text];
+  const content = blockMatch[1] || text;
+  const result = {};
+  for (const line of content.split(/\r?\n/)) {
+    const idx = line.indexOf(":");
+    if (idx !== -1) {
+      const k = line.slice(0, idx).trim();
+      const v = line.slice(idx + 1).trim();
+      if (k === "state" || k === "scope_revision" || k === "fix_reentries" || k === "owner_scope_reset") {
+        result[k] = v;
+      }
+    }
+  }
+  return result;
+}
+
+/**
+ * Validates the authoritative control issue:
+ * 1. Must exist (fetch did not fail)
+ * 2. Must contain valid Agent Control Block (state and scope_revision)
+ * 3. Must match expected scope_revision (if provided)
+ * 4. Must have exactly one primary workflow-state label
+ * 5. Primary label must match Agent Control Block state
+ * 6. State must be reviewable (ready-for-review or ready-for-verify)
+ */
+export function validateControlIssue(issueData, expectedScopeRevision) {
+  if (!issueData || typeof issueData !== "object") {
+    return {
+      valid: false,
+      reason: "ISSUE_FETCH_FAILED",
+      details: "Authoritative control issue could not be fetched or is null/empty.",
+    };
+  }
+
+  const controlBlock = parseControlBlock(issueData.body || "");
+  if (!controlBlock || !controlBlock.state || controlBlock.scope_revision === undefined) {
+    return {
+      valid: false,
+      reason: "MISSING_AGENT_CONTROL_BLOCK",
+      details: "Authoritative control issue is missing a valid Agent Control Block (state and scope_revision required).",
+    };
+  }
+
+  const issueScopeRev = parseInt(controlBlock.scope_revision, 10);
+  if (isNaN(issueScopeRev)) {
+    return {
+      valid: false,
+      reason: "MISSING_AGENT_CONTROL_BLOCK",
+      details: `Agent Control Block scope_revision '${controlBlock.scope_revision}' is not a valid integer.`,
+    };
+  }
+
+  if (expectedScopeRevision !== undefined && issueScopeRev !== Number(expectedScopeRevision)) {
+    return {
+      valid: false,
+      reason: "WRONG_SCOPE_REVISION",
+      details: `Authoritative control issue scope_revision (${issueScopeRev}) does not match expected (${expectedScopeRevision}).`,
+    };
+  }
+
+  const rawLabels = issueData.labels || [];
+  const labelNames = rawLabels
+    .map((l) => (typeof l === "string" ? l : l && l.name))
+    .filter(Boolean);
+  const primaryLabels = labelNames.filter((name) => CANONICAL_WORKFLOW_STATES.includes(name));
+
+  if (primaryLabels.length === 0) {
+    return {
+      valid: false,
+      reason: "ZERO_PRIMARY_STATE_LABELS",
+      details: `Authoritative control issue #${issueData.number || ""} has zero canonical primary workflow-state labels.`,
+    };
+  }
+
+  if (primaryLabels.length > 1) {
+    return {
+      valid: false,
+      reason: "MULTIPLE_PRIMARY_STATE_LABELS",
+      details: `Authoritative control issue #${issueData.number || ""} has multiple primary workflow-state labels: ${primaryLabels.join(", ")}.`,
+    };
+  }
+
+  const primaryLabel = primaryLabels[0];
+  if (primaryLabel !== controlBlock.state) {
+    return {
+      valid: false,
+      reason: "LABEL_STATE_MISMATCH",
+      details: `Authoritative issue primary label '${primaryLabel}' does not match Agent Control Block state '${controlBlock.state}'.`,
+    };
+  }
+
+  if (!REVIEWABLE_CONTROL_STATES.includes(controlBlock.state)) {
+    return {
+      valid: false,
+      reason: "INVALID_CONTROL_STATE",
+      details: `Control issue state '${controlBlock.state}' is not reviewable (must be 'ready-for-review' or 'ready-for-verify').`,
+    };
+  }
+
+  return {
+    valid: true,
+    reason: "OK",
+    controlBlock,
+    primaryLabel,
+    scopeRevision: issueScopeRev,
+    state: controlBlock.state,
+  };
+}
+
+/**
  * Core deterministic validator function.
  */
 export function validateTerraAttestation({
@@ -241,7 +403,19 @@ export function validateTerraAttestation({
   expectedPrNumber,
   expectedControlIssue,
   expectedScopeRevision,
+  controlIssueData,
 }) {
+  // Validate control issue if provided
+  if (controlIssueData !== undefined) {
+    const issueResult = validateControlIssue(controlIssueData, expectedScopeRevision);
+    if (!issueResult.valid) {
+      return issueResult;
+    }
+    if (expectedScopeRevision === undefined) {
+      expectedScopeRevision = issueResult.scopeRevision;
+    }
+  }
+
   if (!attestations || !Array.isArray(attestations) || attestations.length === 0) {
     return {
       valid: false,
@@ -429,25 +603,6 @@ function parseCliArgs() {
   return parsed;
 }
 
-// Parse control block from issue/PR body text
-export function parseControlBlock(text) {
-  if (!text) return {};
-  const blockMatch = /```text[\r\n]+([\s\S]*?)```/i.exec(text) || [null, text];
-  const content = blockMatch[1] || text;
-  const result = {};
-  for (const line of content.split(/\r?\n/)) {
-    const idx = line.indexOf(":");
-    if (idx !== -1) {
-      const k = line.slice(0, idx).trim();
-      const v = line.slice(idx + 1).trim();
-      if (k === "state" || k === "scope_revision" || k === "fix_reentries") {
-        result[k] = v;
-      }
-    }
-  }
-  return result;
-}
-
 /**
  * Main execution routine for CLI.
  */
@@ -467,6 +622,21 @@ async function main() {
       attestations = extractAttestationsFromText(fileContent);
     }
 
+    if (args["control-issue-fetch-fail"]) {
+      console.error("[FAIL] review-gate failed closed: [ISSUE_FETCH_FAILED] Authoritative control issue could not be fetched.");
+      process.exit(1);
+    }
+
+    let controlIssueData;
+    if (args["control-issue-file"]) {
+      try {
+        controlIssueData = JSON.parse(readFileSync(args["control-issue-file"], "utf8"));
+      } catch (err) {
+        console.error(`[FAIL] review-gate failed closed: Failed to read control issue file: ${err.message}`);
+        process.exit(1);
+      }
+    }
+
     const result = validateTerraAttestation({
       attestations,
       expectedHeadSha: args["head-sha"] || process.env.HEAD_SHA,
@@ -481,13 +651,14 @@ async function main() {
         : process.env.SCOPE_REVISION
         ? Number(process.env.SCOPE_REVISION)
         : undefined,
+      controlIssueData,
     });
 
     if (result.valid) {
       console.log(`[PASS] Terra attestation verified: ${JSON.stringify(result.attestation)}`);
       process.exit(0);
     } else {
-      console.error(`[FAIL] Review gate check failed: ${result.reason} - ${result.details}`);
+      console.error(`[FAIL] Review gate check failed: [${result.reason}] ${result.details}`);
       process.exit(1);
     }
   }
@@ -510,7 +681,7 @@ async function main() {
     const pr = await githubApiGet(`https://api.github.com/repos/${repo}/pulls/${prNumber}`, token);
     headSha = headSha || pr.head.sha;
 
-    // Extract control issue and scope_revision from PR body if not provided
+    // Extract control issue number from PR body if not provided
     if (!controlIssue) {
       const issueMatch = /(?:Authoritative control issue|Linked issue|Linked GitHub issue):\s*#?(\d+)/i.exec(pr.body || "");
       if (issueMatch) {
@@ -518,41 +689,48 @@ async function main() {
       }
     }
 
-    if (controlIssue && !scopeRevision) {
-      try {
-        const issue = await githubApiGet(`https://api.github.com/repos/${repo}/issues/${controlIssue}`, token);
-        const cb = parseControlBlock(issue.body);
-        if (cb.scope_revision) {
-          scopeRevision = cb.scope_revision;
-        }
-      } catch (err) {
-        console.warn(`[WARN] Could not fetch linked control issue #${controlIssue}: ${err.message}`);
-      }
+    if (!controlIssue) {
+      console.error("[FAIL] review-gate failed closed: No linked authoritative control issue found in PR body.");
+      process.exit(1);
     }
 
-    // Fallback: parse scope_revision from PR body
-    if (!scopeRevision) {
-      const scopeMatch = /scope_revision:\s*(\d+)/i.exec(pr.body || "");
-      if (scopeMatch) {
-        scopeRevision = scopeMatch[1];
-      }
+    // 2. Fetch linked authoritative control issue from GitHub API (fail closed, NO FALLBACK)
+    let issueData;
+    try {
+      issueData = await githubApiGet(`https://api.github.com/repos/${repo}/issues/${controlIssue}`, token);
+    } catch (err) {
+      console.error(`[FAIL] review-gate failed closed: [ISSUE_FETCH_FAILED] Failed to fetch linked control issue #${controlIssue}: ${err.message}`);
+      process.exit(1);
     }
 
-    // 2. Fetch issue comments & PR reviews
+    // 3. Validate control issue state and labels
+    const issueValidation = validateControlIssue(
+      issueData,
+      scopeRevision ? Number(scopeRevision) : undefined
+    );
+
+    if (!issueValidation.valid) {
+      console.error(`[FAIL] review-gate failed closed: [${issueValidation.reason}] ${issueValidation.details}`);
+      process.exit(1);
+    }
+
+    scopeRevision = issueValidation.scopeRevision;
+
+    // 4. Fetch issue comments & PR reviews
     const comments = await githubApiGet(`https://api.github.com/repos/${repo}/issues/${prNumber}/comments?per_page=100`, token);
     const reviews = await githubApiGet(`https://api.github.com/repos/${repo}/pulls/${prNumber}/reviews?per_page=100`, token);
 
     const allItems = [...(comments || []), ...(reviews || [])];
     const attestations = parseAttestationsFromComments(allItems);
 
-    console.log(`[INFO] Evaluating ${attestations.length} attestation candidate(s) for PR #${prNumber} at head ${headSha}...`);
+    console.log(`[INFO] Evaluating ${attestations.length} attestation candidate(s) for PR #${prNumber} at head ${headSha} (control issue #${controlIssue}, state: ${issueValidation.state}, scope_rev: ${scopeRevision})...`);
 
     const result = validateTerraAttestation({
       attestations,
       expectedHeadSha: headSha,
       expectedPrNumber: Number(prNumber),
-      expectedControlIssue: controlIssue ? Number(controlIssue) : undefined,
-      expectedScopeRevision: scopeRevision ? Number(scopeRevision) : undefined,
+      expectedControlIssue: Number(controlIssue),
+      expectedScopeRevision: Number(scopeRevision),
     });
 
     if (result.valid) {
