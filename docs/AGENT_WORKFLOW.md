@@ -17,7 +17,7 @@ GitHub is the shared control plane:
 - CI provides deterministic gates;
 - labels/state communicate handoff without copying chat transcripts between models.
 
-A workflow is not considered controlled until `main` is protected, the required current-head CI check is enforced, current independent review cannot be bypassed, unresolved review threads block merge, and the workflow labels exist.
+A workflow is not considered controlled until `main` is protected, the required current-head CI checks are enforced, current independent Terra review cannot be bypassed, unresolved review threads block merge, and the workflow labels exist.
 
 ## Roles
 
@@ -79,6 +79,14 @@ Do not provide implementer chain-of-thought/reasoning transcript as review evide
 ### Machine verification
 
 Final authority is deterministic evidence, not model opinion.
+
+For this solo-owner repository, the required merge authority is:
+
+- current-head `verify`;
+- current-head `review-gate` validating a fresh Terra xHigh attestation bound to the exact PR head;
+- required conversation resolution;
+- protected `main` with no bypass actors and no force pushes;
+- `Required approvals = 0` because there is only one GitHub account.
 
 Required gates are task-scope dependent, but the repository baseline includes:
 
@@ -159,6 +167,7 @@ ready-for-implementation --(controller, counter stays 0)--> implementing
                          |                    blocked-external             |
                          |                                               v
                          |                                      deterministic gates
+                         |                                    verify + review-gate
                          |                                         |            |
                          |                                       FAIL          PASS
                          |                                         |            |
@@ -236,168 +245,31 @@ Every non-trivial fresh review must include:
 
 ### Pass 1 — spec compliance
 
-Ask:
+Ask whether the exact current diff satisfies the requirement/spec/acceptance criteria without scope creep.
 
-- Is every acceptance criterion implemented?
-- Is any requirement silently omitted?
-- Did implementation add behavior not requested?
-- Did code change unrelated scope?
-- Were tests weakened or rewritten to hide a regression?
-- Does `CURRENT_STATE.md` contradict any claimed readiness or scope?
-- If live/hosted readiness is claimed, does the evidence index actually support it?
-- Does the linked issue control block match exactly one primary workflow-state label?
+### Pass 2 — adversarial review
 
-### Pass 2 — adversarial attack
+Attack failure modes, trust boundaries, stale-state handling, race/idempotency/retry behavior, auth/session state, PII/privacy, live-write safety, and regressions relevant to the change.
 
-When relevant, attack:
+Terra returns findings with P0/P1/P2/P3 severity and exactly one verdict:
 
-- retries/idempotency;
-- timeout/cancellation/cleanup;
-- partial failure;
-- race/concurrency;
-- auth/session expiry;
-- stale browser state;
-- wrong student/class/session identity;
-- mapping ambiguity;
-- DB/RLS/data integrity;
-- privacy/PII/model payloads;
-- accidental LMS mutation/live-write path;
-- rollback/recovery.
+- `RECOMMEND_PASS`
+- `NEEDS_FIX`
+- `BLOCKED`
 
-Reviewer output is one of:
+Terra never declares final `VERIFIED`.
 
-- `RECOMMEND_PASS`;
-- `NEEDS_FIX` with findings ordered by severity;
-- `BLOCKED` with missing evidence/decision.
+For solo-owner merge authority, a Terra `RECOMMEND_PASS` must be recorded as the structured current-head attestation required by `review-gate`. Any new push changes the PR head SHA and invalidates the prior attestation automatically.
 
-## Independent review enforcement
+## Merge authority
 
-A green `verify` check is necessary but not sufficient for merge.
+A PR may merge only when all applicable conditions are true on the exact current head:
 
-The active `main` ruleset must also enforce:
+- `verify` passes;
+- `review-gate` passes when Terra review is required;
+- required conversation/review threads are resolved;
+- the linked control issue is in a valid verification state and its label matches the Agent Control Block;
+- there are no unresolved P0/P1 findings;
+- required live/runtime evidence exists for claims that depend on authenticated live-web behavior.
 
-- `Required approvals = 0` (solo-owner repository model);
-- dual required status checks: `verify` and `review-gate`;
-- fresh Terra attestation bound to the exact current PR head SHA;
-- automatic attestation invalidation when new commits are pushed (head SHA mismatch);
-- unresolved review conversations/threads block merge;
-- PR author / worker cannot self-attest or bypass review-gate.
-
-## Gemini fix protocol
-
-For each accepted finding:
-
-1. read the linked issue Agent Control Block;
-2. require the issue to be in valid `implementing` state before code changes;
-3. for a fix re-entry, confirm the controller atomically transitioned from `needs-fix` and incremented the count exactly once;
-4. accept resulting `fix_reentries=1` or `2` as valid permitted fix re-entry counts;
-5. reproduce or prove the issue where practical;
-6. add regression test first when behavior can be tested deterministically;
-7. make smallest scoped fix;
-8. run focused gates;
-9. run required final gates before returning to review;
-10. update PR evidence.
-
-If the task is still `needs-fix` with current `fix_reentries >= 2`, do not perform a third autonomous fix; route `blocked-owner`.
-
-Do not perform unrelated cleanup while fixing a finding.
-
-## Solo-owner Terra review gate protocol
-
-Because this is a solo-developer repository with a single human account, requiring a second GitHub human approval (`Required approvals >= 1`) blocks the repo owner from merging pull requests.
-
-Under Scope Revision 2, the repository uses a deterministic machine-enforced gate:
-
-1. **GitHub branch setting**: `Required approvals = 0`.
-2. **Review gate workflow**: `.github/workflows/review-gate.yml` executes on every pull request event and comment.
-3. **Head-SHA binding**: The gate validates a structured Terra attestation bound to the exact current PR head SHA:
-   ```text
-   <!-- TERRA_REVIEW_ATTESTATION_V1 -->
-   reviewer_model: terra-xhigh
-   control_issue: <linked control issue number>
-   scope_revision: <matching scope revision>
-   pr_number: <PR number>
-   head_sha: <40-char current PR head SHA>
-   verdict: RECOMMEND_PASS
-   p0: 0
-   p1: 0
-   material_findings_resolved: true
-   reviewed_at_utc: <ISO-8601 UTC timestamp>
-   <!-- /TERRA_REVIEW_ATTESTATION_V1 -->
-   ```
-   Alternatively, ```terra-attestation or ```json:terra-attestation code blocks are accepted.
-4. **Invalidation on push**: Any new commit pushed to the PR automatically changes `head_sha`, immediately invalidating any prior attestation and causing `review-gate` to fail closed until Terra reviews the new head.
-5. **Later-attestation precedence**: When multiple attestations exist, later review submissions take precedence over earlier ones. Conflicting attestations within the same submission fail closed.
-6. **No worker self-attestation**: Implementation workers (Gemini, Sol) may not post or modify Terra attestations.
-7. **Thread resolution**: All review threads/conversations must be marked resolved before merge.
-
-## Verification protocol
-
-A model may say `RECOMMEND_PASS`, but a task reaches `done` only when all required status checks pass on the current PR head:
-
-1. `verify`: deterministic machine gates (lint, typecheck, tests, build, security guards, Supabase RLS, Python runner);
-2. `review-gate`: deterministic validation of the fresh Terra xHigh attestation bound to the current head SHA;
-3. all review conversation threads are resolved.
-
-If review and CI disagree, CI/runtime evidence wins for deterministic behavior verification, while reviewer findings remain unresolved until explicitly fixed/waived.
-
-No test result or attestation from an earlier commit may be reused as proof for a later changed diff unless the relevant gate reruns.
-
-## Existing product scheduler versus development-agent automation
-
-The repository already contains `.github/workflows/cron-dispatch.yml`. It is a pre-existing **read-only product-job scheduler** for Teaching/LMS dispatch and is not the new Sol/Gemini/Terra development-worker automation defined by this migration.
-
-Important current state:
-
-- the cron workflow predates this migration;
-- recent scheduled execution has failed;
-- hosted/off-PC Phase 2 closure is still BLOCKED;
-- this migration neither treats that scheduler as pilot-approved nor uses its existence as evidence that unattended development workers are safe.
-
-Owner must separately decide whether to keep, disable, or repair that pre-existing product schedule. That decision does not waive the manual pilot requirement for new development-agent automation.
-
-## Background/scheduled development execution
-
-**New unattended development-agent automation** is gated behind a successful manual pilot.
-
-Before enabling Antigravity Scheduled Tasks or equivalent development workers, verify that:
-
-- `main` is protected and direct worker pushes are blocked;
-- required current-head CI is enforced before merge;
-- independent review controls are enforced by the ruleset;
-- workflow-state labels exist;
-- the linked issue Agent Control Block is present and valid;
-- agents cannot edit/reset the authoritative control counter unattended;
-- blocked states stop execution;
-- retry/review loops are bounded by the authoritative counter;
-- secrets/permissions are scoped;
-- one manual Sol -> controller -> Gemini -> Terra pipeline completed successfully.
-
-A scheduled controller may watch unambiguous `ready-for-implementation` / `needs-fix` tasks, perform the valid control transition, then invoke Gemini. The implementation worker itself starts only from `implementing`.
-
-Scheduled workers/controllers must fail closed when:
-
-- task issue is missing;
-- Agent Control Block is missing/malformed;
-- workflow label and `state` disagree;
-- multiple primary state labels exist;
-- a third fix re-entry would be attempted while current `fix_reentries >= 2`;
-- a scope reset lacks Owner-linked approval;
-- linked spec/plan is missing;
-- task is `blocked-owner` or `blocked-external`.
-
-## Owner escalation conditions
-
-Move to `blocked-owner` when:
-
-- business rule is missing/ambiguous;
-- acceptance criteria conflict;
-- material architecture change is required;
-- a third fix implementation re-entry would be required for the same scope revision;
-- Terra review or review-gate requirements cannot be satisfied under the active ruleset;
-- live credential/re-authentication is required;
-- a safety rule would need an exception;
-- a live write path would need enabling;
-- merge risk is high and deterministic evidence is insufficient.
-
-Move to `blocked-external` when a required external service/site/environment is unavailable or cannot be verified safely.
+No model may declare `VERIFIED`; deterministic machine evidence is the final authority.
