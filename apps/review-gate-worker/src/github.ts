@@ -181,6 +181,11 @@ export interface ExistingCheckRun {
   status: string;
   conclusion?: string | null;
   external_id?: string | null;
+  app?: {
+    id: number;
+    name?: string;
+    slug?: string;
+  };
 }
 
 /**
@@ -237,16 +242,31 @@ export async function fetchAllIssueComments(
 /**
  * Searches for an existing check run by check name on exact current head SHA.
  * GET /repos/:owner/:repo/commits/:ref/check-runs?check_name=:name
+ * If expectedAppId is provided, filters to runs owned by that app.
+ * Fails closed with AMBIGUOUS_CHECK_RUNS if multiple runs match.
  */
 export async function findExistingCheckRun(
   repo: string,
   headSha: string,
   checkName: string,
   token: string,
-  fetchFn: typeof fetch = fetch
+  expectedAppIdOrFetchFn?: number | typeof fetch,
+  fetchFn?: typeof fetch
 ): Promise<ExistingCheckRun | null> {
+  let expectedAppId: number | undefined;
+  let actualFetch: typeof fetch = fetch;
+
+  if (typeof expectedAppIdOrFetchFn === "function") {
+    actualFetch = expectedAppIdOrFetchFn;
+  } else {
+    expectedAppId = expectedAppIdOrFetchFn;
+    if (typeof fetchFn === "function") {
+      actualFetch = fetchFn;
+    }
+  }
+
   const url = `https://api.github.com/repos/${repo}/commits/${headSha}/check-runs?check_name=${encodeURIComponent(checkName)}`;
-  const res = await fetchFn(url, {
+  const res = await actualFetch(url, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
@@ -256,7 +276,9 @@ export async function findExistingCheckRun(
 
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`Failed to query check runs for commit ${headSha} (${res.status}): ${body}`);
+    const err = new Error(`Failed to query check runs for commit ${headSha} (${res.status}): ${body}`);
+    (err as unknown as { code: string }).code = "CHECK_RUN_QUERY_FAILED";
+    throw err;
   }
 
   const data = (await res.json()) as {
@@ -264,11 +286,24 @@ export async function findExistingCheckRun(
     check_runs?: ExistingCheckRun[];
   };
 
-  if (Array.isArray(data.check_runs) && data.check_runs.length > 0) {
-    return data.check_runs[0];
+  const runs = Array.isArray(data.check_runs) ? data.check_runs : [];
+
+  const filtered = expectedAppId !== undefined
+    ? runs.filter((r) => r.app && Number(r.app.id) === Number(expectedAppId))
+    : runs;
+
+  if (filtered.length === 0) {
+    return null;
   }
 
-  return null;
+  if (filtered.length > 1) {
+    const ids = filtered.map((r) => r.id).join(", ");
+    const err = new Error(`AMBIGUOUS_CHECK_RUNS: Multiple matching check runs (${ids}) found for commit ${headSha} and check '${checkName}'.`);
+    (err as unknown as { code: string }).code = "AMBIGUOUS_CHECK_RUNS";
+    throw err;
+  }
+
+  return filtered[0];
 }
 
 /**

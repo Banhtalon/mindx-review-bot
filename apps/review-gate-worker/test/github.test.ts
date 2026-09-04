@@ -180,6 +180,88 @@ describe("GitHub Adapter & Crypto", () => {
       expect(found).toBeNull();
     });
 
+    it("findExistingCheckRun filters by expectedAppId and rejects foreign checks", async () => {
+      const mockFetch = async () =>
+        new Response(
+          JSON.stringify({
+            total_count: 1,
+            check_runs: [
+              {
+                id: 11111,
+                name: "terra-review-gate",
+                head_sha: "abc1234567890abcdef1234567890abcdef12345",
+                status: "completed",
+                app: { id: 999 }, // Foreign app
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+
+      const found = await findExistingCheckRun(
+        "Banhtalon/mindx-review-bot",
+        "abc1234567890abcdef1234567890abcdef12345",
+        "terra-review-gate",
+        "mock-token",
+        12345, // Expected app ID
+        mockFetch as unknown as typeof fetch
+      );
+
+      expect(found).toBeNull();
+    });
+
+    it("findExistingCheckRun throws AMBIGUOUS_CHECK_RUNS if multiple check runs match", async () => {
+      const mockFetch = async () =>
+        new Response(
+          JSON.stringify({
+            total_count: 2,
+            check_runs: [
+              {
+                id: 11111,
+                name: "terra-review-gate",
+                head_sha: "abc1234567890abcdef1234567890abcdef12345",
+                status: "completed",
+                app: { id: 12345 },
+              },
+              {
+                id: 22222,
+                name: "terra-review-gate",
+                head_sha: "abc1234567890abcdef1234567890abcdef12345",
+                status: "in_progress",
+                app: { id: 12345 },
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+
+      await expect(
+        findExistingCheckRun(
+          "Banhtalon/mindx-review-bot",
+          "abc1234567890abcdef1234567890abcdef12345",
+          "terra-review-gate",
+          "mock-token",
+          12345,
+          mockFetch as unknown as typeof fetch
+        )
+      ).rejects.toThrow("AMBIGUOUS_CHECK_RUNS");
+    });
+
+    it("findExistingCheckRun throws on API failure (does not swallow error)", async () => {
+      const mockFetch = async () =>
+        new Response("Server Error", { status: 500 });
+
+      await expect(
+        findExistingCheckRun(
+          "Banhtalon/mindx-review-bot",
+          "abc1234567890abcdef1234567890abcdef12345",
+          "terra-review-gate",
+          "mock-token",
+          mockFetch as unknown as typeof fetch
+        )
+      ).rejects.toThrow("Failed to query check runs");
+    });
+
     it("creates check run enforcing check name 'terra-review-gate'", async () => {
       let capturedPayload: unknown;
       const mockFetch = async (_url: RequestInfo | URL, init?: RequestInit) => {

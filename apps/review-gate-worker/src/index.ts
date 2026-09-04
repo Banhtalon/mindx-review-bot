@@ -1,6 +1,8 @@
 import { generateAppJwt, getInstallationAccessToken, verifyWebhookSignature } from "./github.ts";
+import { InMemoryEvaluationGuard } from "./guard.ts";
 import { evaluateReviewGateService } from "./service.ts";
-import { PILOT_TRUSTED_CONFIG, TrustedMappingConfig } from "./types.ts";
+import { EvaluationGuard, TrustedMappingConfig } from "./types.ts";
+import { parseCanonicalNonNegativeInteger } from "./validator.ts";
 
 export interface WorkerEnv {
   GITHUB_APP_ID: string;
@@ -24,13 +26,110 @@ export interface WebhookHandlerResponse {
   body: string;
 }
 
+const defaultGuard = new InMemoryEvaluationGuard();
+
+/**
+ * Validates and parses deployment trusted configuration from WorkerEnv.
+ * Rejects non-canonical numbers, missing variables, or pilot requirement mismatches fail-closed.
+ */
+export function parseAndValidateTrustedEnv(env: WorkerEnv): {
+  valid: true;
+  config: TrustedMappingConfig;
+} | {
+  valid: false;
+  reason: string;
+  details: string;
+} {
+  if (!env.TRUSTED_REPO || typeof env.TRUSTED_REPO !== "string" || !env.TRUSTED_REPO.trim()) {
+    return {
+      valid: false,
+      reason: "MISSING_TRUSTED_CONFIG",
+      details: "TRUSTED_REPO environment variable is missing or empty.",
+    };
+  }
+  if (env.TRUSTED_PR_NUMBER === undefined || env.TRUSTED_PR_NUMBER === null || env.TRUSTED_PR_NUMBER === "") {
+    return {
+      valid: false,
+      reason: "MISSING_TRUSTED_CONFIG",
+      details: "TRUSTED_PR_NUMBER environment variable is missing or empty.",
+    };
+  }
+  if (env.TRUSTED_CONTROL_ISSUE === undefined || env.TRUSTED_CONTROL_ISSUE === null || env.TRUSTED_CONTROL_ISSUE === "") {
+    return {
+      valid: false,
+      reason: "MISSING_TRUSTED_CONFIG",
+      details: "TRUSTED_CONTROL_ISSUE environment variable is missing or empty.",
+    };
+  }
+  if (env.TRUSTED_SCOPE_REVISION === undefined || env.TRUSTED_SCOPE_REVISION === null || env.TRUSTED_SCOPE_REVISION === "") {
+    return {
+      valid: false,
+      reason: "MISSING_TRUSTED_CONFIG",
+      details: "TRUSTED_SCOPE_REVISION environment variable is missing or empty.",
+    };
+  }
+
+  const prNum = parseCanonicalNonNegativeInteger(env.TRUSTED_PR_NUMBER);
+  if (prNum === null || prNum < 1) {
+    return {
+      valid: false,
+      reason: "MALFORMED_TRUSTED_CONFIG",
+      details: `TRUSTED_PR_NUMBER '${env.TRUSTED_PR_NUMBER}' is not a canonical positive integer.`,
+    };
+  }
+
+  const issueNum = parseCanonicalNonNegativeInteger(env.TRUSTED_CONTROL_ISSUE);
+  if (issueNum === null || issueNum < 1) {
+    return {
+      valid: false,
+      reason: "MALFORMED_TRUSTED_CONFIG",
+      details: `TRUSTED_CONTROL_ISSUE '${env.TRUSTED_CONTROL_ISSUE}' is not a canonical positive integer.`,
+    };
+  }
+
+  const scopeRev = parseCanonicalNonNegativeInteger(env.TRUSTED_SCOPE_REVISION);
+  if (scopeRev === null || scopeRev < 1) {
+    return {
+      valid: false,
+      reason: "MALFORMED_TRUSTED_CONFIG",
+      details: `TRUSTED_SCOPE_REVISION '${env.TRUSTED_SCOPE_REVISION}' is not a canonical positive integer.`,
+    };
+  }
+
+  // For this pilot, must resolve exactly to:
+  // Banhtalon/mindx-review-bot, PR 6, Issue 7, scope revision 3
+  if (
+    env.TRUSTED_REPO.trim().toLowerCase() !== "banhtalon/mindx-review-bot" ||
+    prNum !== 6 ||
+    issueNum !== 7 ||
+    scopeRev !== 3
+  ) {
+    return {
+      valid: false,
+      reason: "TRUSTED_CONFIG_MISMATCH",
+      details: `Trusted deployment configuration (${env.TRUSTED_REPO} PR #${prNum}, Issue #${issueNum}, rev ${scopeRev}) does not match pilot requirements (Banhtalon/mindx-review-bot, PR 6, Issue 7, rev 3).`,
+    };
+  }
+
+  return {
+    valid: true,
+    config: {
+      repo: env.TRUSTED_REPO.trim(),
+      prNumber: prNum,
+      controlIssue: issueNum,
+      scopeRevision: scopeRev,
+    },
+  };
+}
+
 /**
  * Serverless / Edge / Node HTTP request handler for the GitHub App webhook.
  */
 export async function handleWebhookRequest(
   request: WebhookHandlerRequest,
   env: WorkerEnv,
-  fetchFn: typeof fetch = fetch
+  fetchFn: typeof fetch = fetch,
+  guard: EvaluationGuard = defaultGuard
 ): Promise<WebhookHandlerResponse> {
   if (request.method !== "POST") {
     return { status: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
@@ -49,6 +148,21 @@ export async function handleWebhookRequest(
     return { status: 401, body: JSON.stringify({ error: "Invalid webhook signature" }) };
   }
 
+  // Validate non-PR-controlled trusted configuration
+  const configValidation = parseAndValidateTrustedEnv(env);
+  if (!configValidation.valid) {
+    return {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        error: configValidation.reason,
+        details: configValidation.details,
+      }),
+    };
+  }
+
+  const trustedConfig = configValidation.config;
+
   const event = request.headers["x-github-event"] || request.headers["X-GitHub-Event"];
 
   let payload: Record<string, unknown>;
@@ -57,13 +171,6 @@ export async function handleWebhookRequest(
   } catch {
     return { status: 400, body: JSON.stringify({ error: "Invalid JSON body" }) };
   }
-
-  const trustedConfig: TrustedMappingConfig = {
-    repo: env.TRUSTED_REPO || PILOT_TRUSTED_CONFIG.repo,
-    prNumber: env.TRUSTED_PR_NUMBER ? Number(env.TRUSTED_PR_NUMBER) : PILOT_TRUSTED_CONFIG.prNumber,
-    controlIssue: env.TRUSTED_CONTROL_ISSUE ? Number(env.TRUSTED_CONTROL_ISSUE) : PILOT_TRUSTED_CONFIG.controlIssue,
-    scopeRevision: env.TRUSTED_SCOPE_REVISION ? Number(env.TRUSTED_SCOPE_REVISION) : PILOT_TRUSTED_CONFIG.scopeRevision,
-  };
 
   let prNumber: number | undefined;
   let repoFullName: string | undefined;
@@ -92,11 +199,20 @@ export async function handleWebhookRequest(
       return { status: 200, body: JSON.stringify({ ignored: true, reason: `Action '${action}' not relevant` }) };
     }
     const issue = payload.issue as { number?: number; pull_request?: unknown };
-    // Only process comments on pull requests
-    if (!issue?.pull_request) {
-      return { status: 200, body: JSON.stringify({ ignored: true, reason: "Comment is not on a pull request" }) };
+    if (issue?.pull_request) {
+      prNumber = issue.number;
+    } else if (issue?.number === trustedConfig.controlIssue) {
+      // Recompute PR #6 review gate when comments on authoritative control issue #7 are mutated or deleted
+      prNumber = trustedConfig.prNumber;
+    } else {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          ignored: true,
+          reason: `Comment is neither on PR #${trustedConfig.prNumber} nor control issue #${trustedConfig.controlIssue}`,
+        }),
+      };
     }
-    prNumber = issue.number;
   } else if (event === "issues") {
     const action = payload.action as string;
     const relevantActions = ["edited", "labeled", "unlabeled", "opened", "reopened", "closed"];
@@ -137,6 +253,8 @@ export async function handleWebhookRequest(
       prNumber,
       token,
       trustedConfig,
+      expectedAppId: Number(env.GITHUB_APP_ID),
+      guard,
       fetchFn,
     });
 

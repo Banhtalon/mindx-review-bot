@@ -9,11 +9,14 @@ import {
 import {
   extractOwnerAttestationsFromComments,
   parseCanonicalNonNegativeInteger,
+  parseOwnerScopeResetApproval,
+  validateControlIssue,
+  validateOwnerScopeResetUrl,
   validateReviewGate,
 } from "./validator.ts";
 import {
+  EvaluationGuard,
   GitHubCheckRunPayload,
-  PILOT_TRUSTED_CONFIG,
   TRUSTED_CHECK_NAME,
   TrustedMappingConfig,
   ValidationResult,
@@ -25,6 +28,8 @@ export interface EvaluateReviewGateServiceOptions {
   token: string;
   trustedConfig?: TrustedMappingConfig;
   checkRunId?: number;
+  expectedAppId?: number;
+  guard?: EvaluationGuard;
   fetchFn?: typeof fetch;
 }
 
@@ -37,6 +42,7 @@ export interface EvaluateReviewGateServiceResult {
 
 /**
  * Validates trusted mapping configuration.
+ * Missing, non-object, empty repo, or non-canonical positive integers fail closed.
  */
 export function validateTrustedConfig(
   config: unknown
@@ -110,8 +116,8 @@ export function extractCommentIdFromUrl(url: string): string | null {
 
 /**
  * Emits or updates the terra-review-gate check run on exact current head SHA.
- * Finds existing check run on headSha to update (PATCH) for idempotency,
- * or creates a new one (POST) with external_id if none exists.
+ * Queries existing check run on headSha to update (PATCH), or creates a new one (POST).
+ * Lookup errors fail closed.
  */
 export async function emitReviewGateCheckRun(
   repo: string,
@@ -120,17 +126,26 @@ export async function emitReviewGateCheckRun(
   result: ValidationResult,
   token: string,
   explicitCheckRunId?: number,
-  fetchFn: typeof fetch = fetch
+  expectedAppIdOrFetchFn?: number | typeof fetch,
+  fetchFn?: typeof fetch
 ): Promise<{ id: number; url: string }> {
+  let expectedAppId: number | undefined;
+  let actualFetch: typeof fetch = fetch;
+
+  if (typeof expectedAppIdOrFetchFn === "function") {
+    actualFetch = expectedAppIdOrFetchFn;
+  } else {
+    expectedAppId = expectedAppIdOrFetchFn;
+    if (typeof fetchFn === "function") {
+      actualFetch = fetchFn;
+    }
+  }
+
   let checkRunId = explicitCheckRunId;
   if (!checkRunId) {
-    try {
-      const existing = await findExistingCheckRun(repo, headSha, TRUSTED_CHECK_NAME, token, fetchFn);
-      if (existing) {
-        checkRunId = existing.id;
-      }
-    } catch {
-      // If query fails, fall through to create
+    const existing = await findExistingCheckRun(repo, headSha, TRUSTED_CHECK_NAME, token, expectedAppId, actualFetch);
+    if (existing) {
+      checkRunId = existing.id;
     }
   }
 
@@ -139,18 +154,18 @@ export async function emitReviewGateCheckRun(
     external_id: `${TRUSTED_CHECK_NAME}:${prNumber}`,
   };
 
-  return createOrUpdateCheckRun(repo, checkRunPayload, token, checkRunId, fetchFn);
+  return createOrUpdateCheckRun(repo, checkRunPayload, token, checkRunId, actualFetch);
 }
 
 /**
  * Full review-gate service evaluation:
- * - Re-fetches current PR head SHA directly from GitHub API (never trusts webhook SHA)
- * - Enforces non-PR-controlled trusted deployment configuration
- * - Re-fetches control issue from GitHub API
- * - Re-fetches scope-reset comment if scope_revision > 1
- * - Fetches all PR top-level comments with exhaustive pagination
- * - Evaluates validation rules
- * - Emits or updates terra-review-gate check run on exact current head SHA
+ * - Re-fetches current PR head SHA directly from GitHub API (never trusts webhook SHA).
+ * - Enforces non-PR-controlled trusted deployment configuration (no production fallback).
+ * - Immediately moves/recreates check run to `in_progress` on exact head SHA.
+ * - Any subsequent read, parse, validation, or API error updates the check run to `failure`.
+ * - Binds scope-reset authority exclusively to the parsed AGENT_CONTROL_BLOCK_V1.
+ * - Validates scope-reset comment location metadata and comment ID.
+ * - Checks monotonic evaluation version guard to prevent stale out-of-order success writes.
  */
 export async function evaluateReviewGateService(
   options: EvaluateReviewGateServiceOptions
@@ -161,171 +176,186 @@ export async function evaluateReviewGateService(
   const pr = await fetchPullRequest(repo, prNumber, token, fetchFn);
   const currentHeadSha = pr.head.sha;
 
-  // 2. Validate trusted configuration (never derive control issue or scope revision from PR body)
-  const rawConfig = options.trustedConfig !== undefined ? options.trustedConfig : PILOT_TRUSTED_CONFIG;
-  const configValidation = validateTrustedConfig(rawConfig);
-  if (!configValidation.valid) {
-    const failResult: ValidationResult = {
-      valid: false,
-      reason: configValidation.reason,
-      details: configValidation.details,
-    };
-    const checkRun = await emitReviewGateCheckRun(
-      repo,
-      prNumber,
-      currentHeadSha,
-      failResult,
-      token,
-      options.checkRunId,
-      fetchFn
-    );
-    return {
-      valid: false,
-      headSha: currentHeadSha,
-      validationResult: failResult,
-      checkRun,
-    };
-  }
+  // 2. Acquire evaluation version claim to detect stale concurrent runs
+  const claim = options.guard ? await options.guard.acquireVersion(repo, prNumber) : null;
+  const versionTag = claim ? `:v${claim.version}` : "";
+  const externalId = `${TRUSTED_CHECK_NAME}:${prNumber}${versionTag}`;
 
-  const trustedConfig = configValidation.config;
-
-  // Verify incoming repo and prNumber match trustedConfig
-  if (
-    repo.toLowerCase() !== trustedConfig.repo.toLowerCase() ||
-    prNumber !== trustedConfig.prNumber
-  ) {
-    const failResult: ValidationResult = {
-      valid: false,
-      reason: "TRUSTED_CONFIG_MISMATCH",
-      details: `Incoming PR (${repo} #${prNumber}) does not match trusted deployment configuration (${trustedConfig.repo} #${trustedConfig.prNumber}).`,
-    };
-    const checkRun = await emitReviewGateCheckRun(
-      repo,
-      prNumber,
-      currentHeadSha,
-      failResult,
-      token,
-      options.checkRunId,
-      fetchFn
-    );
-    return {
-      valid: false,
-      headSha: currentHeadSha,
-      validationResult: failResult,
-      checkRun,
-    };
-  }
-
-  const controlIssueNum = trustedConfig.controlIssue;
-  const expectedScopeRevision = trustedConfig.scopeRevision;
-
-  // 3. Fetch control issue
-  let controlIssueData;
-  try {
-    controlIssueData = await fetchIssue(repo, controlIssueNum, token, fetchFn);
-  } catch (err) {
-    const failResult: ValidationResult = {
-      valid: false,
-      reason: "ISSUE_FETCH_FAILED",
-      details: `Failed to fetch authoritative control issue #${controlIssueNum}: ${(err as Error).message}`,
-    };
-    const checkRun = await emitReviewGateCheckRun(
-      repo,
-      prNumber,
-      currentHeadSha,
-      failResult,
-      token,
-      options.checkRunId,
-      fetchFn
-    );
-    return {
-      valid: false,
-      headSha: currentHeadSha,
-      validationResult: failResult,
-      checkRun,
-    };
-  }
-
-  // 4. Fetch scope-reset comment if referenced
-  let scopeResetCommentData;
-  const resetUrlMatch = /owner_scope_reset:\s*(https:\/\/[^\r\n]+)/i.exec(controlIssueData.body || "");
-  if (resetUrlMatch) {
-    const commentId = extractCommentIdFromUrl(resetUrlMatch[1]);
-    if (commentId) {
-      try {
-        scopeResetCommentData = await fetchIssueComment(repo, commentId, token, fetchFn);
-      } catch {
-        scopeResetCommentData = null; // Will fail in validator if required
-      }
+  // 3. Lookup existing check run on headSha
+  let checkRunId = options.checkRunId;
+  if (!checkRunId) {
+    const existing = await findExistingCheckRun(repo, currentHeadSha, TRUSTED_CHECK_NAME, token, options.expectedAppId, fetchFn);
+    if (existing) {
+      checkRunId = existing.id;
     }
   }
 
-  // 5. Fetch all top-level PR conversation comments with exhaustive pagination
-  let prComments;
-  try {
-    prComments = await fetchAllIssueComments(repo, prNumber, token, fetchFn);
-  } catch (err: unknown) {
-    const errorObj = err as { code?: string; message?: string };
-    if (
-      errorObj.code === "PAGINATION_LIMIT_EXCEEDED" ||
-      (errorObj.message && errorObj.message.includes("PAGINATION_LIMIT_EXCEEDED"))
-    ) {
-      const failResult: ValidationResult = {
-        valid: false,
-        reason: "PAGINATION_LIMIT_EXCEEDED",
-        details: errorObj.message || "Exceeded maximum allowed comment pagination pages.",
-      };
-      const checkRun = await emitReviewGateCheckRun(
-        repo,
-        prNumber,
-        currentHeadSha,
-        failResult,
-        token,
-        options.checkRunId,
-        fetchFn
-      );
-      return {
-        valid: false,
-        headSha: currentHeadSha,
-        validationResult: failResult,
-        checkRun,
-      };
-    }
-    throw err;
-  }
+  // 4. Immediately transition check run to in_progress (ensures no prior green check remains authoritative)
+  const inProgressPayload: GitHubCheckRunPayload = {
+    name: TRUSTED_CHECK_NAME,
+    head_sha: currentHeadSha,
+    status: "in_progress",
+    output: {
+      title: "Terra Review Gate: Evaluating",
+      summary: `Review gate evaluation in progress for PR #${prNumber}...`,
+    },
+    external_id: externalId,
+  };
 
-  // 6. Extract owner-authorized attestations
-  const attestations = extractOwnerAttestationsFromComments(prComments);
-
-  // 7. Validate review gate
-  const validationResult = validateReviewGate({
-    attestations,
-    expectedHeadSha: currentHeadSha,
-    expectedPrNumber: prNumber,
-    expectedControlIssue: controlIssueNum,
-    expectedScopeRevision,
-    expectedRepo: repo,
-    controlIssueData,
-    scopeResetCommentData,
-  });
-
-  // 8. Emit or update check run on exact current head SHA
-  const checkRun = await emitReviewGateCheckRun(
+  const initialCheckRun = await createOrUpdateCheckRun(
     repo,
-    prNumber,
-    currentHeadSha,
-    validationResult,
+    inProgressPayload,
     token,
-    options.checkRunId,
+    checkRunId,
     fetchFn
   );
+  checkRunId = initialCheckRun.id;
 
-  return {
-    valid: validationResult.valid,
-    headSha: currentHeadSha,
-    validationResult,
-    checkRun,
+  // Helper to finalize check run with concurrency guard
+  const finalizeCheckRun = async (valResult: ValidationResult): Promise<EvaluateReviewGateServiceResult> => {
+    // Check if this evaluation was superseded while in-flight
+    if (claim && options.guard) {
+      const isLatest = await options.guard.isLatestVersion(claim);
+      if (!isLatest) {
+        // Stale evaluation: abort without writing success or overwriting newer state
+        return {
+          valid: false,
+          headSha: currentHeadSha,
+          validationResult: {
+            valid: false,
+            reason: "STALE_EVALUATION_ABORTED",
+            details: `Evaluation version ${claim.version} was superseded by a newer evaluation for ${repo} #${prNumber}.`,
+          },
+          checkRun: { id: checkRunId!, url: initialCheckRun.url },
+        };
+      }
+    }
+
+    const payload: GitHubCheckRunPayload = {
+      ...createCheckRunPayload(currentHeadSha, valResult),
+      external_id: externalId,
+    };
+
+    const finalizedCheck = await createOrUpdateCheckRun(
+      repo,
+      payload,
+      token,
+      checkRunId,
+      fetchFn
+    );
+
+    return {
+      valid: valResult.valid,
+      headSha: currentHeadSha,
+      validationResult: valResult,
+      checkRun: finalizedCheck,
+    };
   };
+
+  // 5. Wrap all subsequent reads and validations in try/catch to fail closed
+  try {
+    // Validate trusted configuration (mandatory; no PR-source fallback)
+    const configValidation = validateTrustedConfig(options.trustedConfig);
+    if (!configValidation.valid) {
+      return await finalizeCheckRun({
+        valid: false,
+        reason: configValidation.reason,
+        details: configValidation.details,
+      });
+    }
+
+    const trustedConfig = configValidation.config;
+
+    // Verify incoming repo and prNumber match trustedConfig
+    if (
+      repo.toLowerCase() !== trustedConfig.repo.toLowerCase() ||
+      prNumber !== trustedConfig.prNumber
+    ) {
+      return await finalizeCheckRun({
+        valid: false,
+        reason: "TRUSTED_CONFIG_MISMATCH",
+        details: `Incoming PR (${repo} #${prNumber}) does not match trusted deployment configuration (${trustedConfig.repo} #${trustedConfig.prNumber}).`,
+      });
+    }
+
+    const controlIssueNum = trustedConfig.controlIssue;
+    const expectedScopeRevision = trustedConfig.scopeRevision;
+
+    // Fetch control issue
+    const controlIssueData = await fetchIssue(repo, controlIssueNum, token, fetchFn);
+
+    // Validate control issue (including state === 'open')
+    const issueResult = validateControlIssue(controlIssueData, expectedScopeRevision, repo);
+    if (!issueResult.valid) {
+      return await finalizeCheckRun(issueResult);
+    }
+    const controlBlock = issueResult.block;
+
+    // Fetch and validate scope-reset comment if scope_revision > 1
+    let scopeResetCommentData: unknown = undefined;
+    if (controlBlock.scope_revision > 1) {
+      const resetUrlValidation = validateOwnerScopeResetUrl(controlBlock.owner_scope_reset, repo, controlIssueNum);
+      if (!resetUrlValidation.valid) {
+        return await finalizeCheckRun({
+          valid: false,
+          reason: resetUrlValidation.reason,
+          details: resetUrlValidation.details,
+        });
+      }
+
+      const commentId = resetUrlValidation.commentId;
+      try {
+        scopeResetCommentData = await fetchIssueComment(repo, commentId, token, fetchFn);
+      } catch (err) {
+        return await finalizeCheckRun({
+          valid: false,
+          reason: "SCOPE_RESET_FETCH_FAILED",
+          details: `Failed to fetch scope-reset approval comment #${commentId}: ${(err as Error).message}`,
+        });
+      }
+
+      const scopeResetResult = parseOwnerScopeResetApproval(
+        scopeResetCommentData,
+        controlBlock.scope_revision - 1,
+        controlBlock.scope_revision,
+        repo,
+        controlIssueNum,
+        commentId
+      );
+      if (!scopeResetResult.valid) {
+        return await finalizeCheckRun(scopeResetResult);
+      }
+    }
+
+    // Fetch all top-level PR comments with exhaustive pagination
+    const prComments = await fetchAllIssueComments(repo, prNumber, token, fetchFn);
+
+    // Extract owner-authorized attestations
+    const attestations = extractOwnerAttestationsFromComments(prComments);
+
+    // Validate review gate
+    const validationResult = validateReviewGate({
+      attestations,
+      expectedHeadSha: currentHeadSha,
+      expectedPrNumber: prNumber,
+      expectedControlIssue: controlIssueNum,
+      expectedScopeRevision,
+      expectedRepo: repo,
+      controlIssueData,
+      scopeResetCommentData,
+    });
+
+    return await finalizeCheckRun(validationResult);
+  } catch (err: unknown) {
+    const errorObj = err as { code?: string; message?: string };
+    const failResult: ValidationResult = {
+      valid: false,
+      reason: errorObj.code || "EVALUATION_ERROR",
+      details: errorObj.message || String(err),
+    };
+
+    return await finalizeCheckRun(failResult);
+  }
 }
 
 export function createCheckRunPayload(headSha: string, result: ValidationResult): GitHubCheckRunPayload {

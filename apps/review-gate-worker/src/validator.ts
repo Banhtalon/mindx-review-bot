@@ -357,6 +357,15 @@ export function validateControlIssue(
   }
 
   const issue = issueData as GitHubIssue;
+
+  if (!issue.state || issue.state.toLowerCase() !== "open") {
+    return {
+      valid: false,
+      reason: "CONTROL_ISSUE_CLOSED",
+      details: `Authoritative control issue #${issue.number || ""} is not open (state: '${issue.state || "unknown"}'). A non-open control issue cannot authorize review.`,
+    };
+  }
+
   const parseResult = parseAgentControlBlock(issue.body);
   if (!parseResult.valid) {
     return parseResult;
@@ -447,7 +456,8 @@ export function parseOwnerScopeResetApproval(
   expectedOldRev: number,
   expectedNewRev: number,
   expectedRepo?: string,
-  expectedIssue?: number
+  expectedIssue?: number,
+  expectedCommentId?: number | string
 ): { valid: true; approval: OwnerScopeResetApproval } | { valid: false; reason: string; details: string } {
   if (!commentData || typeof commentData !== "object") {
     return {
@@ -458,6 +468,17 @@ export function parseOwnerScopeResetApproval(
   }
 
   const comment = commentData as GitHubIssueComment;
+
+  // Expected comment ID verification
+  if (expectedCommentId !== undefined) {
+    if (String(comment.id) !== String(expectedCommentId)) {
+      return {
+        valid: false,
+        reason: "SCOPE_RESET_COMMENT_WRONG_ID",
+        details: `Scope-reset comment ID '${comment.id}' does not match expected comment ID '${expectedCommentId}'.`,
+      };
+    }
+  }
 
   // Provenance verification: Must be authored by Banhtalon (id: 105797112)
   if (comment.user?.login !== TRUSTED_OWNER_LOGIN || Number(comment.user?.id) !== TRUSTED_OWNER_ID) {
@@ -476,24 +497,32 @@ export function parseOwnerScopeResetApproval(
     };
   }
 
+  // Location metadata verification (require issue_url)
+  if (!comment.issue_url || typeof comment.issue_url !== "string" || !comment.issue_url.trim()) {
+    return {
+      valid: false,
+      reason: "MISSING_COMMENT_LOCATION_METADATA",
+      details: "Scope-reset comment is missing required 'issue_url' location metadata.",
+    };
+  }
+
+  const issueUrlLower = comment.issue_url.toLowerCase();
+
   if (expectedRepo) {
     const normalizedRepo = expectedRepo.toLowerCase();
-    if (comment.issue_url) {
-      const issueUrlLower = comment.issue_url.toLowerCase();
-      if (!issueUrlLower.includes(`/${normalizedRepo}/issues/`)) {
-        return {
-          valid: false,
-          reason: "SCOPE_RESET_COMMENT_WRONG_ISSUE",
-          details: `Scope-reset comment issue_url '${comment.issue_url}' does not belong to expected repo '${expectedRepo}'.`,
-        };
-      }
+    if (!issueUrlLower.includes(`/repos/${normalizedRepo}/issues/`)) {
+      return {
+        valid: false,
+        reason: "SCOPE_RESET_COMMENT_WRONG_REPO",
+        details: `Scope-reset comment issue_url '${comment.issue_url}' does not belong to expected repo '${expectedRepo}'.`,
+      };
     }
     if (comment.html_url) {
       const htmlUrlLower = comment.html_url.toLowerCase();
       if (!htmlUrlLower.includes(`/${normalizedRepo}/issues/`)) {
         return {
           valid: false,
-          reason: "SCOPE_RESET_COMMENT_WRONG_ISSUE",
+          reason: "SCOPE_RESET_COMMENT_WRONG_REPO",
           details: `Scope-reset comment html_url '${comment.html_url}' does not belong to expected repo '${expectedRepo}'.`,
         };
       }
@@ -501,14 +530,12 @@ export function parseOwnerScopeResetApproval(
   }
 
   if (expectedIssue !== undefined) {
-    if (comment.issue_url) {
-      if (!comment.issue_url.endsWith(`/issues/${expectedIssue}`)) {
-        return {
-          valid: false,
-          reason: "SCOPE_RESET_COMMENT_WRONG_ISSUE",
-          details: `Scope-reset comment issue_url '${comment.issue_url}' does not match expected issue #${expectedIssue}.`,
-        };
-      }
+    if (!issueUrlLower.endsWith(`/issues/${expectedIssue}`)) {
+      return {
+        valid: false,
+        reason: "SCOPE_RESET_COMMENT_WRONG_ISSUE",
+        details: `Scope-reset comment issue_url '${comment.issue_url}' does not match expected issue #${expectedIssue}.`,
+      };
     }
     if (comment.html_url) {
       if (!comment.html_url.includes(`/issues/${expectedIssue}#`)) {
@@ -1040,12 +1067,22 @@ export function validateReviewGate({
 
     // 2. Validate scope-reset approval comment if scope_revision > 1
     if (controlBlock.scope_revision > 1) {
+      let expectedCommentId: string | undefined;
+      const urlCheck = validateOwnerScopeResetUrl(
+        controlBlock.owner_scope_reset,
+        expectedRepo,
+        expectedControlIssue ?? (controlIssueData as GitHubIssue)?.number
+      );
+      if (urlCheck.valid) {
+        expectedCommentId = urlCheck.commentId;
+      }
       const scopeResetResult = parseOwnerScopeResetApproval(
         scopeResetCommentData,
         controlBlock.scope_revision - 1,
         controlBlock.scope_revision,
         expectedRepo,
-        expectedControlIssue ?? (controlIssueData as GitHubIssue)?.number
+        expectedControlIssue ?? (controlIssueData as GitHubIssue)?.number,
+        expectedCommentId
       );
       if (!scopeResetResult.valid) {
         return scopeResetResult;

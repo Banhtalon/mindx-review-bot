@@ -62,6 +62,8 @@ function createValidScopeResetComment(overrides: Record<string, unknown> = {}): 
       id: 105797112,
     },
     author_association: "OWNER",
+    issue_url: "https://api.github.com/repos/Banhtalon/mindx-review-bot/issues/7",
+    html_url: "https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5534707230",
     body: `
 <!-- OWNER_SCOPE_RESET_V1 -->
 old_scope_revision: 2
@@ -311,6 +313,22 @@ fix_reentries: 0
         expect(res.reason).toBe("WRONG_SCOPE_REVISION");
       }
     });
+
+    it("fails when control issue is closed", () => {
+      const issue: GitHubIssue = {
+        number: 7,
+        title: "Control Issue",
+        body: createValidControlBlockMarkdown(),
+        state: "closed",
+        labels: ["ready-for-review"],
+        user: { login: "Banhtalon", id: 105797112 },
+      };
+      const res = validateControlIssue(issue, 3);
+      expect(res.valid).toBe(false);
+      if (!res.valid) {
+        expect(res.reason).toBe("CONTROL_ISSUE_CLOSED");
+      }
+    });
   });
 
   describe("Owner Scope Reset Approval V1", () => {
@@ -399,14 +417,47 @@ approved_by: Banhtalon
       }
     });
 
-    it("rejects scope reset comment from wrong repo or issue", () => {
+    it("rejects scope reset comment with missing issue_url", () => {
       const comment = createValidScopeResetComment({
-        issue_url: "https://api.github.com/repos/OtherOwner/other-repo/issues/99",
+        issue_url: undefined,
+      });
+      const res = parseOwnerScopeResetApproval(comment, 2, 3, "Banhtalon/mindx-review-bot", 7);
+      expect(res.valid).toBe(false);
+      if (!res.valid) {
+        expect(res.reason).toBe("MISSING_COMMENT_LOCATION_METADATA");
+      }
+    });
+
+    it("rejects scope reset comment from wrong repo", () => {
+      const comment = createValidScopeResetComment({
+        issue_url: "https://api.github.com/repos/OtherOwner/other-repo/issues/7",
+      });
+      const res = parseOwnerScopeResetApproval(comment, 2, 3, "Banhtalon/mindx-review-bot", 7);
+      expect(res.valid).toBe(false);
+      if (!res.valid) {
+        expect(res.reason).toBe("SCOPE_RESET_COMMENT_WRONG_REPO");
+      }
+    });
+
+    it("rejects scope reset comment from wrong issue", () => {
+      const comment = createValidScopeResetComment({
+        issue_url: "https://api.github.com/repos/Banhtalon/mindx-review-bot/issues/99",
       });
       const res = parseOwnerScopeResetApproval(comment, 2, 3, "Banhtalon/mindx-review-bot", 7);
       expect(res.valid).toBe(false);
       if (!res.valid) {
         expect(res.reason).toBe("SCOPE_RESET_COMMENT_WRONG_ISSUE");
+      }
+    });
+
+    it("rejects scope reset comment with mismatched comment ID", () => {
+      const comment = createValidScopeResetComment({
+        id: 9999999,
+      });
+      const res = parseOwnerScopeResetApproval(comment, 2, 3, "Banhtalon/mindx-review-bot", 7, 5534707230);
+      expect(res.valid).toBe(false);
+      if (!res.valid) {
+        expect(res.reason).toBe("SCOPE_RESET_COMMENT_WRONG_ID");
       }
     });
   });

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { evaluateReviewGateService } from "../src/service.ts";
-import { handleWebhookRequest, WorkerEnv } from "../src/index.ts";
+import { handleWebhookRequest, parseAndValidateTrustedEnv, WorkerEnv } from "../src/index.ts";
+import { PILOT_TRUSTED_CONFIG } from "../src/types.ts";
+import { EvaluationGuard, InMemoryEvaluationGuard } from "../src/guard.ts";
 import { createHmac, generateKeyPairSync } from "node:crypto";
 
 const CURRENT_HEAD_SHA = "09297ea56133d10d5f40c429e78c7195a8aac61f";
@@ -51,12 +53,23 @@ approved_by: Banhtalon
   created_at: "2026-09-04T01:00:00Z",
 };
 
+interface CapturedCheckRun {
+  name: string;
+  head_sha: string;
+  status: string;
+  conclusion?: string;
+  method?: string;
+  url?: string;
+  external_id?: string;
+}
+
 function createMockFetch(
   comments: unknown[] = [],
-  capturedCheckRuns: unknown[] = [],
+  capturedCheckRuns: CapturedCheckRun[] = [],
   existingCheckRun: unknown = null,
   issueOverride: unknown = null,
-  commentsError: Error | null = null
+  commentsError: Error | null = null,
+  commentOverrides: Map<string, unknown> = new Map()
 ) {
   return async (url: RequestInfo | URL, init?: RequestInit) => {
     const urlStr = String(url);
@@ -73,7 +86,16 @@ function createMockFetch(
       return new Response(JSON.stringify(issueOverride || mockIssue7), { status: 200 });
     }
 
-    if (urlStr.includes("/issues/comments/5534707230")) {
+    if (urlStr.includes("/issues/comments/")) {
+      const match = /\/comments\/(\d+)/.exec(urlStr);
+      if (match) {
+        const cId = match[1];
+        if (commentOverrides.has(cId)) {
+          const val = commentOverrides.get(cId);
+          if (val instanceof Error) throw val;
+          return new Response(JSON.stringify(val), { status: 200 });
+        }
+      }
       return new Response(JSON.stringify(mockScopeResetComment), { status: 200 });
     }
 
@@ -94,7 +116,9 @@ function createMockFetch(
     if (urlStr.includes("/check-runs")) {
       const body = JSON.parse(String(init?.body));
       capturedCheckRuns.push({ ...body, method: init?.method, url: urlStr });
-      return new Response(JSON.stringify({ id: 12345, url: "https://api.github.com/check-runs/12345" }), { status: 201 });
+      const idMatch = /\/check-runs\/(\d+)/.exec(urlStr);
+      const returnedId = idMatch ? Number(idMatch[1]) : 12345;
+      return new Response(JSON.stringify({ id: returnedId, url: `https://api.github.com/repos/Banhtalon/mindx-review-bot/check-runs/${returnedId}` }), { status: 201 });
     }
 
     if (urlStr.includes("/access_tokens")) {
@@ -106,7 +130,7 @@ function createMockFetch(
 }
 
 describe("Review Gate Service & Webhook", () => {
-  it("passes review gate and emits successful check run on exact current head SHA", async () => {
+  it("passes review gate and emits in_progress then successful check run on exact current head SHA", async () => {
     const validOwnerComment = {
       id: 999,
       user: { login: "Banhtalon", id: 105797112 },
@@ -128,22 +152,45 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
       created_at: "2026-09-04T02:00:00Z",
     };
 
-    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string; method?: string }[] = [];
+    const capturedCheckRuns: CapturedCheckRun[] = [];
     const mockFetch = createMockFetch([validOwnerComment], capturedCheckRuns);
 
     const result = await evaluateReviewGateService({
       repo: REPO,
       prNumber: 6,
       token: "mock-token",
+      trustedConfig: PILOT_TRUSTED_CONFIG,
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
     expect(result.valid).toBe(true);
     expect(result.headSha).toBe(CURRENT_HEAD_SHA);
-    expect(capturedCheckRuns).toHaveLength(1);
-    expect(capturedCheckRuns[0].name).toBe("terra-review-gate");
+    // Finding 4: Must first move check run to in_progress, then completed success
+    expect(capturedCheckRuns).toHaveLength(2);
+    expect(capturedCheckRuns[0].status).toBe("in_progress");
     expect(capturedCheckRuns[0].head_sha).toBe(CURRENT_HEAD_SHA);
-    expect(capturedCheckRuns[0].conclusion).toBe("success");
+    expect(capturedCheckRuns[1].status).toBe("completed");
+    expect(capturedCheckRuns[1].conclusion).toBe("success");
+  });
+
+  it("fails closed without fallback when trustedConfig is omitted (Finding 1)", async () => {
+    const capturedCheckRuns: CapturedCheckRun[] = [];
+    const mockFetch = createMockFetch([], capturedCheckRuns);
+
+    const result = await evaluateReviewGateService({
+      repo: REPO,
+      prNumber: 6,
+      token: "mock-token",
+      // trustedConfig omitted!
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.validationResult.reason).toBe("MISSING_TRUSTED_CONFIG");
+    expect(capturedCheckRuns).toHaveLength(2);
+    expect(capturedCheckRuns[0].status).toBe("in_progress");
+    expect(capturedCheckRuns[1].status).toBe("completed");
+    expect(capturedCheckRuns[1].conclusion).toBe("failure");
   });
 
   it("fails closed when attestation is for an older head SHA (stale head)", async () => {
@@ -168,59 +215,63 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
       created_at: "2026-09-04T02:00:00Z",
     };
 
-    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string }[] = [];
+    const capturedCheckRuns: CapturedCheckRun[] = [];
     const mockFetch = createMockFetch([staleOwnerComment], capturedCheckRuns);
 
     const result = await evaluateReviewGateService({
       repo: REPO,
       prNumber: 6,
       token: "mock-token",
+      trustedConfig: PILOT_TRUSTED_CONFIG,
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
     expect(result.valid).toBe(false);
     expect(result.validationResult.reason).toBe("STALE_HEAD_SHA");
-    expect(capturedCheckRuns).toHaveLength(1);
-    expect(capturedCheckRuns[0].head_sha).toBe(CURRENT_HEAD_SHA);
-    expect(capturedCheckRuns[0].conclusion).toBe("failure");
+    expect(capturedCheckRuns).toHaveLength(2);
+    expect(capturedCheckRuns[0].status).toBe("in_progress");
+    expect(capturedCheckRuns[1].conclusion).toBe("failure");
   });
 
   it("fails closed when no attestation exists", async () => {
-    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string }[] = [];
+    const capturedCheckRuns: CapturedCheckRun[] = [];
     const mockFetch = createMockFetch([], capturedCheckRuns);
 
     const result = await evaluateReviewGateService({
       repo: REPO,
       prNumber: 6,
       token: "mock-token",
+      trustedConfig: PILOT_TRUSTED_CONFIG,
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
     expect(result.valid).toBe(false);
     expect(result.validationResult.reason).toBe("NO_ATTESTATION_FOUND");
-    expect(capturedCheckRuns).toHaveLength(1);
-    expect(capturedCheckRuns[0].conclusion).toBe("failure");
+    expect(capturedCheckRuns).toHaveLength(2);
+    expect(capturedCheckRuns[0].status).toBe("in_progress");
+    expect(capturedCheckRuns[1].conclusion).toBe("failure");
   });
 
   it("fails closed when trustedConfig is mismatched with incoming PR", async () => {
-    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string }[] = [];
+    const capturedCheckRuns: CapturedCheckRun[] = [];
     const mockFetch = createMockFetch([], capturedCheckRuns);
 
     const result = await evaluateReviewGateService({
       repo: "Banhtalon/other-repo",
       prNumber: 6,
       token: "mock-token",
+      trustedConfig: PILOT_TRUSTED_CONFIG,
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
     expect(result.valid).toBe(false);
     expect(result.validationResult.reason).toBe("TRUSTED_CONFIG_MISMATCH");
-    expect(capturedCheckRuns).toHaveLength(1);
-    expect(capturedCheckRuns[0].conclusion).toBe("failure");
+    expect(capturedCheckRuns).toHaveLength(2);
+    expect(capturedCheckRuns[1].conclusion).toBe("failure");
   });
 
   it("fails closed when trustedConfig is malformed", async () => {
-    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string }[] = [];
+    const capturedCheckRuns: CapturedCheckRun[] = [];
     const mockFetch = createMockFetch([], capturedCheckRuns);
 
     const result = await evaluateReviewGateService({
@@ -233,8 +284,85 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
 
     expect(result.valid).toBe(false);
     expect(result.validationResult.reason).toBe("MALFORMED_TRUSTED_CONFIG");
-    expect(capturedCheckRuns).toHaveLength(1);
-    expect(capturedCheckRuns[0].conclusion).toBe("failure");
+    expect(capturedCheckRuns).toHaveLength(2);
+    expect(capturedCheckRuns[1].conclusion).toBe("failure");
+  });
+
+  it("fails closed when control issue is closed (Finding 7)", async () => {
+    const closedIssue7 = {
+      ...mockIssue7,
+      state: "closed",
+    };
+
+    const capturedCheckRuns: CapturedCheckRun[] = [];
+    const mockFetch = createMockFetch([], capturedCheckRuns, null, closedIssue7);
+
+    const result = await evaluateReviewGateService({
+      repo: REPO,
+      prNumber: 6,
+      token: "mock-token",
+      trustedConfig: PILOT_TRUSTED_CONFIG,
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.validationResult.reason).toBe("CONTROL_ISSUE_CLOSED");
+    expect(capturedCheckRuns).toHaveLength(2);
+    expect(capturedCheckRuns[1].conclusion).toBe("failure");
+  });
+
+  it("binds scope-reset authority exclusively to parsed control block (Finding 2)", async () => {
+    // Distraction in issue body text outside the block
+    const issueWithDistraction = {
+      ...mockIssue7,
+      body: `
+Distraction text with fake link:
+owner_scope_reset: https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-1111111111
+
+<!-- AGENT_CONTROL_BLOCK_V1 -->
+state: ready-for-review
+scope_revision: 3
+fix_reentries: 0
+owner_scope_reset: https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5534707230
+<!-- /AGENT_CONTROL_BLOCK_V1 -->
+      `,
+    };
+
+    const validOwnerComment = {
+      id: 999,
+      user: { login: "Banhtalon", id: 105797112 },
+      author_association: "OWNER",
+      body: `
+<!-- TERRA_REVIEW_ATTESTATION_V1 -->
+reviewer_model: terra-xhigh
+head_sha: ${CURRENT_HEAD_SHA}
+pr_number: 6
+control_issue: 7
+scope_revision: 3
+verdict: RECOMMEND_PASS
+p0: 0
+p1: 0
+material_findings_resolved: true
+reviewed_at_utc: 2026-09-04T02:00:00Z
+<!-- /TERRA_REVIEW_ATTESTATION_V1 -->
+      `,
+      created_at: "2026-09-04T02:00:00Z",
+    };
+
+    const capturedCheckRuns: CapturedCheckRun[] = [];
+    const mockFetch = createMockFetch([validOwnerComment], capturedCheckRuns, null, issueWithDistraction);
+
+    const result = await evaluateReviewGateService({
+      repo: REPO,
+      prNumber: 6,
+      token: "mock-token",
+      trustedConfig: PILOT_TRUSTED_CONFIG,
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    // Validates that it correctly used 5534707230 from AGENT_CONTROL_BLOCK_V1 rather than 1111111111
+    expect(result.valid).toBe(true);
+    expect(capturedCheckRuns[1].conclusion).toBe("success");
   });
 
   it("reuses and updates (PATCH) existing check run on same head SHA", async () => {
@@ -247,40 +375,151 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
       conclusion: "failure",
     };
 
-    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string; method?: string; url?: string }[] = [];
+    const capturedCheckRuns: CapturedCheckRun[] = [];
     const mockFetch = createMockFetch([], capturedCheckRuns, existingCheckRun);
 
     const result = await evaluateReviewGateService({
       repo: REPO,
       prNumber: 6,
       token: "mock-token",
+      trustedConfig: PILOT_TRUSTED_CONFIG,
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
     expect(result.valid).toBe(false);
-    expect(capturedCheckRuns).toHaveLength(1);
+    expect(capturedCheckRuns).toHaveLength(2);
     expect(capturedCheckRuns[0].method).toBe("PATCH");
     expect(capturedCheckRuns[0].url).toContain("/check-runs/88888");
+    expect(capturedCheckRuns[1].method).toBe("PATCH");
+    expect(capturedCheckRuns[1].url).toContain("/check-runs/88888");
   });
 
   it("handles PAGINATION_LIMIT_EXCEEDED by emitting failure check run", async () => {
     const pagErr = new Error("PAGINATION_LIMIT_EXCEEDED: Exceeded max pages");
     (pagErr as unknown as { code: string }).code = "PAGINATION_LIMIT_EXCEEDED";
 
-    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string }[] = [];
+    const capturedCheckRuns: CapturedCheckRun[] = [];
     const mockFetch = createMockFetch([], capturedCheckRuns, null, null, pagErr);
 
     const result = await evaluateReviewGateService({
       repo: REPO,
       prNumber: 6,
       token: "mock-token",
+      trustedConfig: PILOT_TRUSTED_CONFIG,
       fetchFn: mockFetch as unknown as typeof fetch,
     });
 
     expect(result.valid).toBe(false);
     expect(result.validationResult.reason).toBe("PAGINATION_LIMIT_EXCEEDED");
-    expect(capturedCheckRuns).toHaveLength(1);
-    expect(capturedCheckRuns[0].conclusion).toBe("failure");
+    expect(capturedCheckRuns).toHaveLength(2);
+    expect(capturedCheckRuns[0].status).toBe("in_progress");
+    expect(capturedCheckRuns[1].conclusion).toBe("failure");
+  });
+
+  it("prevent stale out-of-order success overwrite using evaluation guard (Finding 5)", async () => {
+    const guard = new InMemoryEvaluationGuard();
+
+    const passComment = {
+      id: 999,
+      user: { login: "Banhtalon", id: 105797112 },
+      author_association: "OWNER",
+      body: `
+<!-- TERRA_REVIEW_ATTESTATION_V1 -->
+reviewer_model: terra-xhigh
+head_sha: ${CURRENT_HEAD_SHA}
+pr_number: 6
+control_issue: 7
+scope_revision: 3
+verdict: RECOMMEND_PASS
+p0: 0
+p1: 0
+material_findings_resolved: true
+reviewed_at_utc: 2026-09-04T02:00:00Z
+<!-- /TERRA_REVIEW_ATTESTATION_V1 -->
+      `,
+      created_at: "2026-09-04T02:00:00Z",
+    };
+
+    const failComment = {
+      id: 1000,
+      user: { login: "Banhtalon", id: 105797112 },
+      author_association: "OWNER",
+      body: `
+<!-- TERRA_REVIEW_ATTESTATION_V1 -->
+reviewer_model: terra-xhigh
+head_sha: ${CURRENT_HEAD_SHA}
+pr_number: 6
+control_issue: 7
+scope_revision: 3
+verdict: NEEDS_FIX
+p0: 1
+p1: 0
+material_findings_resolved: false
+reviewed_at_utc: 2026-09-04T02:05:00Z
+<!-- /TERRA_REVIEW_ATTESTATION_V1 -->
+      `,
+      created_at: "2026-09-04T02:05:00Z",
+    };
+
+    const capturedCheckRuns: CapturedCheckRun[] = [];
+
+    // Simulate concurrent runs:
+    // Run 1 starts with passComment (acquires version 1)
+    // Run 2 starts with failComment (acquires version 2)
+    // Run 2 completes first
+    // Run 1 finishes later
+    const fetchRun1 = createMockFetch([passComment], capturedCheckRuns);
+    const fetchRun2 = createMockFetch([failComment], capturedCheckRuns);
+
+    // Simulate Run 2 completing first
+    const result2 = await evaluateReviewGateService({
+      repo: REPO,
+      prNumber: 6,
+      token: "mock-token",
+      trustedConfig: PILOT_TRUSTED_CONFIG,
+      guard,
+      fetchFn: fetchRun2 as unknown as typeof fetch,
+    });
+    expect(result2.valid).toBe(false);
+    expect(result2.validationResult.reason).toBe("VERDICT_NEEDS_FIX");
+
+    const runsCountAfterRun2 = capturedCheckRuns.length;
+    const lastCheckAfterRun2 = capturedCheckRuns[runsCountAfterRun2 - 1];
+    expect(lastCheckAfterRun2.conclusion).toBe("failure");
+
+    // Now Run 1 finishes. Since guard acquired a newer version (2), Run 1 claim is stale!
+    // We simulate a claim acquired earlier
+    const staleClaim = {
+      repo: REPO,
+      prNumber: 6,
+      version: 1,
+      token: "old-token",
+      createdAt: Date.now() - 1000,
+    };
+    expect(await guard.isLatestVersion(staleClaim)).toBe(false);
+
+    // If Run 1 runs with its earlier claim, it detects stale and aborts
+    const mockGuardWithStaleClaim: EvaluationGuard = {
+      acquireVersion: async () => staleClaim,
+      isLatestVersion: async (c) => guard.isLatestVersion(c),
+    };
+
+    const result1 = await evaluateReviewGateService({
+      repo: REPO,
+      prNumber: 6,
+      token: "mock-token",
+      trustedConfig: PILOT_TRUSTED_CONFIG,
+      guard: mockGuardWithStaleClaim,
+      fetchFn: fetchRun1 as unknown as typeof fetch,
+    });
+
+    expect(result1.valid).toBe(false);
+    expect(result1.validationResult.reason).toBe("STALE_EVALUATION_ABORTED");
+
+    // Confirm that Run 1 DID NOT overwrite the failure with success
+    const finalRuns = capturedCheckRuns;
+    const lastCheckRun = finalRuns[finalRuns.length - 1];
+    expect(lastCheckRun.conclusion).not.toBe("success");
   });
 
   describe("Webhook Handler End-to-End", () => {
@@ -294,6 +533,10 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
       GITHUB_APP_ID: "12345",
       GITHUB_PRIVATE_KEY: privateKey,
       GITHUB_WEBHOOK_SECRET: "my-webhook-secret",
+      TRUSTED_REPO: REPO,
+      TRUSTED_PR_NUMBER: "6",
+      TRUSTED_CONTROL_ISSUE: "7",
+      TRUSTED_SCOPE_REVISION: "3",
     };
 
     it("rejects webhook request with invalid signature (401)", async () => {
@@ -311,6 +554,16 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
 
       expect(res.status).toBe(401);
       expect(JSON.parse(res.body).error).toContain("Invalid webhook signature");
+    });
+
+    it("rejects missing or malformed trusted deployment environment variables", async () => {
+      expect(parseAndValidateTrustedEnv({ ...env, TRUSTED_REPO: "" }).valid).toBe(false);
+      expect(parseAndValidateTrustedEnv({ ...env, TRUSTED_PR_NUMBER: "6.0" }).valid).toBe(false);
+      expect(parseAndValidateTrustedEnv({ ...env, TRUSTED_PR_NUMBER: "+6" }).valid).toBe(false);
+      expect(parseAndValidateTrustedEnv({ ...env, TRUSTED_PR_NUMBER: " 6 " }).valid).toBe(false);
+      expect(parseAndValidateTrustedEnv({ ...env, TRUSTED_CONTROL_ISSUE: "invalid" }).valid).toBe(false);
+      expect(parseAndValidateTrustedEnv({ ...env, TRUSTED_SCOPE_REVISION: "-1" }).valid).toBe(false);
+      expect(parseAndValidateTrustedEnv({ ...env, TRUSTED_REPO: "Wrong/repo" }).valid).toBe(false);
     });
 
     it("ignores non-relevant events (200 ignored)", async () => {
@@ -342,7 +595,7 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
       });
       const hmac = createHmac("sha256", env.GITHUB_WEBHOOK_SECRET).update(payload).digest("hex");
 
-      const capturedCheckRuns: unknown[] = [];
+      const capturedCheckRuns: CapturedCheckRun[] = [];
       const mockFetch = createMockFetch([], capturedCheckRuns);
 
       const res = await handleWebhookRequest(
@@ -400,7 +653,7 @@ owner_scope_reset: https://github.com/Banhtalon/mindx-review-bot/issues/7#issuec
         conclusion: "success",
       };
 
-      const capturedCheckRuns: { name: string; head_sha: string; conclusion: string; method?: string; url?: string }[] = [];
+      const capturedCheckRuns: CapturedCheckRun[] = [];
       const mockFetch = createMockFetch([], capturedCheckRuns, existingCheckRun, issue7NeedsFix);
 
       const res = await handleWebhookRequest(
@@ -421,9 +674,44 @@ owner_scope_reset: https://github.com/Banhtalon/mindx-review-bot/issues/7#issuec
       expect(body.success).toBe(true);
       expect(body.valid).toBe(false);
       expect(body.reason).toBe("INVALID_CONTROL_STATE");
-      expect(capturedCheckRuns).toHaveLength(1);
-      expect(capturedCheckRuns[0].method).toBe("PATCH");
-      expect(capturedCheckRuns[0].conclusion).toBe("failure");
+      expect(capturedCheckRuns).toHaveLength(2);
+      expect(capturedCheckRuns[0].status).toBe("in_progress");
+      expect(capturedCheckRuns[1].conclusion).toBe("failure");
+    });
+
+    it("handles issue_comment event on control issue #7 and recomputes PR #6 (Finding 3)", async () => {
+      const payload = JSON.stringify({
+        action: "created",
+        issue: { number: 7 }, // Comment created on control issue #7
+        repository: { full_name: REPO },
+        installation: { id: 777 },
+      });
+      const hmac = createHmac("sha256", env.GITHUB_WEBHOOK_SECRET).update(payload).digest("hex");
+
+      const capturedCheckRuns: CapturedCheckRun[] = [];
+      const mockFetch = createMockFetch([], capturedCheckRuns);
+
+      const res = await handleWebhookRequest(
+        {
+          method: "POST",
+          headers: {
+            "x-hub-signature-256": `sha256=${hmac}`,
+            "x-github-event": "issue_comment",
+          },
+          text: async () => payload,
+        },
+        env,
+        mockFetch as unknown as typeof fetch
+      );
+
+      expect(res.status).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(true);
+      expect(body.headSha).toBe(CURRENT_HEAD_SHA);
+      // Recomputed PR #6 review gate
+      expect(capturedCheckRuns).toHaveLength(2);
+      expect(capturedCheckRuns[0].status).toBe("in_progress");
+      expect(capturedCheckRuns[1].conclusion).toBe("failure"); // No attestation on PR #6
     });
   });
 });

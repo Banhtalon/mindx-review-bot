@@ -9,6 +9,12 @@ export interface TrustedMappingConfig {
   scopeRevision: number;
 }
 
+export * from "./guard.ts";
+
+/**
+ * Baseline pilot configuration for test fixtures only.
+ * Production execution must supply trustedConfig explicitly via non-PR-controlled deployment configuration.
+ */
 export const PILOT_TRUSTED_CONFIG: TrustedMappingConfig = {
   repo: "Banhtalon/mindx-review-bot",
   prNumber: 6,
