@@ -29,6 +29,13 @@ function required(environment, name) {
   return value;
 }
 
+function dispatchEnabled(environment) {
+  const value = environment.CRON_DISPATCH_ENABLED;
+  if (value === undefined || value === "" || value === "false") return false;
+  if (value === "true") return true;
+  throw new CronDispatchError("CRON_CONFIG_INVALID");
+}
+
 function validateUuid(value) {
   if (!UUID_PATTERN.test(value)) throw new CronDispatchError("CRON_CONFIG_INVALID");
   return value.toLowerCase();
@@ -141,6 +148,7 @@ export async function dispatchCronJob({
   fetcher = globalThis.fetch,
   now = new Date(),
 } = {}) {
+  if (!dispatchEnabled(environment)) return { status: "disabled" };
   if (typeof fetcher !== "function") throw new CronDispatchError("CRON_DISPATCH_FAILED");
   const request = buildCronDispatchRequest({ ...environment, now });
   let response;

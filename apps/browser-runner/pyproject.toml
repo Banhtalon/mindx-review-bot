@@ -15,6 +15,7 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 mindx-runner = "mindx_runner.cli:main"
+phase2-hosted-probe = "mindx_runner.hosted_probe:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/mindx_runner"]

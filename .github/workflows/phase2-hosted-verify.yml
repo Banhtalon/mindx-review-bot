@@ -1,0 +1,164 @@
+name: phase2-hosted-verify
+
+on:
+  workflow_dispatch:
+    inputs:
+      probe_id:
+        description: Fresh opaque UUID for this synthetic probe
+        required: true
+        type: string
+      site:
+        description: Synthetic state namespace
+        required: true
+        type: choice
+        default: lms
+        options:
+          - lms
+          - teaching
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase2-hosted-${{ inputs.probe_id }}
+  cancel-in-progress: false
+
+jobs:
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PHASE2_PROBE_ID: ${{ inputs.probe_id }}
+      PHASE2_SITE: ${{ inputs.site }}
+      PHASE2_WORKSPACE_ID: ${{ vars.PHASE2_WORKSPACE_ID }}
+      PHASE2_REQUESTED_BY: ${{ vars.PHASE2_REQUESTED_BY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+      PHASE2_AUTHENTICATED_JWT: ${{ secrets.PHASE2_AUTHENTICATED_JWT }}
+      BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.12"
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install locked probe
+        run: uv sync --locked --project apps/browser-runner
+
+      - name: Verify database and lease contracts
+        run: uv run --project apps/browser-runner phase2-hosted-probe database
+
+  state_persist:
+    needs: database
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PHASE2_PROBE_ID: ${{ inputs.probe_id }}
+      PHASE2_SITE: ${{ inputs.site }}
+      PHASE2_WORKSPACE_ID: ${{ vars.PHASE2_WORKSPACE_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.12"
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install locked probe
+        run: uv sync --locked --project apps/browser-runner
+
+      - name: Persist encrypted synthetic state
+        run: uv run --project apps/browser-runner phase2-hosted-probe state-persist
+
+  state_reuse_reset:
+    needs: state_persist
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PHASE2_PROBE_ID: ${{ inputs.probe_id }}
+      PHASE2_SITE: ${{ inputs.site }}
+      PHASE2_WORKSPACE_ID: ${{ vars.PHASE2_WORKSPACE_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.12"
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install locked probe
+        run: uv sync --locked --project apps/browser-runner
+
+      - name: Reuse and reset encrypted synthetic state
+        run: uv run --project apps/browser-runner phase2-hosted-probe state-reuse-reset
+
+  cleanup:
+    if: always()
+    needs:
+      - database
+      - state_persist
+      - state_reuse_reset
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PHASE2_PROBE_ID: ${{ inputs.probe_id }}
+      PHASE2_SITE: ${{ inputs.site }}
+      PHASE2_WORKSPACE_ID: ${{ vars.PHASE2_WORKSPACE_ID }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.12"
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install locked probe
+        run: uv sync --locked --project apps/browser-runner
+
+      - name: Clean exact synthetic probe records
+        run: uv run --project apps/browser-runner phase2-hosted-probe cleanup
+
+      - name: Write safe probe summary
+        if: always()
+        env:
+          DATABASE_RESULT: ${{ needs.database.result }}
+          PERSIST_RESULT: ${{ needs.state_persist.result }}
+          REUSE_RESET_RESULT: ${{ needs.state_reuse_reset.result }}
+        run: |
+          {
+            echo "## Phase 2 hosted probe"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "- Database: $DATABASE_RESULT"
+            echo "- Persist: $PERSIST_RESULT"
+            echo "- Reuse/reset: $REUSE_RESET_RESULT"
+            echo "- Cleanup: completed"
+          } >> "$GITHUB_STEP_SUMMARY"

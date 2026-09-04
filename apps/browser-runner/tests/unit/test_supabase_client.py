@@ -5,7 +5,9 @@ from dataclasses import dataclass
 import pytest
 
 from mindx_runner.supabase_client import (
+    BrowserStateRecord,
     ClaimedRun,
+    EnqueuedProbeJob,
     HttpResponse,
     SupabaseClientError,
     SupabaseRunnerClient,
@@ -102,6 +104,32 @@ def test_claim_rejects_invalid_response_without_leaking_body() -> None:
 
     assert error.value.code == "SUPABASE_UNAVAILABLE"
     assert "hidden" not in str(error.value)
+
+
+def test_claim_rejects_an_out_of_contract_attempt_count() -> None:
+    transport = FakeTransport(
+        [
+            response(
+                [
+                    {
+                        "claimed": True,
+                        "run_id": RUN_ID,
+                        "job_id": JOB_ID,
+                        "workspace_id": WORKSPACE_ID,
+                        "job_type": "read_lms_pending",
+                        "payload_json": {},
+                        "attempt": 4,
+                    }
+                ]
+            )
+        ]
+    )
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    with pytest.raises(SupabaseClientError) as error:
+        client.claim_job_run(JOB_ID, RUNNER_ID)
+
+    assert error.value.code == "SUPABASE_UNAVAILABLE"
 
 
 def test_finish_job_run_sends_allowlisted_terminal_status() -> None:
@@ -222,3 +250,167 @@ def test_storage_object_store_rejects_unscoped_state_path() -> None:
 
     assert error.value.code == "STORAGE_PATH_INVALID"
     assert transport.requests == []
+
+
+def test_get_active_browser_state_requires_one_strictly_valid_row() -> None:
+    transport = FakeTransport(
+        [
+            response(
+                [
+                    {
+                        "id": RUN_ID,
+                        "workspace_id": WORKSPACE_ID,
+                        "site": "lms",
+                        "object_path": OBJECT_PATH,
+                        "key_version": 1,
+                        "state_hash": "a" * 64,
+                        "status": "active",
+                    }
+                ]
+            )
+        ]
+    )
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    record = client.get_active_browser_state(WORKSPACE_ID, "lms")
+
+    assert record == BrowserStateRecord(
+        version_id=RUN_ID,
+        workspace_id=WORKSPACE_ID,
+        site="lms",
+        object_path=OBJECT_PATH,
+        key_version=1,
+        state_hash="a" * 64,
+        status="active",
+    )
+    assert transport.requests[0][0] == "GET"
+    assert "browser_state_versions?" in transport.requests[0][1]
+    assert "status=eq.active" in transport.requests[0][1]
+    assert "limit=2" in transport.requests[0][1]
+
+
+def test_get_active_browser_state_rejects_duplicate_rows() -> None:
+    row = {
+        "id": RUN_ID,
+        "workspace_id": WORKSPACE_ID,
+        "site": "lms",
+        "object_path": OBJECT_PATH,
+        "key_version": 1,
+        "state_hash": "a" * 64,
+        "status": "active",
+    }
+    transport = FakeTransport([response([row, row])])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    with pytest.raises(SupabaseClientError) as error:
+        client.get_active_browser_state(WORKSPACE_ID, "lms")
+
+    assert error.value.code == "SUPABASE_UNAVAILABLE"
+
+
+def test_delete_probe_rows_uses_exact_validated_filters() -> None:
+    transport = FakeTransport([response([]), response([])])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    client.delete_probe_rows(RUN_ID, "phase2-probe:00000000-0000-4000-8000-000000000002")
+
+    assert transport.requests[0][0] == "DELETE"
+    assert transport.requests[0][1].endswith(f"/rest/v1/browser_state_versions?id=eq.{RUN_ID}")
+    assert transport.requests[1][0] == "DELETE"
+    assert "idempotency_key=eq.phase2-probe%3A" in transport.requests[1][1]
+
+
+def test_delete_probe_rows_rejects_a_broad_filter_before_network() -> None:
+    transport = FakeTransport([])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    with pytest.raises(SupabaseClientError) as error:
+        client.delete_probe_rows(RUN_ID, "phase2-probe:*")
+
+    assert error.value.code == "RUNNER_RESULT_INVALID"
+    assert transport.requests == []
+
+
+def test_enqueue_probe_job_uses_existing_internal_rpc_and_empty_payload() -> None:
+    transport = FakeTransport(
+        [
+            response(
+                [
+                    {
+                        "job_id": JOB_ID,
+                        "workspace_id": WORKSPACE_ID,
+                        "job_type": "read_lms_pending",
+                        "status": "queued",
+                        "idempotency_key": f"phase2-probe:{RUN_ID}",
+                        "payload_json": {},
+                        "requested_by": RUN_ID,
+                        "created": True,
+                    }
+                ]
+            )
+        ]
+    )
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    result = client.enqueue_probe_job(WORKSPACE_ID, RUN_ID, RUN_ID)
+
+    assert result == EnqueuedProbeJob(
+        JOB_ID,
+        WORKSPACE_ID,
+        "read_lms_pending",
+        "queued",
+        f"phase2-probe:{RUN_ID}",
+        True,
+    )
+    assert transport.requests[0][1].endswith("/rest/v1/rpc/enqueue_automation_job")
+    assert json.loads(transport.requests[0][3] or b"") == {
+        "target_workspace_id": WORKSPACE_ID,
+        "target_type": "read_lms_pending",
+        "target_idempotency_key": f"phase2-probe:{RUN_ID}",
+        "target_payload": {},
+        "target_requested_by": RUN_ID,
+    }
+
+
+def test_expire_probe_lease_patches_only_the_exact_job() -> None:
+    transport = FakeTransport([HttpResponse(status=204, body=b"")])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    client.expire_probe_lease(JOB_ID)
+
+    method, url, _, body = transport.requests[0]
+    assert method == "PATCH"
+    assert url.endswith(f"/rest/v1/automation_jobs?id=eq.{JOB_ID}")
+    assert json.loads(body or b"") == {
+        "heartbeat_at": "2000-01-01T00:00:00Z",
+        "lease_expires_at": "2000-01-01T00:00:00Z",
+    }
+
+
+def test_distinct_authorization_token_never_appears_in_repr() -> None:
+    client = SupabaseRunnerClient(
+        BASE_URL,
+        "public-anon-key",
+        authorization_token="synthetic-user-jwt",
+    )
+
+    assert "synthetic-user-jwt" not in repr(client)
+    assert "public-anon-key" not in repr(client)
+
+
+def test_authenticated_role_probe_first_validates_a_real_user_session() -> None:
+    transport = FakeTransport([response({"id": RUN_ID})])
+    client = SupabaseRunnerClient(
+        BASE_URL,
+        "public-anon-key",
+        authorization_token="synthetic-user-jwt",
+        transport=transport,
+    )
+
+    assert client.verify_authenticated_identity() == RUN_ID
+    method, url, headers, body = transport.requests[0]
+    assert method == "GET"
+    assert url.endswith("/auth/v1/user")
+    assert headers["apikey"] == "public-anon-key"
+    assert headers["Authorization"] == "Bearer synthetic-user-jwt"
+    assert body is None

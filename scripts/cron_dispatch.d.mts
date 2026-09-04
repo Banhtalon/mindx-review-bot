@@ -24,4 +24,4 @@ export function dispatchCronJob(options?: {
   readonly environment?: CronDispatchEnvironment;
   readonly fetcher?: typeof fetch;
   readonly now?: Date;
-}): Promise<{ jobId: string; status: string }>;
+}): Promise<{ jobId: string; status: string } | { status: "disabled" }>;

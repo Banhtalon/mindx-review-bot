@@ -9,6 +9,7 @@ import {
 const WORKSPACE_ID = "00000000-0000-4000-8000-0000000000cc";
 const JOB_ID = "00000000-0000-4000-8000-0000000000d1";
 const ENVIRONMENT = {
+  CRON_DISPATCH_ENABLED: "true",
   SUPABASE_URL: "https://synthetic.supabase.co",
   CRON_DISPATCH_SECRET: "synthetic-cron-secret",
   CRON_WORKSPACE_ID: WORKSPACE_ID,
@@ -95,6 +96,39 @@ describe("scheduled read-only dispatch contract", () => {
     });
   });
 
+  it.each([undefined, "false"])(
+    "makes no request when the dispatch gate is %s",
+    async (gate) => {
+      const calls: unknown[] = [];
+      const environment: Record<string, string | undefined> = {
+        ...ENVIRONMENT,
+        CRON_DISPATCH_ENABLED: gate,
+      };
+
+      await expect(dispatchCronJob({
+        environment,
+        fetcher: async (...args) => {
+          calls.push(args);
+          throw new Error("network must remain disabled");
+        },
+      })).resolves.toEqual({ status: "disabled" });
+      expect(calls).toEqual([]);
+    },
+  );
+
+  it("rejects a malformed dispatch gate without making a request", async () => {
+    const calls: unknown[] = [];
+
+    await expect(dispatchCronJob({
+      environment: { ...ENVIRONMENT, CRON_DISPATCH_ENABLED: "TRUE" },
+      fetcher: async (...args) => {
+        calls.push(args);
+        throw new Error("network must remain disabled");
+      },
+    })).rejects.toMatchObject({ code: "CRON_CONFIG_INVALID" });
+    expect(calls).toEqual([]);
+  });
+
   it("pins the three UTC schedules and read-only workflow permissions", () => {
     const workflow = readFileSync(
       new URL("../.github/workflows/cron-dispatch.yml", import.meta.url),
@@ -108,6 +142,8 @@ describe("scheduled read-only dispatch contract", () => {
     expect(workflow).toContain("cancel-in-progress: false");
     expect(workflow).toContain("CRON_DISPATCH_SECRET");
     expect(workflow).toContain("CRON_WORKSPACE_ID");
+    expect(workflow).toContain("CRON_DISPATCH_ENABLED");
+    expect(workflow).toMatch(/dispatch_enabled:[\s\S]*type:\s*boolean[\s\S]*default:\s*false/);
     expect(workflow).toContain("node scripts/cron_dispatch.mjs");
     expect(workflow).not.toMatch(/cleanup|generate|save|submit/i);
   });

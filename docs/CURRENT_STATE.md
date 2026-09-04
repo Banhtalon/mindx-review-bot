@@ -11,8 +11,9 @@ This file is a routing/status summary for agents. It does not replace the V4 mas
 ## Current approved work
 
 Issue #11, **Phase 2 hosted/off-PC closure**, is the current Owner-approved
-product task under Scope Revision 1. Sol planning is complete on the dedicated
-task branch; product implementation and hosted execution have not started.
+product task under Scope Revision 1. Sol planning is complete and the issue is
+in `implementing`. The dedicated branch is implementing the default-off cron
+gate and manual synthetic hosted probe; hosted execution has not started.
 
 No product Phase 6 task is currently approved.
 
@@ -177,8 +178,8 @@ Product work that requires any of the following must use `blocked-owner` or `blo
 
 ## Next sequence
 
-1. Controller validates Issue #11 and moves it from `ready-for-implementation`
-   to `implementing` before invoking the implementation worker.
+1. Complete local implementation and deterministic verification for Issue #11
+   while its Agent Control Block remains `implementing`.
 2. Implement and locally verify the approved Phase 2 hosted/off-PC plan without
    live site access; route missing hosted configuration to the documented Owner
    checkpoint.

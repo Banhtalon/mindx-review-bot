@@ -3,6 +3,11 @@ import { describe, expect, it } from "vitest";
 
 const CI_WORKFLOW_PATH = new URL("../.github/workflows/ci.yml", import.meta.url);
 const RUNNER_WORKFLOW_PATH = new URL("../.github/workflows/browser-runner.yml", import.meta.url);
+const CRON_WORKFLOW_PATH = new URL("../.github/workflows/cron-dispatch.yml", import.meta.url);
+const HOSTED_WORKFLOW_PATH = new URL(
+  "../.github/workflows/phase2-hosted-verify.yml",
+  import.meta.url,
+);
 const ENV_EXAMPLE_PATH = new URL("../.env.example", import.meta.url);
 
 function workflowText(path: URL): string {
@@ -63,5 +68,23 @@ describe("phase 1 CI workflow contract", () => {
     const environment = workflowText(ENV_EXAMPLE_PATH);
 
     expect(environment).toContain("GITHUB_WORKFLOW_ID=browser-runner.yml");
+  });
+
+  it("keeps scheduled Cron dispatch behind a non-secret fail-closed gate", () => {
+    const workflow = workflowText(CRON_WORKFLOW_PATH);
+
+    expect(workflow).toContain("vars.CRON_DISPATCH_ENABLED");
+    expect(workflow).toContain("CRON_DISPATCH_ENABLED");
+    expect(workflow).not.toContain("secrets.CRON_DISPATCH_ENABLED");
+  });
+
+  it("keeps the Phase 2 hosted probe manual-only and outside product CI", () => {
+    const workflow = workflowText(HOSTED_WORKFLOW_PATH);
+
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).not.toContain("schedule:");
+    expect(workflow).not.toContain("pull_request_target:");
+    expect(workflow).not.toContain("mindx-runner run");
+    expect(workflow).not.toContain("upload-artifact");
   });
 });
