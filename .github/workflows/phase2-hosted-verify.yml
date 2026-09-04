@@ -15,6 +15,27 @@ on:
         options:
           - lms
           - teaching
+  workflow_call:
+    inputs:
+      probe_id:
+        description: Fresh opaque UUID for this synthetic probe
+        required: true
+        type: string
+      site:
+        description: Synthetic state namespace
+        required: true
+        type: string
+    secrets:
+      SUPABASE_URL:
+        required: true
+      SUPABASE_SECRET_KEY:
+        required: true
+      SUPABASE_ANON_KEY:
+        required: true
+      PHASE2_AUTHENTICATED_JWT:
+        required: true
+      BROWSER_STATE_ENCRYPTION_KEY:
+        required: true
 
 permissions:
   contents: read

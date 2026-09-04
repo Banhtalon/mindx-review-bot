@@ -67,9 +67,12 @@ def test_live_workflow_uses_locked_project_and_safe_runner_command() -> None:
     assert 'uv run --project apps/browser-runner mindx-runner run "$JOB_ID"' in WORKFLOW
 
 
-def test_hosted_probe_is_manual_only_bounded_and_pinned() -> None:
+def test_hosted_probe_is_manual_or_manual_reusable_only_bounded_and_pinned() -> None:
     assert "workflow_dispatch:" in HOSTED_WORKFLOW
+    assert "workflow_call:" in HOSTED_WORKFLOW
     assert "schedule:" not in HOSTED_WORKFLOW
+    assert "push:" not in HOSTED_WORKFLOW
+    assert "pull_request:" not in HOSTED_WORKFLOW
     assert "pull_request_target:" not in HOSTED_WORKFLOW
     assert "permissions:\n  contents: read" in HOSTED_WORKFLOW
     assert "timeout-minutes: 15" in HOSTED_WORKFLOW

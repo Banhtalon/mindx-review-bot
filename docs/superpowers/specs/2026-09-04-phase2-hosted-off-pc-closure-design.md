@@ -113,9 +113,14 @@ site adapter. Phase 8's one-week/ten-session reliability gate also remains open.
 
 ### 1. Manual-only hosted acceptance workflow
 
-Add a `workflow_dispatch`-only workflow for Phase 2 verification. It must have
+Add a manually callable workflow for Phase 2 verification. It must have
 `contents: read`, a bounded timeout, non-cancelling concurrency keyed by a
-non-sensitive probe ID, no artifact upload, and no `schedule` trigger.
+non-sensitive probe ID, no artifact upload, and no automatic trigger. Because
+GitHub requires a manually dispatched workflow file to exist on the default
+branch, the existing default-branch `spike0-dispatch-probe.yml` provides a
+default-off manual bootstrap and calls the branch's reusable hosted workflow.
+The existing Edge dispatch path omits that boolean input and therefore retains
+its validation-only behavior.
 
 The workflow invokes a dedicated acceptance command, not the product
 `mindx-runner run` entrypoint. It operates only on an owner-created synthetic

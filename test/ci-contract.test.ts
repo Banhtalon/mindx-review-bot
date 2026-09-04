@@ -78,11 +78,14 @@ describe("phase 1 CI workflow contract", () => {
     expect(workflow).not.toContain("secrets.CRON_DISPATCH_ENABLED");
   });
 
-  it("keeps the Phase 2 hosted probe manual-only and outside product CI", () => {
+  it("keeps the Phase 2 hosted probe manual/reusable-only and outside product CI", () => {
     const workflow = workflowText(HOSTED_WORKFLOW_PATH);
 
     expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("workflow_call:");
     expect(workflow).not.toContain("schedule:");
+    expect(workflow).not.toContain("push:");
+    expect(workflow).not.toContain("pull_request:");
     expect(workflow).not.toContain("pull_request_target:");
     expect(workflow).not.toContain("mindx-runner run");
     expect(workflow).not.toContain("upload-artifact");

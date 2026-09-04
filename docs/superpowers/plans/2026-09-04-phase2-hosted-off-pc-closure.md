@@ -105,11 +105,17 @@ Immediately stop and route the issue as indicated when:
 **Files:**
 
 - Create: `.github/workflows/phase2-hosted-verify.yml`
+- Modify: `.github/workflows/spike0-dispatch-probe.yml`
 - Modify: `apps/browser-runner/tests/unit/test_workflow_contract.py`
 - Modify: `test/ci-contract.test.ts`
 
-- [ ] Use only `workflow_dispatch`; do not add `schedule`, `pull_request_target`,
-  artifact upload, traces, screenshots, video, or HAR.
+- [ ] Use only direct manual dispatch or a reusable call from the existing
+  default-branch manual synthetic probe; do not add `schedule`, `push`,
+  `pull_request`, `pull_request_target`, artifact upload, traces, screenshots,
+  video, or HAR.
+- [ ] Keep the existing synthetic Edge target behavior unchanged by default;
+  its new hosted-probe boolean must default false and the reusable call must
+  wait for the original input validator.
 - [ ] Set `permissions: contents: read`, pinned actions, locked Python dependencies,
   a 15-minute job timeout, and concurrency keyed to a validated opaque probe ID.
 - [ ] Split persist and reuse/reset into separate jobs/processes so reuse is not

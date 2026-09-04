@@ -14,6 +14,19 @@ on:
         options:
           - sync_teaching
           - read_lms_pending
+      phase2_hosted:
+        description: Run the synthetic hosted Phase 2 verification chain
+        required: true
+        type: boolean
+        default: false
+      site:
+        description: Synthetic state namespace for the hosted probe
+        required: true
+        type: choice
+        default: lms
+        options:
+          - lms
+          - teaching
 
 permissions:
   contents: read
@@ -54,3 +67,12 @@ jobs:
 
           print("Spike 0 dispatch probe accepted", job_id, job_type)
           PY
+
+  phase2_hosted:
+    if: inputs.phase2_hosted
+    needs: validate
+    uses: ./.github/workflows/phase2-hosted-verify.yml
+    with:
+      probe_id: ${{ inputs.job_id }}
+      site: ${{ inputs.site }}
+    secrets: inherit

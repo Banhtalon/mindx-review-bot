@@ -18,6 +18,7 @@ describe("synthetic GitHub dispatch workflow contract", () => {
     expect(workflow).toMatch(/job_id:\s*[\s\S]*?required:\s*true[\s\S]*?type:\s*string/);
     expect(workflow).toMatch(/job_type:\s*[\s\S]*?required:\s*true[\s\S]*?type:\s*choice/);
     expect(workflow).toMatch(/options:\s*\n\s*-\s*sync_teaching\s*\n\s*-\s*read_lms_pending/);
+    expect(workflow).toMatch(/phase2_hosted:[\s\S]*?type:\s*boolean[\s\S]*?default:\s*false/);
   });
 
   it("keeps the probe read-only and deduplicated", () => {
@@ -28,7 +29,10 @@ describe("synthetic GitHub dispatch workflow contract", () => {
     expect(workflow).toMatch(/group:\s*mindx-spike0-\$\{\{\s*inputs\.job_id\s*\}\}/);
     expect(workflow).toMatch(/timeout-minutes:\s*15/);
     expect(workflow).not.toMatch(/\b(?:save|submit)\b/i);
-    expect(workflow).not.toMatch(/uses:\s*[^\n]+/);
+    const uses = [...workflow.matchAll(/uses:\s*([^\s#]+)/g)].map((match) => match[1]);
+    expect(uses).toEqual(["./.github/workflows/phase2-hosted-verify.yml"]);
+    expect(workflow).toContain("if: inputs.phase2_hosted");
+    expect(workflow).toContain("needs: validate");
   });
 
   it("validates a UUID job id and rejects unapproved job types in the shell", () => {
