@@ -1,6 +1,8 @@
-// BOOTSTRAP / SELF-TEST ONLY: Not final merge authority.
-// Trusted review check authority is emitted as 'terra-review-gate' by the dedicated GitHub App.
-// See docs/superpowers/plans/2026-09-04-trusted-review-architecture.md
+// NON-AUTHORITATIVE LOCAL VALIDATOR / SELF-TEST HELPER.
+// In Revision 4 (manual trusted merge gate), final merge authority rests with the Controller
+// verifying evidence and Owner performing manual merge. This script provides offline / test
+// validation helpers.
+// See docs/superpowers/plans/2026-09-04-github-native-manual-trusted-merge-gate.md
 
 /* global console */
 
@@ -28,7 +30,7 @@ export const REVIEWABLE_CONTROL_STATES = [
 
 export const BOOTSTRAP_PR_NUMBER = 6;
 export const BOOTSTRAP_CONTROL_ISSUE = 7;
-export const BOOTSTRAP_SCOPE_REVISION = 3;
+export const BOOTSTRAP_SCOPE_REVISION = 4;
 
 /**
  * Validates and parses a canonical non-negative decimal integer.

@@ -78,18 +78,19 @@ Before moving to `done`, verify:
 
 A failed deterministic gate that requires implementation changes must route to `needs-fix`; the next implementation re-entry follows that atomic controller rule.
 
-## Independent review checks (solo-owner review gate)
+## Independent review checks (solo-owner manual trusted merge gate)
 
-Before merge/`done`, verify:
+Before Controller declares PR `merge-eligible`:
 
-- `protect-main` ruleset requires `verify` and `terra-review-gate` (expected source: dedicated GitHub App, replacing bootstrap Actions `review-gate`) with `Required approvals = 0`, and conversation resolution is already enabled;
-- `terra-review-gate` check is PASS for the exact current PR head SHA;
-- valid Terra xHigh attestation exists authored by authorized Owner identity (`Banhtalon`, user ID `105797112`, `author_association: OWNER`), matching PR number, control issue, scope revision, with `RECOMMEND_PASS`, P0=0, P1=0, material findings resolved, and real calendar UTC timestamp;
-- any new push invalidates earlier attestations via head-SHA mismatch;
+- `protect-main` ruleset requires `verify` (and Owner removes Actions `review-gate` if still listed), with `Required approvals = 0`, and conversation resolution is enabled;
+- fresh Terra xHigh adversarial review exists for the exact current PR head SHA with `RECOMMEND_PASS`, P0=0, P1=0, and material findings resolved;
+- any new push invalidates earlier review via head-SHA mismatch;
 - all material review conversations/threads are resolved (enforced by live ruleset);
-- no unresolved P0/P1 finding remains.
+- no unresolved P0/P1 finding remains;
+- linked control issue has valid Agent Control Block and matching primary label (`ready-for-review` or `ready-for-verify`);
+- branch is up-to-date with `main`.
 
-A green `verify` check alone is not sufficient if `terra-review-gate` fails or review conversations remain open.
+Controller reports PR `merge-eligible` only when all above conditions are met, then prompts Owner to perform the manual Merge action.
 
 ## Completion checklist
 
@@ -97,7 +98,7 @@ Before moving to `done`, confirm:
 
 - acceptance criteria satisfied;
 - required review completed according to risk routing;
-- required independent review-gate check is current and passing;
+- required independent review completed and recommendations satisfied (`RECOMMEND_PASS`, P0=0, P1=0);
 - material review threads are resolved;
 - no unresolved material finding;
 - no out-of-scope diff;
@@ -107,12 +108,13 @@ Before moving to `done`, confirm:
 - `docs/CURRENT_STATE.md` does not contradict the claimed result;
 - no synthetic/local evidence is mislabeled live;
 - any live/hosted claim is supported by the relevant evidence index;
-- repository branch protection/required CI/review prerequisites are active when this workflow is being treated as controlled.
+- repository branch protection/required CI/review prerequisites are active when this workflow is being treated as controlled;
+- Owner has performed manual merge on PR.
 
 ## Output
 
 Report gate-by-gate PASS/FAIL/BLOCKED evidence.
 
-Only when all required deterministic gates, control-state checks, and enforced independent-review checks are PASS may the workflow set `VERIFIED` / `done`.
+Only when all required deterministic gates, control-state checks, independent-review checks, and Owner manual merge are complete may the workflow set `VERIFIED` / `done`.
 
 Do not manufacture or infer missing command or review results.

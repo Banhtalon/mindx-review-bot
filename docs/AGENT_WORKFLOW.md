@@ -82,12 +82,13 @@ Final authority is deterministic evidence, not model opinion.
 
 For this solo-owner repository, the required merge authority is:
 
-- current-head `verify`;
-- current-head `terra-review-gate` check produced via GitHub Checks API by the dedicated GitHub App (`apps/review-gate-worker/`), validating a fresh Terra xHigh attestation authored by the authorized Owner identity (`Banhtalon`, ID `105797112`, `author_association: OWNER`) and bound to the exact re-fetched PR head SHA;
-- bootstrap GitHub Actions `review-gate` retained for offline/PR self-test only;
-- required conversation resolution (already enabled on protect-main ruleset);
+- current-head `verify` (enforced deterministic status check);
+- fresh Terra xHigh adversarial review on the exact current PR head SHA (`RECOMMEND_PASS`, P0=0, P1=0, material findings resolved);
+- Controller independent verification of all evidence, control issue state/labels, branch freshness, and resolved review threads;
+- required conversation resolution (enforced on `protect-main` ruleset);
 - protected `main` with no bypass actors and no force pushes;
-- `Required approvals = 0` because there is only one GitHub account.
+- `Required approvals = 0` because there is only one GitHub account;
+- Owner manual merge: Owner performs or explicitly authorizes the final Merge action after Controller prompts. Model/worker does not merge autonomously.
 
 Required gates are task-scope dependent, but the repository baseline includes:
 
@@ -158,25 +159,30 @@ ready-for-implementation --(controller, counter stays 0)--> implementing
                                                         v
                                                 ready-for-review
                                                         |
-                         +------------------------------+------------------+
-                         |                              |                  |
-                         v                              v                  v
-                    NEEDS_FIX                       BLOCKED         RECOMMEND_PASS
-                         |                              |                  |
-                         v                              v                  v
-                     needs-fix               blocked-owner /       ready-for-verify
-                         |                    blocked-external             |
-                         |                                               v
-                         |                                      deterministic gates
-                         |                                    verify + review-gate
-                         |                                         |            |
-                         |                                       FAIL          PASS
-                         |                                         |            |
-                         +<------------------------------------ needs-fix        done
-                         |
-                         +-- if counter 0: atomic -> implementing / 1
-                         +-- if counter 1: atomic -> implementing / 2
-                         +-- if counter 2: blocked-owner; no third re-entry
+                          +------------------------------+------------------+
+                          |                              |                  |
+                          v                              v                  v
+                      NEEDS_FIX                       BLOCKED         RECOMMEND_PASS
+                          |                              |                  |
+                          v                              v                  v
+                      needs-fix               blocked-owner /       ready-for-verify
+                          |                    blocked-external             |
+                          |                                                 v
+                          |                                      deterministic gates (verify)
+                          |                                      + Controller verification
+                          |                                         |            |
+                          |                                       FAIL       ELIGIBLE
+                          |                                         |            |
+                          +<------------------------------------ needs-fix       |
+                          |                                                      v
+                          |                                              Owner manual merge
+                          |                                                      |
+                          |                                                      v
+                          |                                                     done
+                          |
+                          +-- if counter 0: atomic -> implementing / 1
+                          +-- if counter 1: atomic -> implementing / 2
+                          +-- if counter 2: blocked-owner; no third re-entry
 ```
 
 ## Bounded loop
@@ -260,17 +266,17 @@ Terra returns findings with P0/P1/P2/P3 severity and exactly one verdict:
 
 Terra never declares final `VERIFIED`.
 
-For solo-owner merge authority, a Terra `RECOMMEND_PASS` must be posted by the authorized Owner identity (`Banhtalon`, user ID `105797112`, `author_association: OWNER`) as a structured `TERRA_REVIEW_ATTESTATION_V1` block in top-level PR comments, and verified by the dedicated GitHub App check `terra-review-gate`. Any new push changes the PR head SHA and invalidates the prior attestation automatically.
+For solo-owner merge authority, a Terra `RECOMMEND_PASS` must be evaluated against the exact current PR head SHA. Any new push changes the PR head SHA and invalidates prior review evidence automatically.
 
 ## Merge authority
 
 A PR may merge only when all applicable conditions are true on the exact current head:
 
-- `verify` passes;
-- `terra-review-gate` passes from the dedicated GitHub App when Terra review is required;
+- `verify` CI passes;
+- fresh Terra xHigh adversarial review on the exact current head SHA returns `RECOMMEND_PASS` with P0=0, P1=0, and all material findings resolved;
+- Controller independently verifies that the exact reviewed SHA matches current PR head, `verify` passed, Issue #7 control block and primary label match (`ready-for-review` or `ready-for-verify`), branch is up-to-date, and conversation/review threads are resolved;
 - required conversation/review threads are resolved;
-- the linked control issue is in a valid verification state (`ready-for-review` or `ready-for-verify`) and its label matches the unique Agent Control Block;
-- there are no unresolved P0/P1 findings;
-- required live/runtime evidence exists for claims that depend on authenticated live-web behavior.
+- Controller declares PR `merge-eligible` and prompts Owner;
+- Owner performs the final manual Merge action on GitHub.
 
-No model may declare `VERIFIED`; deterministic machine evidence is the final authority.
+No model may declare `VERIFIED` or merge the PR autonomously; deterministic machine evidence and Owner authority govern completion.

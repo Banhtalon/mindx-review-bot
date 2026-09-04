@@ -93,7 +93,7 @@ Return exactly one overall recommendation:
 
 `RECOMMEND_PASS` is not `VERIFIED`.
 
-When providing the review result, Terra must include a machine-readable attestation block for the solo-owner `review-gate` check:
+When providing the review result, Terra must include a machine-readable attestation block for the solo-owner manual trusted merge gate:
 
 ```text
 <!-- TERRA_REVIEW_ATTESTATION_V1 -->

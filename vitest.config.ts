@@ -6,8 +6,7 @@ export default defineConfig({
     include: [
       "src/**/*.test.ts",
       "src/**/*.test.tsx",
-      "test/**/*.test.ts",
-      "apps/review-gate-worker/test/**/*.test.ts"
+      "test/**/*.test.ts"
     ],
     setupFiles: ["./test/setup.ts"],
   },

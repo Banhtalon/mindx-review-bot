@@ -1,5 +1,8 @@
 # Trusted Review Architecture — Scope Revision 3
 
+> [!NOTE]
+> **SUPERSEDED BY SCOPE REVISION 4**: This architecture was superseded by [Scope Revision 4 — GitHub-native manual trusted merge gate](file:///e:/mindx-review-bot/docs/superpowers/plans/2026-09-04-github-native-manual-trusted-merge-gate.md) approved in [Issue #7 comment 5535792176](https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5535792176). External review-gate worker infrastructure is retired in favor of GitHub-native manual merge authority. This document remains as a historical design record.
+
 ## Goal
 
 Replace the PR-controlled GitHub Actions `review-gate` as merge authority with a trusted review result that a pull request cannot forge by editing its own workflow or validator.

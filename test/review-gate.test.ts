@@ -25,7 +25,7 @@ const VALID_HEAD_SHA = "7074b025458d63e009da12e5e85f891852108004";
 const STALE_HEAD_SHA = "2222222222222222222222222222222222222222";
 const PR_NUMBER = 6;
 const CONTROL_ISSUE = 7;
-const SCOPE_REVISION = 3;
+const SCOPE_REVISION = 4;
 const VALID_TIMESTAMP = "2026-09-03T20:00:00Z";
 const VALID_RESET_LINK = "https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5526241968";
 
@@ -508,7 +508,7 @@ owner_scope_reset: https://github.com/example/approval
       expect(REVIEWABLE_CONTROL_STATES).toEqual(["ready-for-review", "ready-for-verify"]);
       expect(BOOTSTRAP_PR_NUMBER).toBe(6);
       expect(BOOTSTRAP_CONTROL_ISSUE).toBe(7);
-      expect(BOOTSTRAP_SCOPE_REVISION).toBe(3);
+      expect(BOOTSTRAP_SCOPE_REVISION).toBe(4);
     });
 
     it("fails closed on linked issue fetch failure (null/empty input)", () => {

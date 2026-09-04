@@ -16,34 +16,19 @@ Confirmed live on 2026-09-03:
 - deletion protection is enabled;
 - non-fast-forward/force-push protection is enabled.
 
-Solo-owner review gate configuration (Scope Revision 3):
+Solo-owner review gate configuration (Scope Revision 4 — manual trusted merge gate):
 
-Because this repository has a single GitHub user account (solo-owner), requiring GitHub human approvals (`Required approvals >= 1`) blocks the repo owner from merging pull requests. Scope Revision 3 establishes a trusted machine review gate:
+Scope Revision 4 replaces external infrastructure (Cloudflare Worker, Durable Object, dedicated GitHub App, RS256 private keys, webhook secrets) with a GitHub-native manual trusted merge gate:
 
-- keep **Required approvals** at `0`;
-- require the repository `verify` CI check to pass on the current PR head;
-- require the `terra-review-gate` check to pass on the current PR head, emitted by the dedicated `mindx-review-gate` GitHub App (`apps/review-gate-worker/`) through the GitHub Checks API;
-- the gate validates that a fresh Terra xHigh attestation exists in top-level PR comments, strictly bound to the current re-fetched PR head SHA, authored by the authorized Owner identity (`Banhtalon`, user ID `105797112`, `author_association: OWNER`);
+- keep **Required approvals** at `0` (solo-owner repository: requiring human approvals blocks the solo owner from merging);
+- require the repository deterministic `verify` CI check to pass on the current PR head;
+- require fresh Terra xHigh adversarial review on the exact current PR head SHA (`RECOMMEND_PASS`, P0=0, P1=0, material findings resolved);
+- require Controller independent verification of all evidence (PR head SHA matching reviewed SHA, `verify` pass, Issue #7 control block and primary label matching `ready-for-review` or `ready-for-verify`, branch freshness, and conversation resolution);
 - keep **Require conversation resolution before merging** active (already enabled on live protect-main ruleset);
-- any new commit changes `head_sha`, automatically invalidating any prior attestation;
-- no PR-controlled workflow or worker can forge or alter the check;
-- the legacy GitHub Actions `.github/workflows/review-gate.yml` remains bootstrap/self-test only.
-
-Owner setup steps for the dedicated GitHub App cutover:
-
-1. Create a dedicated GitHub App (`mindx-review-gate`) with minimum permissions:
-   - Metadata: Read-only
-   - Pull requests: Read-only
-   - Issues: Read-only
-   - Checks: Read and write
-2. Generate and download the RS256 private key (PEM format).
-3. Set up a Webhook URL pointing to the deployed `apps/review-gate-worker` instance with a secure `GITHUB_WEBHOOK_SECRET`.
-4. Deploy `apps/review-gate-worker` to an external/serverless host (e.g. Cloudflare Worker, Vercel, AWS Lambda, or container) configured with `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`.
-5. Install the GitHub App on the `Banhtalon/mindx-review-bot` repository.
-6. In repository ruleset `protect-main`:
-   - Keep `verify` required;
-   - Replace Actions `review-gate` with `terra-review-gate` as a required status check, specifying the dedicated GitHub App as the expected source;
-   - Keep `Require conversation resolution before merging` enabled (already active on live protect-main).
+- any new commit changes `head_sha`, automatically invalidating any prior review;
+- Controller prompts Owner when PR is `merge-eligible`;
+- Owner performs the manual Merge action on GitHub. No external host, GitHub App, or secret setup is required from Owner;
+- at merge eligibility, Owner updates `protect-main` ruleset to remove Actions `review-gate` from required status checks (leaving `verify`).
 
 ## 2. Workflow state labels — complete
 
@@ -140,9 +125,10 @@ Before Scheduled Tasks/background **development-agent** handoff:
 7. Terra reviews from fresh context;
 8. controller routes accepted findings through authoritative `needs-fix` and atomic re-entry transition if the counter permits;
 9. Gemini fixes only from valid `implementing` state;
-10. final deterministic CI passes;
-11. current-head review-gate check passes and material review threads are resolved;
-12. Owner reviews pilot outcome.
+10. final deterministic CI `verify` passes;
+11. fresh Terra xHigh adversarial review recommends pass (P0=0, P1=0, material findings resolved), Controller declares PR `merge-eligible`, and material review threads are resolved;
+12. Owner performs manual Merge on PR;
+13. Owner reviews pilot outcome.
 
 Pilot success criteria:
 

@@ -22,8 +22,6 @@
     "src",
     "test",
     "vite.config.ts",
-    "vitest.config.ts",
-    "apps/review-gate-worker/src",
-    "apps/review-gate-worker/test"
+    "vitest.config.ts"
   ]
 }

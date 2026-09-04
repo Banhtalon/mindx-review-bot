@@ -34,13 +34,18 @@ Repository controls now confirmed live on 2026-09-03:
 - deletion and non-fast-forward/force-push protection are active;
 - all nine canonical workflow-state labels exist.
 
-However the workflow is **not yet fully controlled for merge/unattended development** because the solo-owner trusted review gate setup is completing under Scope Revision 3:
+However the workflow is **not yet fully controlled for merge/unattended development** because the solo-owner trusted review gate setup is completing under Scope Revision 4 (GitHub-native manual trusted merge gate):
 
-- active ruleset `protect-main` currently has `Required approvals = 0`, requires `verify` and Actions `review-gate`, strict up-to-date policy, conversation resolution already enabled, and no bypass;
-- the review authority is being transitioned from PR-controlled GitHub Actions code to a dedicated GitHub App check named `terra-review-gate` (`apps/review-gate-worker/`);
-- `.github/workflows/review-gate.yml` is retained only as a bootstrap/self-test artifact and is not final merge authority;
-- after Terra reviews and approves the implementation, Owner will create/install the dedicated GitHub App, deploy the reviewed worker, and update `protect-main` required status checks to replace Actions `review-gate` with `terra-review-gate` (expected source: dedicated GitHub App);
-- any new commit pushed to the PR automatically changes `head_sha`, invalidating prior attestations.
+- active ruleset `protect-main` currently has `Required approvals = 0`, requires `verify` and Actions `review-gate`, strict up-to-date policy, conversation resolution enabled, and no bypass;
+- under Scope Revision 4, external review-gate infrastructure (`apps/review-gate-worker/`, Cloudflare Workers, dedicated GitHub App) and PR-controlled Actions review gate (`.github/workflows/review-gate.yml`) are retired;
+- merge authority simplifies to GitHub-native manual trusted merge gate:
+  1. deterministic CI `verify` status check;
+  2. fresh Terra xHigh adversarial review on the exact current PR head SHA;
+  3. Controller independent verification of all evidence, control issue state/labels, branch freshness, and resolved review threads;
+  4. Controller declares PR `merge-eligible` and prompts Owner;
+  5. Owner performs manual Merge action on GitHub.
+- at merge eligibility, Owner will be prompted to remove Actions `review-gate` from the `protect-main` ruleset required status checks (leaving `verify`);
+- any new commit pushed to the PR automatically changes `head_sha`, invalidating prior attestations/review.
 
 New unattended development-agent automation remains blocked until the migration is merged and one manual pilot succeeds.
 
@@ -121,7 +126,7 @@ Still mandatory:
 
 Target pipeline:
 
-Owner -> Sol High plan/spec -> GitHub issue control state -> controller transition -> Gemini 3.8 Flash implementation/test/fix -> deterministic CI -> Terra xHigh fresh adversarial review -> controller transition if needed -> Gemini fix -> final deterministic verification -> Terra attestation + review-gate pass / thread resolution -> merge.
+Owner -> Sol High plan/spec -> GitHub issue control state -> controller transition -> Gemini 3.8 Flash implementation/test/fix -> deterministic CI -> Terra xHigh fresh adversarial review -> controller transition if needed -> Gemini fix -> final deterministic verification -> Controller declares merge-eligible -> Owner manual merge.
 
 Superpowers remains the shared methodology.
 
@@ -133,10 +138,11 @@ No model may declare final `VERIFIED`.
 
 Workflow migration status:
 
-- Scope Revision 3 fix re-entry #1 implemented: dedicated GitHub App review gate worker under `apps/review-gate-worker/` (pure validator, non-PR-controlled trusted configuration, strict Owner provenance checks requiring `author_association: OWNER`, strict `owner_scope_reset` URL checks, exhaustive comment pagination with fail-closed safety cap, `issues` event webhook handler to recompute when control issue changes, canonical Terra carrier only with duplicate/fenced block rejection and strict key validation, same-head check run dedup/update via PATCH, HMAC verification, strict calendar UTC date validation, AGENT_CONTROL_BLOCK_V1 and OWNER_SCOPE_RESET_V1 validation, GitHub Checks API adapter);
-- Issue #7 at `state: implementing`, `scope_revision: 3`, `fix_reentries: 1`, linked to Owner approval record #5534707230;
-- `.github/workflows/review-gate.yml` retained as bootstrap/self-test only;
-- Future Owner action items after Terra review approval: create/install the dedicated GitHub App, deploy the reviewed worker, and update `protect-main` ruleset to replace Actions `review-gate` with `terra-review-gate` (expected source: dedicated GitHub App). Note: `protect-main` already has conversation resolution enabled, `Required approvals = 0`, `verify`, and strict up-to-date.
+- Scope Revision 4 implemented: GitHub-native manual trusted merge gate replacing external review-gate infrastructure;
+- `apps/review-gate-worker/` and `.github/workflows/review-gate.yml` retired and deleted;
+- Issue #7 at `state: implementing`, `scope_revision: 4`, `fix_reentries: 0`, linked to Owner approval record #5535792176;
+- No external Cloudflare, Durable Object, or GitHub App deployment required;
+- Expected Owner action at this stage: NONE (Owner will only update `protect-main` to require `verify` alone and perform manual Merge when prompted after Terra approval and CI pass).
 
 Separate product/ops decision:
 
@@ -154,17 +160,17 @@ Product work that requires any of the following must use `blocked-owner` or `blo
 
 ## Next sequence
 
-1. Complete Scope Revision 3 implementation and verify all deterministic gates pass.
+1. Complete Scope Revision 4 implementation and verify all deterministic gates pass.
 2. Push commit to PR #6 (`chore/agent-workflow-migration`).
 3. Controller moves Issue #7 to `ready-for-review`.
 4. Terra xHigh performs fresh-context review of the exact current PR head diff.
 5. If Terra returns `NEEDS_FIX`, fix loop routes through controller (at most 2 fix re-entries).
-6. Upon Terra `RECOMMEND_PASS`, Owner installs the dedicated GitHub App and deploys the reviewed worker.
-7. Worker evaluates PR #6 and emits `terra-review-gate` on the current PR head.
-8. Owner updates `protect-main` ruleset to replace Actions `review-gate` with `terra-review-gate` (from the GitHub App source).
-9. Controller posts the authorized Owner-carried Terra attestation for the current head; `terra-review-gate` passes.
-10. Merge PR #6 when both checks pass and required conversations are resolved.
-11. Run manual pilot on one small task before unattended automation.
+6. Upon Terra `RECOMMEND_PASS` (P0=0, P1=0, material findings resolved) and current-head `verify` PASS:
+   - Controller verifies all conditions (exact reviewed SHA matches current PR head, CI `verify` pass, Issue #7 control state, branch freshness, conversations resolved);
+   - Controller prompts Owner to remove Actions `review-gate` from `protect-main` ruleset (leaving `verify`);
+   - Controller declares PR `merge-eligible`.
+7. Owner performs manual Merge on PR #6.
+8. Run manual pilot on one small task before unattended automation.
 
 ## Update rule
 

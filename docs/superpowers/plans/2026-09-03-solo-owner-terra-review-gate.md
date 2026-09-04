@@ -1,5 +1,8 @@
 # Solo-owner Terra Review Gate Plan
 
+> [!NOTE]
+> **SUPERSEDED BY SCOPE REVISION 4**: This plan (Scope Revision 2) was superseded by [Scope Revision 4 — GitHub-native manual trusted merge gate](file:///e:/mindx-review-bot/docs/superpowers/plans/2026-09-04-github-native-manual-trusted-merge-gate.md) approved in [Issue #7 comment 5535792176](https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5535792176). Merge authority simplifies to deterministic `verify` CI + fresh Terra xHigh review + Controller verification + Owner manual merge. This document remains as a historical design record.
+
 ## Context
 
 The repository has one GitHub owner account (`Banhtalon`). Requiring one GitHub approval on a PR authored by that same account makes the branch rule impossible to satisfy because self-approval is not an independent approval.

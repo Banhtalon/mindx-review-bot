@@ -99,16 +99,17 @@ Authoritative fix-loop state: see linked issue `fix_reentries`.
 
 Use `blocked-owner` for missing business/scope/live-credential/reviewer decisions and `blocked-external` for unavailable external prerequisites.
 
-## Solo-Owner Review Gate & Verification
+## Solo-Owner Trusted Merge Gate & Verification
 
-- [ ] Deterministic `review-gate` status check is green on current PR head
-- [ ] Fresh Terra xHigh attestation exists for the exact current PR head SHA
-- [ ] Attestation verdict is `RECOMMEND_PASS`, P0=0, P1=0, and material findings are resolved
-- [ ] Attestation matches linked control issue and scope revision
-- [ ] All material review conversations/threads are resolved
 - [ ] Deterministic `verify` status check is green on current PR head
+- [ ] Fresh Terra xHigh adversarial review exists for the exact current PR head SHA
+- [ ] Review verdict is `RECOMMEND_PASS`, P0=0, P1=0, and material findings are resolved
+- [ ] Review matches linked control issue and scope revision
+- [ ] All material review conversations/threads are resolved
+- [ ] Controller independently verified all evidence and declared PR `merge-eligible`
+- [ ] Owner manual Merge action performed
 
-> The active `main` ruleset enforces `verify` and `review-gate` with `Required approvals = 0`. All conversation threads must be resolved before merge.
+> The active `main` ruleset enforces `verify` with `Required approvals = 0`. All conversation threads must be resolved before merge. Merge is performed manually by Owner.
 
 ## Final Verification
 

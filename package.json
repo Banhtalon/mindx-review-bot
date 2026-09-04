@@ -17,8 +17,7 @@
     "cron:dispatch": "node scripts/cron_dispatch.mjs",
     "verify:no-secrets": "node scripts/verify_no_secrets.mjs",
     "verify:no-live-write": "node scripts/verify_no_live_write.mjs",
-    "test:review-gate": "vitest run test/review-gate.test.ts",
-    "test:review-gate-worker": "vitest run apps/review-gate-worker/test/"
+    "test:review-gate": "vitest run test/review-gate.test.ts"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

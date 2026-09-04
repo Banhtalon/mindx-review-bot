@@ -242,15 +242,18 @@ Authenticated live-web changes cần thêm browser/E2E evidence phù hợp; unit
 - Không push feature/fix trực tiếp vào `main`.
 - `main` phải được active ruleset chặn direct push/force-push/delete.
 - Repo thuộc sở hữu solo-owner (1 tài khoản): giữ `Required approvals = 0` trên GitHub; việc đòi hỏi tài khoản người thứ 2 approve là không khả thi.
-- Thay vào đó, PR vào `main` bắt buộc phải vượt qua 2 status check độc lập trên đúng current PR head:
-  1. `verify` (toàn bộ deterministic gates: lint, typecheck, test, build, no-secrets, no-live-write, Supabase RLS, Python runner);
-  2. `review-gate` (kiểm tra Terra xHigh attestation hợp lệ cho đúng `head_sha` hiện tại, `RECOMMEND_PASS`, `p0: 0`, `p1: 0`, `material_findings_resolved: true`).
+- Quy trình merge đáng tin cậy (Scope Revision 4 — manual trusted merge gate):
+  1. Required status check trên GitHub: `verify` (toàn bộ deterministic gates: lint, typecheck, test, build, no-secrets, no-live-write, Supabase RLS, Python runner);
+  2. Độc lập với machine CI, Terra xHigh adversarial review bắt buộc trên đúng `head_sha` hiện tại (`RECOMMEND_PASS`, `p0: 0`, `p1: 0`, `material_findings_resolved: true`);
+  3. Controller kiểm tra chéo độc lập: PR head SHA khớp exact reviewed SHA, Terra verdict/findings, current-head `verify`, Agent Control Block và primary label trong control issue (`ready-for-review` hoặc `ready-for-verify`), branch up-to-date, review conversation threads resolved;
+  4. Controller tuyên bố PR `merge-eligible` khi toàn bộ điều kiện thoả mãn;
+  5. Owner thực hiện thao tác Merge thủ công sau khi Controller prompt. Model/worker tuyệt đối không tự ý merge PR.
 - Bắt buộc resolve toàn bộ conversation/review threads trước khi merge.
-- Bất kỳ push commit mới nào làm thay đổi `head_sha` đều tự động vô hiệu hóa attestation trước đó (head SHA mismatch).
+- Bất kỳ push commit mới nào làm thay đổi `head_sha` đều tự động vô hiệu hóa review trước đó (head SHA mismatch).
 - Worker phát triển (Gemini, Sol) tuyệt đối không được tự ý tạo hoặc chỉnh sửa Terra attestation.
 - Dùng branch/worktree riêng cho task.
 - PR phải ghi requirement, acceptance criteria, changed/not-changed scope, tests, current-head verification evidence, known limitations và linked task control state.
-- Không merge khi required CI (`verify` hoặc `review-gate`) còn đỏ hoặc required review control chưa đạt.
+- Không merge khi required CI (`verify`) còn đỏ hoặc required review/controller criteria chưa đạt.
 - Không dùng review transcript của implementer làm bằng chứng thay cho fresh review hoặc machine verification.
 
 ## Secrets
