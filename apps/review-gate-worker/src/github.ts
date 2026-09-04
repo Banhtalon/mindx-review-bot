@@ -173,20 +173,38 @@ export async function fetchIssueComment(
   return (await res.json()) as GitHubIssueComment;
 }
 
+export interface ExistingCheckRun {
+  id: number;
+  url: string;
+  name: string;
+  head_sha: string;
+  status: string;
+  conclusion?: string | null;
+  external_id?: string | null;
+}
+
 /**
  * Deterministically fetches all paginated comments from PR conversation until exhausted.
+ * Fails closed with error if maxPages (safety cap) is reached and there are still more comments.
  */
 export async function fetchAllIssueComments(
   repo: string,
   issueNumber: number,
   token: string,
-  fetchFn: typeof fetch = fetch
+  fetchFn: typeof fetch = fetch,
+  maxPages = 200
 ): Promise<GitHubIssueComment[]> {
   const allComments: GitHubIssueComment[] = [];
   let page = 1;
   const perPage = 100;
 
   while (true) {
+    if (page > maxPages) {
+      const err = new Error(`PAGINATION_LIMIT_EXCEEDED: Exceeded maximum allowed comment pages (${maxPages}) for issue #${issueNumber}`);
+      (err as unknown as { code: string }).code = "PAGINATION_LIMIT_EXCEEDED";
+      throw err;
+    }
+
     const url = `https://api.github.com/repos/${repo}/issues/${issueNumber}/comments?per_page=${perPage}&page=${page}`;
     const res = await fetchFn(url, {
       headers: {
@@ -207,13 +225,50 @@ export async function fetchAllIssueComments(
     }
 
     allComments.push(...items);
-    if (items.length < perPage || page >= 50) {
+    if (items.length < perPage) {
       break;
     }
     page++;
   }
 
   return allComments;
+}
+
+/**
+ * Searches for an existing check run by check name on exact current head SHA.
+ * GET /repos/:owner/:repo/commits/:ref/check-runs?check_name=:name
+ */
+export async function findExistingCheckRun(
+  repo: string,
+  headSha: string,
+  checkName: string,
+  token: string,
+  fetchFn: typeof fetch = fetch
+): Promise<ExistingCheckRun | null> {
+  const url = `https://api.github.com/repos/${repo}/commits/${headSha}/check-runs?check_name=${encodeURIComponent(checkName)}`;
+  const res = await fetchFn(url, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "User-Agent": "mindx-review-gate-worker",
+    },
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Failed to query check runs for commit ${headSha} (${res.status}): ${body}`);
+  }
+
+  const data = (await res.json()) as {
+    total_count: number;
+    check_runs?: ExistingCheckRun[];
+  };
+
+  if (Array.isArray(data.check_runs) && data.check_runs.length > 0) {
+    return data.check_runs[0];
+  }
+
+  return null;
 }
 
 /**

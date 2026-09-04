@@ -4,14 +4,18 @@ import {
   fetchIssue,
   fetchIssueComment,
   fetchPullRequest,
+  findExistingCheckRun,
 } from "./github.ts";
 import {
   extractOwnerAttestationsFromComments,
+  parseCanonicalNonNegativeInteger,
   validateReviewGate,
 } from "./validator.ts";
 import {
   GitHubCheckRunPayload,
+  PILOT_TRUSTED_CONFIG,
   TRUSTED_CHECK_NAME,
+  TrustedMappingConfig,
   ValidationResult,
 } from "./types.ts";
 
@@ -19,8 +23,7 @@ export interface EvaluateReviewGateServiceOptions {
   repo: string;
   prNumber: number;
   token: string;
-  expectedControlIssue?: number;
-  expectedScopeRevision?: number;
+  trustedConfig?: TrustedMappingConfig;
   checkRunId?: number;
   fetchFn?: typeof fetch;
 }
@@ -30,6 +33,67 @@ export interface EvaluateReviewGateServiceResult {
   headSha: string;
   validationResult: ValidationResult;
   checkRun: { id: number; url: string };
+}
+
+/**
+ * Validates trusted mapping configuration.
+ */
+export function validateTrustedConfig(
+  config: unknown
+): { valid: true; config: TrustedMappingConfig } | { valid: false; reason: string; details: string } {
+  if (!config || typeof config !== "object") {
+    return {
+      valid: false,
+      reason: "MISSING_TRUSTED_CONFIG",
+      details: "Trusted mapping configuration is missing or not an object.",
+    };
+  }
+
+  const c = config as Record<string, unknown>;
+  if (typeof c.repo !== "string" || !c.repo.trim()) {
+    return {
+      valid: false,
+      reason: "MALFORMED_TRUSTED_CONFIG",
+      details: "trustedConfig.repo must be a non-empty string.",
+    };
+  }
+
+  const prNum = parseCanonicalNonNegativeInteger(c.prNumber);
+  if (prNum === null || prNum < 1) {
+    return {
+      valid: false,
+      reason: "MALFORMED_TRUSTED_CONFIG",
+      details: "trustedConfig.prNumber must be a positive integer.",
+    };
+  }
+
+  const issueNum = parseCanonicalNonNegativeInteger(c.controlIssue);
+  if (issueNum === null || issueNum < 1) {
+    return {
+      valid: false,
+      reason: "MALFORMED_TRUSTED_CONFIG",
+      details: "trustedConfig.controlIssue must be a positive integer.",
+    };
+  }
+
+  const scopeRev = parseCanonicalNonNegativeInteger(c.scopeRevision);
+  if (scopeRev === null || scopeRev < 1) {
+    return {
+      valid: false,
+      reason: "MALFORMED_TRUSTED_CONFIG",
+      details: "trustedConfig.scopeRevision must be a positive integer.",
+    };
+  }
+
+  return {
+    valid: true,
+    config: {
+      repo: c.repo.trim(),
+      prNumber: prNum,
+      controlIssue: issueNum,
+      scopeRevision: scopeRev,
+    },
+  };
 }
 
 /**
@@ -45,22 +109,48 @@ export function extractCommentIdFromUrl(url: string): string | null {
 }
 
 /**
- * Parses linked control issue number from PR body markdown.
+ * Emits or updates the terra-review-gate check run on exact current head SHA.
+ * Finds existing check run on headSha to update (PATCH) for idempotency,
+ * or creates a new one (POST) with external_id if none exists.
  */
-export function parseControlIssueFromPrBody(prBody: string): number | null {
-  if (!prBody || typeof prBody !== "string") return null;
-  const match = /(?:Authoritative control issue|Linked issue|Linked GitHub issue):\s*#?(\d+)/i.exec(prBody);
-  return match ? parseInt(match[1], 10) : null;
+export async function emitReviewGateCheckRun(
+  repo: string,
+  prNumber: number,
+  headSha: string,
+  result: ValidationResult,
+  token: string,
+  explicitCheckRunId?: number,
+  fetchFn: typeof fetch = fetch
+): Promise<{ id: number; url: string }> {
+  let checkRunId = explicitCheckRunId;
+  if (!checkRunId) {
+    try {
+      const existing = await findExistingCheckRun(repo, headSha, TRUSTED_CHECK_NAME, token, fetchFn);
+      if (existing) {
+        checkRunId = existing.id;
+      }
+    } catch {
+      // If query fails, fall through to create
+    }
+  }
+
+  const checkRunPayload: GitHubCheckRunPayload = {
+    ...createCheckRunPayload(headSha, result),
+    external_id: `${TRUSTED_CHECK_NAME}:${prNumber}`,
+  };
+
+  return createOrUpdateCheckRun(repo, checkRunPayload, token, checkRunId, fetchFn);
 }
 
 /**
  * Full review-gate service evaluation:
- * - Re-fetches current PR head SHA directly from GitHub API
+ * - Re-fetches current PR head SHA directly from GitHub API (never trusts webhook SHA)
+ * - Enforces non-PR-controlled trusted deployment configuration
  * - Re-fetches control issue from GitHub API
  * - Re-fetches scope-reset comment if scope_revision > 1
- * - Fetches all PR top-level comments with pagination
+ * - Fetches all PR top-level comments with exhaustive pagination
  * - Evaluates validation rules
- * - Emits terra-review-gate check run on exact current head SHA
+ * - Emits or updates terra-review-gate check run on exact current head SHA
  */
 export async function evaluateReviewGateService(
   options: EvaluateReviewGateServiceOptions
@@ -71,22 +161,20 @@ export async function evaluateReviewGateService(
   const pr = await fetchPullRequest(repo, prNumber, token, fetchFn);
   const currentHeadSha = pr.head.sha;
 
-  // 2. Identify linked control issue
-  let controlIssueNum = options.expectedControlIssue;
-  if (!controlIssueNum) {
-    const fromBody = parseControlIssueFromPrBody(pr.body || "");
-    if (fromBody) controlIssueNum = fromBody;
-  }
-
-  if (!controlIssueNum) {
+  // 2. Validate trusted configuration (never derive control issue or scope revision from PR body)
+  const rawConfig = options.trustedConfig !== undefined ? options.trustedConfig : PILOT_TRUSTED_CONFIG;
+  const configValidation = validateTrustedConfig(rawConfig);
+  if (!configValidation.valid) {
     const failResult: ValidationResult = {
       valid: false,
-      reason: "MISSING_CONTROL_ISSUE",
-      details: "No authoritative control issue specified or linked in PR body.",
+      reason: configValidation.reason,
+      details: configValidation.details,
     };
-    const checkRun = await createOrUpdateCheckRun(
+    const checkRun = await emitReviewGateCheckRun(
       repo,
-      createCheckRunPayload(currentHeadSha, failResult),
+      prNumber,
+      currentHeadSha,
+      failResult,
       token,
       options.checkRunId,
       fetchFn
@@ -99,6 +187,38 @@ export async function evaluateReviewGateService(
     };
   }
 
+  const trustedConfig = configValidation.config;
+
+  // Verify incoming repo and prNumber match trustedConfig
+  if (
+    repo.toLowerCase() !== trustedConfig.repo.toLowerCase() ||
+    prNumber !== trustedConfig.prNumber
+  ) {
+    const failResult: ValidationResult = {
+      valid: false,
+      reason: "TRUSTED_CONFIG_MISMATCH",
+      details: `Incoming PR (${repo} #${prNumber}) does not match trusted deployment configuration (${trustedConfig.repo} #${trustedConfig.prNumber}).`,
+    };
+    const checkRun = await emitReviewGateCheckRun(
+      repo,
+      prNumber,
+      currentHeadSha,
+      failResult,
+      token,
+      options.checkRunId,
+      fetchFn
+    );
+    return {
+      valid: false,
+      headSha: currentHeadSha,
+      validationResult: failResult,
+      checkRun,
+    };
+  }
+
+  const controlIssueNum = trustedConfig.controlIssue;
+  const expectedScopeRevision = trustedConfig.scopeRevision;
+
   // 3. Fetch control issue
   let controlIssueData;
   try {
@@ -109,9 +229,11 @@ export async function evaluateReviewGateService(
       reason: "ISSUE_FETCH_FAILED",
       details: `Failed to fetch authoritative control issue #${controlIssueNum}: ${(err as Error).message}`,
     };
-    const checkRun = await createOrUpdateCheckRun(
+    const checkRun = await emitReviewGateCheckRun(
       repo,
-      createCheckRunPayload(currentHeadSha, failResult),
+      prNumber,
+      currentHeadSha,
+      failResult,
       token,
       options.checkRunId,
       fetchFn
@@ -138,8 +260,39 @@ export async function evaluateReviewGateService(
     }
   }
 
-  // 5. Fetch all top-level PR conversation comments
-  const prComments = await fetchAllIssueComments(repo, prNumber, token, fetchFn);
+  // 5. Fetch all top-level PR conversation comments with exhaustive pagination
+  let prComments;
+  try {
+    prComments = await fetchAllIssueComments(repo, prNumber, token, fetchFn);
+  } catch (err: unknown) {
+    const errorObj = err as { code?: string; message?: string };
+    if (
+      errorObj.code === "PAGINATION_LIMIT_EXCEEDED" ||
+      (errorObj.message && errorObj.message.includes("PAGINATION_LIMIT_EXCEEDED"))
+    ) {
+      const failResult: ValidationResult = {
+        valid: false,
+        reason: "PAGINATION_LIMIT_EXCEEDED",
+        details: errorObj.message || "Exceeded maximum allowed comment pagination pages.",
+      };
+      const checkRun = await emitReviewGateCheckRun(
+        repo,
+        prNumber,
+        currentHeadSha,
+        failResult,
+        token,
+        options.checkRunId,
+        fetchFn
+      );
+      return {
+        valid: false,
+        headSha: currentHeadSha,
+        validationResult: failResult,
+        checkRun,
+      };
+    }
+    throw err;
+  }
 
   // 6. Extract owner-authorized attestations
   const attestations = extractOwnerAttestationsFromComments(prComments);
@@ -150,16 +303,18 @@ export async function evaluateReviewGateService(
     expectedHeadSha: currentHeadSha,
     expectedPrNumber: prNumber,
     expectedControlIssue: controlIssueNum,
-    expectedScopeRevision: options.expectedScopeRevision,
+    expectedScopeRevision,
+    expectedRepo: repo,
     controlIssueData,
     scopeResetCommentData,
   });
 
-  // 8. Emit check run on exact current head SHA
-  const checkRunPayload = createCheckRunPayload(currentHeadSha, validationResult);
-  const checkRun = await createOrUpdateCheckRun(
+  // 8. Emit or update check run on exact current head SHA
+  const checkRun = await emitReviewGateCheckRun(
     repo,
-    checkRunPayload,
+    prNumber,
+    currentHeadSha,
+    validationResult,
     token,
     options.checkRunId,
     fetchFn
@@ -173,7 +328,7 @@ export async function evaluateReviewGateService(
   };
 }
 
-function createCheckRunPayload(headSha: string, result: ValidationResult): GitHubCheckRunPayload {
+export function createCheckRunPayload(headSha: string, result: ValidationResult): GitHubCheckRunPayload {
   if (result.valid) {
     return {
       name: TRUSTED_CHECK_NAME,

@@ -1,12 +1,15 @@
 import { generateAppJwt, getInstallationAccessToken, verifyWebhookSignature } from "./github.ts";
 import { evaluateReviewGateService } from "./service.ts";
+import { PILOT_TRUSTED_CONFIG, TrustedMappingConfig } from "./types.ts";
 
 export interface WorkerEnv {
   GITHUB_APP_ID: string;
   GITHUB_PRIVATE_KEY: string;
   GITHUB_WEBHOOK_SECRET: string;
-  DEFAULT_CONTROL_ISSUE?: string;
-  DEFAULT_SCOPE_REVISION?: string;
+  TRUSTED_REPO?: string;
+  TRUSTED_PR_NUMBER?: string;
+  TRUSTED_CONTROL_ISSUE?: string;
+  TRUSTED_SCOPE_REVISION?: string;
 }
 
 export interface WebhookHandlerRequest {
@@ -55,6 +58,13 @@ export async function handleWebhookRequest(
     return { status: 400, body: JSON.stringify({ error: "Invalid JSON body" }) };
   }
 
+  const trustedConfig: TrustedMappingConfig = {
+    repo: env.TRUSTED_REPO || PILOT_TRUSTED_CONFIG.repo,
+    prNumber: env.TRUSTED_PR_NUMBER ? Number(env.TRUSTED_PR_NUMBER) : PILOT_TRUSTED_CONFIG.prNumber,
+    controlIssue: env.TRUSTED_CONTROL_ISSUE ? Number(env.TRUSTED_CONTROL_ISSUE) : PILOT_TRUSTED_CONFIG.controlIssue,
+    scopeRevision: env.TRUSTED_SCOPE_REVISION ? Number(env.TRUSTED_SCOPE_REVISION) : PILOT_TRUSTED_CONFIG.scopeRevision,
+  };
+
   let prNumber: number | undefined;
   let repoFullName: string | undefined;
   let installationId: number | undefined;
@@ -87,6 +97,24 @@ export async function handleWebhookRequest(
       return { status: 200, body: JSON.stringify({ ignored: true, reason: "Comment is not on a pull request" }) };
     }
     prNumber = issue.number;
+  } else if (event === "issues") {
+    const action = payload.action as string;
+    const relevantActions = ["edited", "labeled", "unlabeled", "opened", "reopened", "closed"];
+    if (!relevantActions.includes(action)) {
+      return { status: 200, body: JSON.stringify({ ignored: true, reason: `Action '${action}' not relevant` }) };
+    }
+    const issue = payload.issue as { number?: number };
+    if (issue?.number !== trustedConfig.controlIssue) {
+      return {
+        status: 200,
+        body: JSON.stringify({
+          ignored: true,
+          reason: `Issue #${issue?.number} is not control issue #${trustedConfig.controlIssue}`,
+        }),
+      };
+    }
+    // Map control issue update to PR review gate re-evaluation
+    prNumber = trustedConfig.prNumber;
   } else {
     return { status: 200, body: JSON.stringify({ ignored: true, reason: `Event '${event}' not handled` }) };
   }
@@ -108,8 +136,7 @@ export async function handleWebhookRequest(
       repo: repoFullName,
       prNumber,
       token,
-      expectedControlIssue: env.DEFAULT_CONTROL_ISSUE ? Number(env.DEFAULT_CONTROL_ISSUE) : undefined,
-      expectedScopeRevision: env.DEFAULT_SCOPE_REVISION ? Number(env.DEFAULT_SCOPE_REVISION) : undefined,
+      trustedConfig,
       fetchFn,
     });
 

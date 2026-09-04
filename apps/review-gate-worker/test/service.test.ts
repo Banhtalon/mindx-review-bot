@@ -10,7 +10,7 @@ const REPO = "Banhtalon/mindx-review-bot";
 const mockPr = {
   number: 6,
   title: "chore: migrate agent workflow",
-  body: "Authoritative control issue: #7",
+  body: "Some PR description without control issue link",
   state: "open",
   head: { sha: CURRENT_HEAD_SHA, ref: "chore/agent-workflow-migration" },
   base: { sha: "main-sha", ref: "main" },
@@ -36,6 +36,8 @@ const mockScopeResetComment = {
   id: 5534707230,
   user: { login: "Banhtalon", id: 105797112 },
   author_association: "OWNER",
+  issue_url: "https://api.github.com/repos/Banhtalon/mindx-review-bot/issues/7",
+  html_url: "https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5534707230",
   body: `
 <!-- OWNER_SCOPE_RESET_V1 -->
 old_scope_revision: 2
@@ -49,7 +51,13 @@ approved_by: Banhtalon
   created_at: "2026-09-04T01:00:00Z",
 };
 
-function createMockFetch(comments: unknown[] = [], capturedCheckRuns: unknown[] = []) {
+function createMockFetch(
+  comments: unknown[] = [],
+  capturedCheckRuns: unknown[] = [],
+  existingCheckRun: unknown = null,
+  issueOverride: unknown = null,
+  commentsError: Error | null = null
+) {
   return async (url: RequestInfo | URL, init?: RequestInit) => {
     const urlStr = String(url);
 
@@ -62,7 +70,7 @@ function createMockFetch(comments: unknown[] = [], capturedCheckRuns: unknown[] 
     }
 
     if (urlStr.includes("/issues/7")) {
-      return new Response(JSON.stringify(mockIssue7), { status: 200 });
+      return new Response(JSON.stringify(issueOverride || mockIssue7), { status: 200 });
     }
 
     if (urlStr.includes("/issues/comments/5534707230")) {
@@ -70,12 +78,22 @@ function createMockFetch(comments: unknown[] = [], capturedCheckRuns: unknown[] 
     }
 
     if (urlStr.includes("/issues/6/comments")) {
+      if (commentsError) {
+        throw commentsError;
+      }
       return new Response(JSON.stringify(comments), { status: 200 });
+    }
+
+    if (urlStr.includes("/commits/") && urlStr.includes("/check-runs")) {
+      if (existingCheckRun) {
+        return new Response(JSON.stringify({ total_count: 1, check_runs: [existingCheckRun] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ total_count: 0, check_runs: [] }), { status: 200 });
     }
 
     if (urlStr.includes("/check-runs")) {
       const body = JSON.parse(String(init?.body));
-      capturedCheckRuns.push(body);
+      capturedCheckRuns.push({ ...body, method: init?.method, url: urlStr });
       return new Response(JSON.stringify({ id: 12345, url: "https://api.github.com/check-runs/12345" }), { status: 201 });
     }
 
@@ -110,7 +128,7 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
       created_at: "2026-09-04T02:00:00Z",
     };
 
-    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string }[] = [];
+    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string; method?: string }[] = [];
     const mockFetch = createMockFetch([validOwnerComment], capturedCheckRuns);
 
     const result = await evaluateReviewGateService({
@@ -163,7 +181,6 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
     expect(result.valid).toBe(false);
     expect(result.validationResult.reason).toBe("STALE_HEAD_SHA");
     expect(capturedCheckRuns).toHaveLength(1);
-    // Check run must still be posted to the CURRENT head SHA, reporting failure
     expect(capturedCheckRuns[0].head_sha).toBe(CURRENT_HEAD_SHA);
     expect(capturedCheckRuns[0].conclusion).toBe("failure");
   });
@@ -181,6 +198,87 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
 
     expect(result.valid).toBe(false);
     expect(result.validationResult.reason).toBe("NO_ATTESTATION_FOUND");
+    expect(capturedCheckRuns).toHaveLength(1);
+    expect(capturedCheckRuns[0].conclusion).toBe("failure");
+  });
+
+  it("fails closed when trustedConfig is mismatched with incoming PR", async () => {
+    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string }[] = [];
+    const mockFetch = createMockFetch([], capturedCheckRuns);
+
+    const result = await evaluateReviewGateService({
+      repo: "Banhtalon/other-repo",
+      prNumber: 6,
+      token: "mock-token",
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.validationResult.reason).toBe("TRUSTED_CONFIG_MISMATCH");
+    expect(capturedCheckRuns).toHaveLength(1);
+    expect(capturedCheckRuns[0].conclusion).toBe("failure");
+  });
+
+  it("fails closed when trustedConfig is malformed", async () => {
+    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string }[] = [];
+    const mockFetch = createMockFetch([], capturedCheckRuns);
+
+    const result = await evaluateReviewGateService({
+      repo: REPO,
+      prNumber: 6,
+      token: "mock-token",
+      trustedConfig: { repo: "", prNumber: 0, controlIssue: 0, scopeRevision: 0 },
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.validationResult.reason).toBe("MALFORMED_TRUSTED_CONFIG");
+    expect(capturedCheckRuns).toHaveLength(1);
+    expect(capturedCheckRuns[0].conclusion).toBe("failure");
+  });
+
+  it("reuses and updates (PATCH) existing check run on same head SHA", async () => {
+    const existingCheckRun = {
+      id: 88888,
+      url: "https://api.github.com/repos/Banhtalon/mindx-review-bot/check-runs/88888",
+      name: "terra-review-gate",
+      head_sha: CURRENT_HEAD_SHA,
+      status: "completed",
+      conclusion: "failure",
+    };
+
+    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string; method?: string; url?: string }[] = [];
+    const mockFetch = createMockFetch([], capturedCheckRuns, existingCheckRun);
+
+    const result = await evaluateReviewGateService({
+      repo: REPO,
+      prNumber: 6,
+      token: "mock-token",
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(capturedCheckRuns).toHaveLength(1);
+    expect(capturedCheckRuns[0].method).toBe("PATCH");
+    expect(capturedCheckRuns[0].url).toContain("/check-runs/88888");
+  });
+
+  it("handles PAGINATION_LIMIT_EXCEEDED by emitting failure check run", async () => {
+    const pagErr = new Error("PAGINATION_LIMIT_EXCEEDED: Exceeded max pages");
+    (pagErr as unknown as { code: string }).code = "PAGINATION_LIMIT_EXCEEDED";
+
+    const capturedCheckRuns: { name: string; head_sha: string; conclusion: string }[] = [];
+    const mockFetch = createMockFetch([], capturedCheckRuns, null, null, pagErr);
+
+    const result = await evaluateReviewGateService({
+      repo: REPO,
+      prNumber: 6,
+      token: "mock-token",
+      fetchFn: mockFetch as unknown as typeof fetch,
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.validationResult.reason).toBe("PAGINATION_LIMIT_EXCEEDED");
     expect(capturedCheckRuns).toHaveLength(1);
     expect(capturedCheckRuns[0].conclusion).toBe("failure");
   });
@@ -266,6 +364,66 @@ reviewed_at_utc: 2026-09-04T02:00:00Z
       expect(body.headSha).toBe(CURRENT_HEAD_SHA);
       expect(body.valid).toBe(false); // No attestation yet
       expect(body.reason).toBe("NO_ATTESTATION_FOUND");
+    });
+
+    it("handles issues event on control issue #7 and updates check run to failure when state changed to needs-fix", async () => {
+      const issue7NeedsFix = {
+        number: 7,
+        title: "[agent] Control Issue",
+        state: "open",
+        labels: [{ name: "needs-fix" }],
+        body: `
+<!-- AGENT_CONTROL_BLOCK_V1 -->
+state: needs-fix
+scope_revision: 3
+fix_reentries: 1
+owner_scope_reset: https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5534707230
+<!-- /AGENT_CONTROL_BLOCK_V1 -->
+        `,
+        user: { login: "Banhtalon", id: 105797112 },
+      };
+
+      const payload = JSON.stringify({
+        action: "labeled",
+        issue: { number: 7 },
+        repository: { full_name: REPO },
+        installation: { id: 777 },
+      });
+      const hmac = createHmac("sha256", env.GITHUB_WEBHOOK_SECRET).update(payload).digest("hex");
+
+      const existingCheckRun = {
+        id: 77777,
+        url: "https://api.github.com/repos/Banhtalon/mindx-review-bot/check-runs/77777",
+        name: "terra-review-gate",
+        head_sha: CURRENT_HEAD_SHA,
+        status: "completed",
+        conclusion: "success",
+      };
+
+      const capturedCheckRuns: { name: string; head_sha: string; conclusion: string; method?: string; url?: string }[] = [];
+      const mockFetch = createMockFetch([], capturedCheckRuns, existingCheckRun, issue7NeedsFix);
+
+      const res = await handleWebhookRequest(
+        {
+          method: "POST",
+          headers: {
+            "x-hub-signature-256": `sha256=${hmac}`,
+            "x-github-event": "issues",
+          },
+          text: async () => payload,
+        },
+        env,
+        mockFetch as unknown as typeof fetch
+      );
+
+      expect(res.status).toBe(200);
+      const body = JSON.parse(res.body);
+      expect(body.success).toBe(true);
+      expect(body.valid).toBe(false);
+      expect(body.reason).toBe("INVALID_CONTROL_STATE");
+      expect(capturedCheckRuns).toHaveLength(1);
+      expect(capturedCheckRuns[0].method).toBe("PATCH");
+      expect(capturedCheckRuns[0].conclusion).toBe("failure");
     });
   });
 });

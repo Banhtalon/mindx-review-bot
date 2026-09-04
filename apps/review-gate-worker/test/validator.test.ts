@@ -7,6 +7,7 @@ import {
   parseCanonicalNonNegativeInteger,
   parseOwnerScopeResetApproval,
   validateControlIssue,
+  validateOwnerScopeResetUrl,
   validateReviewGate,
 } from "../src/validator.ts";
 import { GitHubIssue, GitHubIssueComment, TerraAttestation } from "../src/types.ts";
@@ -386,6 +387,68 @@ approved_by: Banhtalon
         expect(res.reason).toBe("SCOPE_RESET_NOT_APPROVED");
       }
     });
+
+    it("rejects scope reset with missing author_association", () => {
+      const comment = createValidScopeResetComment({
+        author_association: undefined,
+      });
+      const res = parseOwnerScopeResetApproval(comment, 2, 3);
+      expect(res.valid).toBe(false);
+      if (!res.valid) {
+        expect(res.reason).toBe("UNAUTHORIZED_SCOPE_RESET_AUTHOR");
+      }
+    });
+
+    it("rejects scope reset comment from wrong repo or issue", () => {
+      const comment = createValidScopeResetComment({
+        issue_url: "https://api.github.com/repos/OtherOwner/other-repo/issues/99",
+      });
+      const res = parseOwnerScopeResetApproval(comment, 2, 3, "Banhtalon/mindx-review-bot", 7);
+      expect(res.valid).toBe(false);
+      if (!res.valid) {
+        expect(res.reason).toBe("SCOPE_RESET_COMMENT_WRONG_ISSUE");
+      }
+    });
+  });
+
+  describe("validateOwnerScopeResetUrl", () => {
+    it("accepts valid github.com scope reset URL", () => {
+      const res = validateOwnerScopeResetUrl(
+        "https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5534707230",
+        "Banhtalon/mindx-review-bot",
+        7
+      );
+      expect(res.valid).toBe(true);
+      if (res.valid) {
+        expect(res.commentId).toBe("5534707230");
+        expect(res.repo).toBe("Banhtalon/mindx-review-bot");
+      }
+    });
+
+    it("rejects URL with mismatched repo or issue", () => {
+      const resRepo = validateOwnerScopeResetUrl(
+        "https://github.com/OtherOrg/mindx-review-bot/issues/7#issuecomment-5534707230",
+        "Banhtalon/mindx-review-bot",
+        7
+      );
+      expect(resRepo.valid).toBe(false);
+
+      const resIssue = validateOwnerScopeResetUrl(
+        "https://github.com/Banhtalon/mindx-review-bot/issues/8#issuecomment-5534707230",
+        "Banhtalon/mindx-review-bot",
+        7
+      );
+      expect(resIssue.valid).toBe(false);
+    });
+
+    it("rejects URL without comment fragment", () => {
+      const res = validateOwnerScopeResetUrl(
+        "https://github.com/Banhtalon/mindx-review-bot/issues/7",
+        "Banhtalon/mindx-review-bot",
+        7
+      );
+      expect(res.valid).toBe(false);
+    });
   });
 
   describe("Attestation Provenance Filtering", () => {
@@ -418,6 +481,15 @@ approved_by: Banhtalon
         created_at: "2026-09-04T00:00:00Z",
       };
       expect(isAuthorizedOwnerComment(comment2)).toBe(false);
+
+      const comment3: GitHubIssueComment = {
+        id: 4,
+        user: { login: "Banhtalon", id: 105797112 },
+        author_association: undefined,
+        body: "Hello",
+        created_at: "2026-09-04T00:00:00Z",
+      };
+      expect(isAuthorizedOwnerComment(comment3)).toBe(false);
     });
 
     it("ignores attestation blocks from non-owners", () => {
@@ -678,7 +750,7 @@ reviewed_at_utc: ${VALID_TIMESTAMP}
       expect(found[0].conflicting).toBe(true);
     });
 
-    it("accepts identical duplicated blocks in single comment", () => {
+    it("rejects multiple/duplicate blocks in single comment even if identical", () => {
       const comment: GitHubIssueComment = {
         id: 1,
         user: { login: "Banhtalon", id: 105797112 },
@@ -715,8 +787,71 @@ reviewed_at_utc: ${VALID_TIMESTAMP}
 
       const found = extractOwnerAttestationsFromComments([comment]);
       expect(found).toHaveLength(1);
-      expect(found[0].conflicting).toBeUndefined();
-      expect(found[0].verdict).toBe("RECOMMEND_PASS");
+      expect(found[0].conflicting).toBe(true);
+      expect(found[0].error).toContain("Multiple attestation blocks");
+    });
+
+    it("rejects JSON attestation with unknown key", () => {
+      const text = `
+<!-- TERRA_REVIEW_ATTESTATION_V1 -->
+{
+  "reviewer_model": "terra-xhigh",
+  "head_sha": "${VALID_HEAD_SHA}",
+  "pr_number": ${PR_NUMBER},
+  "control_issue": ${CONTROL_ISSUE},
+  "scope_revision": ${SCOPE_REVISION},
+  "verdict": "RECOMMEND_PASS",
+  "p0": 0,
+  "p1": 0,
+  "material_findings_resolved": true,
+  "reviewed_at_utc": "${VALID_TIMESTAMP}",
+  "unknown_key": "forbidden"
+}
+<!-- /TERRA_REVIEW_ATTESTATION_V1 -->
+      `;
+      const found = extractAttestationsFromCommentText(text);
+      expect(found[0].malformed).toBe(true);
+      expect(found[0].error).toContain("Unknown key");
+    });
+
+    it("rejects YAML attestation with unknown key", () => {
+      const text = `
+<!-- TERRA_REVIEW_ATTESTATION_V1 -->
+reviewer_model: terra-xhigh
+head_sha: ${VALID_HEAD_SHA}
+pr_number: ${PR_NUMBER}
+control_issue: ${CONTROL_ISSUE}
+scope_revision: ${SCOPE_REVISION}
+verdict: RECOMMEND_PASS
+p0: 0
+p1: 0
+material_findings_resolved: true
+reviewed_at_utc: ${VALID_TIMESTAMP}
+unknown_key: forbidden
+<!-- /TERRA_REVIEW_ATTESTATION_V1 -->
+      `;
+      const found = extractAttestationsFromCommentText(text);
+      expect(found[0].malformed).toBe(true);
+      expect(found[0].error).toContain("Unknown key");
+    });
+
+    it("ignores fenced code block attestations (canonical carrier only)", () => {
+      const text = `
+\`\`\`terra-attestation
+reviewer_model: terra-xhigh
+head_sha: ${VALID_HEAD_SHA}
+pr_number: ${PR_NUMBER}
+control_issue: ${CONTROL_ISSUE}
+scope_revision: ${SCOPE_REVISION}
+verdict: RECOMMEND_PASS
+p0: 0
+p1: 0
+material_findings_resolved: true
+reviewed_at_utc: ${VALID_TIMESTAMP}
+\`\`\`
+      `;
+      const found = extractAttestationsFromCommentText(text);
+      expect(found).toHaveLength(0);
     });
   });
 

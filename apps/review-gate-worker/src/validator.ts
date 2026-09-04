@@ -1,7 +1,9 @@
 import { isValidStrictUtcCalendarIsoTimestamp } from "./calendar.ts";
 import {
   AgentControlBlock,
+  CANONICAL_ATTESTATION_KEYS,
   CANONICAL_WORKFLOW_STATES,
+  CanonicalAttestationKey,
   CanonicalWorkflowState,
   GitHubIssue,
   GitHubIssueComment,
@@ -34,6 +36,133 @@ export function parseCanonicalNonNegativeInteger(val: unknown): number | null {
   }
   const parsed = Number(val);
   return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+/**
+ * Validates the owner_scope_reset approval comment URL.
+ * URL must be a valid HTTPS GitHub comment URL on github.com or api.github.com:
+ * - github.com: https://github.com/:owner/:repo/issues/:issue#issuecomment-:id
+ * - api.github.com: https://api.github.com/repos/:owner/:repo/issues/comments/:id
+ * If expectedRepo is provided, repo must match.
+ * If expectedIssue is provided, issue number must match.
+ */
+export function validateOwnerScopeResetUrl(
+  url: string,
+  expectedRepo?: string,
+  expectedIssue?: number
+): { valid: true; commentId: string; repo: string; issueNumber?: number } | { valid: false; reason: string; details: string } {
+  if (!url || typeof url !== "string") {
+    return {
+      valid: false,
+      reason: "INVALID_SCOPE_RESET_URL",
+      details: "Scope reset URL is empty or not a string.",
+    };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url.trim());
+  } catch {
+    return {
+      valid: false,
+      reason: "INVALID_SCOPE_RESET_URL",
+      details: `Scope reset URL is not a valid URL: '${url}'`,
+    };
+  }
+
+  if (parsed.protocol !== "https:") {
+    return {
+      valid: false,
+      reason: "INVALID_SCOPE_RESET_URL",
+      details: `Scope reset URL must use HTTPS protocol (got '${parsed.protocol}').`,
+    };
+  }
+
+  if (parsed.hostname === "github.com") {
+    // Expected pathname: /:owner/:repo/issues/:issue
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length !== 4 || parts[2] !== "issues") {
+      return {
+        valid: false,
+        reason: "INVALID_SCOPE_RESET_URL",
+        details: `github.com scope reset URL path must be '/:owner/:repo/issues/:issue' (got '${parsed.pathname}').`,
+      };
+    }
+
+    const repo = `${parts[0]}/${parts[1]}`;
+    const issueNum = parseCanonicalNonNegativeInteger(parts[3]);
+    if (issueNum === null || issueNum < 1) {
+      return {
+        valid: false,
+        reason: "INVALID_SCOPE_RESET_URL",
+        details: `Invalid issue number '${parts[3]}' in scope reset URL.`,
+      };
+    }
+
+    const hashMatch = /^#(?:issuecomment-|comment-)?(\d+)$/i.exec(parsed.hash);
+    if (!hashMatch) {
+      return {
+        valid: false,
+        reason: "INVALID_SCOPE_RESET_URL",
+        details: `github.com scope reset URL must contain comment ID in fragment (e.g. #issuecomment-12345, got '${parsed.hash}').`,
+      };
+    }
+    const commentId = hashMatch[1];
+
+    if (expectedRepo && repo.toLowerCase() !== expectedRepo.toLowerCase()) {
+      return {
+        valid: false,
+        reason: "INVALID_SCOPE_RESET_URL",
+        details: `Scope reset URL repo '${repo}' does not match expected repo '${expectedRepo}'.`,
+      };
+    }
+
+    if (expectedIssue !== undefined && issueNum !== expectedIssue) {
+      return {
+        valid: false,
+        reason: "INVALID_SCOPE_RESET_URL",
+        details: `Scope reset URL issue #${issueNum} does not match expected control issue #${expectedIssue}.`,
+      };
+    }
+
+    return { valid: true, commentId, repo, issueNumber: issueNum };
+  } else if (parsed.hostname === "api.github.com") {
+    // Expected pathname: /repos/:owner/:repo/issues/comments/:id
+    const parts = parsed.pathname.split("/").filter(Boolean);
+    if (parts.length !== 6 || parts[0] !== "repos" || parts[3] !== "issues" || parts[4] !== "comments") {
+      return {
+        valid: false,
+        reason: "INVALID_SCOPE_RESET_URL",
+        details: `api.github.com scope reset URL must be '/repos/:owner/:repo/issues/comments/:id' (got '${parsed.pathname}').`,
+      };
+    }
+
+    const repo = `${parts[1]}/${parts[2]}`;
+    const commentId = parts[5];
+    if (!/^(?:0|[1-9]\d*)$/.test(commentId)) {
+      return {
+        valid: false,
+        reason: "INVALID_SCOPE_RESET_URL",
+        details: `Invalid comment ID '${commentId}' in API scope reset URL.`,
+      };
+    }
+
+    if (expectedRepo && repo.toLowerCase() !== expectedRepo.toLowerCase()) {
+      return {
+        valid: false,
+        reason: "INVALID_SCOPE_RESET_URL",
+        details: `Scope reset URL repo '${repo}' does not match expected repo '${expectedRepo}'.`,
+      };
+    }
+
+    return { valid: true, commentId, repo };
+  } else {
+    return {
+      valid: false,
+      reason: "INVALID_SCOPE_RESET_URL",
+      details: `Scope reset URL hostname must be 'github.com' or 'api.github.com' (got '${parsed.hostname}').`,
+    };
+  }
 }
 
 /**
@@ -169,12 +298,22 @@ export function parseAgentControlBlock(
   }
 
   const resetVal = parsedMap["owner_scope_reset"];
-  if (scopeRev > 1 && (!resetVal || resetVal.toLowerCase() === "none")) {
-    return {
-      valid: false,
-      reason: "INVALID_CONTROL_BLOCK",
-      details: `owner_scope_reset must be present and non-empty for scope_revision > 1 (got '${resetVal}').`,
-    };
+  if (scopeRev > 1) {
+    if (!resetVal || resetVal.toLowerCase() === "none") {
+      return {
+        valid: false,
+        reason: "INVALID_CONTROL_BLOCK",
+        details: `owner_scope_reset must be present and non-empty for scope_revision > 1 (got '${resetVal}').`,
+      };
+    }
+    const urlValidation = validateOwnerScopeResetUrl(resetVal);
+    if (!urlValidation.valid) {
+      return {
+        valid: false,
+        reason: "INVALID_CONTROL_BLOCK",
+        details: `owner_scope_reset URL is invalid: ${urlValidation.details}`,
+      };
+    }
   }
 
   return {
@@ -198,7 +337,8 @@ export function parseAgentControlBlock(
  */
 export function validateControlIssue(
   issueData: unknown,
-  expectedScopeRevision?: number
+  expectedScopeRevision?: number,
+  expectedRepo?: string
 ): {
   valid: true;
   block: AgentControlBlock;
@@ -230,6 +370,17 @@ export function validateControlIssue(
       reason: "WRONG_SCOPE_REVISION",
       details: `Authoritative control issue scope_revision (${block.scope_revision}) does not match expected (${expectedScopeRevision}).`,
     };
+  }
+
+  if (block.scope_revision > 1) {
+    const urlValidation = validateOwnerScopeResetUrl(block.owner_scope_reset, expectedRepo, issue.number);
+    if (!urlValidation.valid) {
+      return {
+        valid: false,
+        reason: urlValidation.reason,
+        details: urlValidation.details,
+      };
+    }
   }
 
   const rawLabels = issue.labels || [];
@@ -294,7 +445,9 @@ export function validateControlIssue(
 export function parseOwnerScopeResetApproval(
   commentData: unknown,
   expectedOldRev: number,
-  expectedNewRev: number
+  expectedNewRev: number,
+  expectedRepo?: string,
+  expectedIssue?: number
 ): { valid: true; approval: OwnerScopeResetApproval } | { valid: false; reason: string; details: string } {
   if (!commentData || typeof commentData !== "object") {
     return {
@@ -315,12 +468,57 @@ export function parseOwnerScopeResetApproval(
     };
   }
 
-  if (comment.author_association && comment.author_association !== "OWNER") {
+  if (!comment.author_association || comment.author_association !== "OWNER") {
     return {
       valid: false,
       reason: "UNAUTHORIZED_SCOPE_RESET_AUTHOR",
-      details: `Scope-reset comment author association is '${comment.author_association}', expected 'OWNER'.`,
+      details: `Scope-reset comment author association is '${comment.author_association || ""}', expected 'OWNER'.`,
     };
+  }
+
+  if (expectedRepo) {
+    const normalizedRepo = expectedRepo.toLowerCase();
+    if (comment.issue_url) {
+      const issueUrlLower = comment.issue_url.toLowerCase();
+      if (!issueUrlLower.includes(`/${normalizedRepo}/issues/`)) {
+        return {
+          valid: false,
+          reason: "SCOPE_RESET_COMMENT_WRONG_ISSUE",
+          details: `Scope-reset comment issue_url '${comment.issue_url}' does not belong to expected repo '${expectedRepo}'.`,
+        };
+      }
+    }
+    if (comment.html_url) {
+      const htmlUrlLower = comment.html_url.toLowerCase();
+      if (!htmlUrlLower.includes(`/${normalizedRepo}/issues/`)) {
+        return {
+          valid: false,
+          reason: "SCOPE_RESET_COMMENT_WRONG_ISSUE",
+          details: `Scope-reset comment html_url '${comment.html_url}' does not belong to expected repo '${expectedRepo}'.`,
+        };
+      }
+    }
+  }
+
+  if (expectedIssue !== undefined) {
+    if (comment.issue_url) {
+      if (!comment.issue_url.endsWith(`/issues/${expectedIssue}`)) {
+        return {
+          valid: false,
+          reason: "SCOPE_RESET_COMMENT_WRONG_ISSUE",
+          details: `Scope-reset comment issue_url '${comment.issue_url}' does not match expected issue #${expectedIssue}.`,
+        };
+      }
+    }
+    if (comment.html_url) {
+      if (!comment.html_url.includes(`/issues/${expectedIssue}#`)) {
+        return {
+          valid: false,
+          reason: "SCOPE_RESET_COMMENT_WRONG_ISSUE",
+          details: `Scope-reset comment html_url '${comment.html_url}' does not match expected issue #${expectedIssue}.`,
+        };
+      }
+    }
   }
 
   const text = comment.body || "";
@@ -467,7 +665,7 @@ export function isAuthorizedOwnerComment(comment: GitHubIssueComment): boolean {
   if (!comment || typeof comment !== "object") return false;
   if (comment.user?.login !== TRUSTED_OWNER_LOGIN) return false;
   if (Number(comment.user?.id) !== TRUSTED_OWNER_ID) return false;
-  if (comment.author_association && comment.author_association !== "OWNER") return false;
+  if (!comment.author_association || comment.author_association !== "OWNER") return false;
   return true;
 }
 
@@ -525,6 +723,10 @@ function hasNonCanonicalNumbersInJson(jsonString: string): string | null {
   return null;
 }
 
+export function isCanonicalAttestationKey(key: string): key is CanonicalAttestationKey {
+  return (CANONICAL_ATTESTATION_KEYS as readonly string[]).includes(key);
+}
+
 /**
  * Parses a TERRA_REVIEW_ATTESTATION_V1 block (JSON or YAML).
  */
@@ -556,6 +758,31 @@ export function parseTerraAttestationBlock(content: string): TerraAttestation {
     }
     try {
       const parsed = JSON.parse(trimmed);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        return {
+          malformed: true,
+          error: "Attestation JSON must be an object",
+        } as TerraAttestation;
+      }
+
+      const keys = Object.keys(parsed);
+      for (const k of keys) {
+        if (!isCanonicalAttestationKey(k)) {
+          return {
+            malformed: true,
+            error: `Unknown key '${k}' in JSON attestation block`,
+          } as TerraAttestation;
+        }
+      }
+      for (const reqKey of CANONICAL_ATTESTATION_KEYS) {
+        if (!keys.includes(reqKey)) {
+          return {
+            malformed: true,
+            error: `Missing required field '${reqKey}' in JSON attestation block`,
+          } as TerraAttestation;
+        }
+      }
+
       return normalizeAttestation(parsed);
     } catch (err) {
       return {
@@ -573,7 +800,12 @@ export function parseTerraAttestationBlock(content: string): TerraAttestation {
     const trimmedLine = line.trim();
     if (!trimmedLine || trimmedLine.startsWith("#")) continue;
     const colonIdx = trimmedLine.indexOf(":");
-    if (colonIdx === -1) continue;
+    if (colonIdx === -1) {
+      return {
+        malformed: true,
+        error: `Malformed line in YAML attestation block: '${trimmedLine}'`,
+      } as TerraAttestation;
+    }
 
     const key = trimmedLine.slice(0, colonIdx).trim();
     if (seenKeys.has(key)) {
@@ -582,6 +814,14 @@ export function parseTerraAttestationBlock(content: string): TerraAttestation {
         error: `Duplicate key '${key}' in attestation block`,
       } as TerraAttestation;
     }
+
+    if (!isCanonicalAttestationKey(key)) {
+      return {
+        malformed: true,
+        error: `Unknown key '${key}' in YAML attestation block`,
+      } as TerraAttestation;
+    }
+
     seenKeys.add(key);
 
     let val = trimmedLine.slice(colonIdx + 1).trim();
@@ -601,6 +841,15 @@ export function parseTerraAttestationBlock(content: string): TerraAttestation {
       result[key] = parseInt(val, 10);
     } else {
       result[key] = val;
+    }
+  }
+
+  for (const reqKey of CANONICAL_ATTESTATION_KEYS) {
+    if (!seenKeys.has(reqKey)) {
+      return {
+        malformed: true,
+        error: `Missing required field '${reqKey}' in YAML attestation block`,
+      } as TerraAttestation;
     }
   }
 
@@ -682,27 +931,18 @@ function normalizeAttestation(raw: Record<string, unknown>): TerraAttestation {
 
 /**
  * Extracts attestation blocks from comment text:
- * Targets <!-- TERRA_REVIEW_ATTESTATION_V1 --> ... <!-- /TERRA_REVIEW_ATTESTATION_V1 -->
- * Also accepts fenced blocks with explicit marker: ```terra-attestation, ```json:terra-attestation, ```yaml:terra-attestation
+ * Targets only <!-- TERRA_REVIEW_ATTESTATION_V1 --> ... <!-- /TERRA_REVIEW_ATTESTATION_V1 -->
  */
 export function extractAttestationsFromCommentText(text: string): TerraAttestation[] {
   if (!text || typeof text !== "string") return [];
 
   const attestations: TerraAttestation[] = [];
 
-  // V1 HTML comment markers
+  // V1 HTML comment markers only (canonical carrier)
   const v1Regex = /<!--\s*TERRA_REVIEW_ATTESTATION_V1\s*-->([\s\S]*?)<!--\s*\/TERRA_REVIEW_ATTESTATION_V1\s*-->/gi;
   let match: RegExpExecArray | null;
   while ((match = v1Regex.exec(text)) !== null) {
     attestations.push(parseTerraAttestationBlock(match[1]));
-  }
-
-  // Fenced blocks with explicit tag
-  if (attestations.length === 0) {
-    const explicitRegex = /```(?:terra-attestation|json:terra-attestation|yaml:terra-attestation)[\r\n]+([\s\S]*?)```/gi;
-    while ((match = explicitRegex.exec(text)) !== null) {
-      attestations.push(parseTerraAttestationBlock(match[1]));
-    }
   }
 
   return attestations;
@@ -713,7 +953,7 @@ export function extractAttestationsFromCommentText(text: string): TerraAttestati
  * 1. Provenance filtering: Keeps ONLY comments authored by Banhtalon (id: 105797112, association: OWNER).
  * 2. Sorts comments chronologically by created_at / id.
  * 3. Extracts V1 attestation blocks.
- * 4. Rejects multiple non-identical blocks in a single comment as conflicting.
+ * 4. Rejects multiple blocks in a single comment as conflicting/ambiguous.
  */
 export function extractOwnerAttestationsFromComments(
   comments: GitHubIssueComment[]
@@ -740,29 +980,20 @@ export function extractOwnerAttestationsFromComments(
     if (found.length === 0) continue;
 
     if (found.length > 1) {
-      const first = found[0];
-      const allIdentical = found.every((item) => areAttestationsIdentical(first, item));
-      if (!allIdentical) {
-        parsedEntries.push({
-          conflicting: true,
-          commentId: comment.id,
-          createdAt: comment.created_at,
-          error: "Multiple conflicting or non-identical attestation blocks found in the same comment",
-        } as TerraAttestation);
-        continue;
-      }
       parsedEntries.push({
-        ...first,
+        conflicting: true,
         commentId: comment.id,
         createdAt: comment.created_at,
-      });
-    } else {
-      parsedEntries.push({
-        ...found[0],
-        commentId: comment.id,
-        createdAt: comment.created_at,
-      });
+        error: `Multiple attestation blocks (${found.length}) found in the same comment. Only exactly one block is permitted.`,
+      } as TerraAttestation);
+      continue;
     }
+
+    parsedEntries.push({
+      ...found[0],
+      commentId: comment.id,
+      createdAt: comment.created_at,
+    });
   }
 
   return parsedEntries;
@@ -780,6 +1011,7 @@ export function validateReviewGate({
   expectedPrNumber,
   expectedControlIssue,
   expectedScopeRevision,
+  expectedRepo,
   controlIssueData,
   scopeResetCommentData,
 }: {
@@ -788,6 +1020,7 @@ export function validateReviewGate({
   expectedPrNumber: number;
   expectedControlIssue?: number;
   expectedScopeRevision?: number;
+  expectedRepo?: string;
   controlIssueData?: unknown;
   scopeResetCommentData?: unknown;
 }): ValidationResult {
@@ -796,7 +1029,7 @@ export function validateReviewGate({
 
   // 1. Validate control issue
   if (controlIssueData !== undefined) {
-    const issueResult = validateControlIssue(controlIssueData, expectedScopeRevision);
+    const issueResult = validateControlIssue(controlIssueData, expectedScopeRevision, expectedRepo);
     if (!issueResult.valid) {
       return issueResult;
     }
@@ -810,7 +1043,9 @@ export function validateReviewGate({
       const scopeResetResult = parseOwnerScopeResetApproval(
         scopeResetCommentData,
         controlBlock.scope_revision - 1,
-        controlBlock.scope_revision
+        controlBlock.scope_revision,
+        expectedRepo,
+        expectedControlIssue ?? (controlIssueData as GitHubIssue)?.number
       );
       if (!scopeResetResult.valid) {
         return scopeResetResult;

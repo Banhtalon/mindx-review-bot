@@ -2,6 +2,20 @@ export const TRUSTED_OWNER_LOGIN = "Banhtalon";
 export const TRUSTED_OWNER_ID = 105797112;
 export const TRUSTED_CHECK_NAME = "terra-review-gate";
 
+export interface TrustedMappingConfig {
+  repo: string;
+  prNumber: number;
+  controlIssue: number;
+  scopeRevision: number;
+}
+
+export const PILOT_TRUSTED_CONFIG: TrustedMappingConfig = {
+  repo: "Banhtalon/mindx-review-bot",
+  prNumber: 6,
+  controlIssue: 7,
+  scopeRevision: 3,
+};
+
 export const CANONICAL_WORKFLOW_STATES = [
   "needs-plan",
   "ready-for-implementation",
@@ -38,6 +52,21 @@ export interface OwnerScopeResetApproval {
   owner_decision: "APPROVED";
   approved_by: "Banhtalon";
 }
+
+export const CANONICAL_ATTESTATION_KEYS = [
+  "reviewer_model",
+  "head_sha",
+  "pr_number",
+  "control_issue",
+  "scope_revision",
+  "verdict",
+  "p0",
+  "p1",
+  "material_findings_resolved",
+  "reviewed_at_utc",
+] as const;
+
+export type CanonicalAttestationKey = (typeof CANONICAL_ATTESTATION_KEYS)[number];
 
 export interface TerraAttestation {
   reviewer_model: "terra-xhigh";
@@ -83,6 +112,8 @@ export interface GitHubIssueComment {
   user: GitHubUser;
   author_association?: string;
   body: string;
+  issue_url?: string;
+  html_url?: string;
   created_at: string;
   updated_at?: string;
 }
@@ -128,4 +159,5 @@ export interface GitHubCheckRunPayload {
   status: "queued" | "in_progress" | "completed";
   conclusion?: "success" | "failure" | "neutral" | "cancelled" | "timed_out" | "action_required";
   output: GitHubCheckRunOutput;
+  external_id?: string;
 }

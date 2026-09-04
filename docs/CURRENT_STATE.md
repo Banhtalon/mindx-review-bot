@@ -26,19 +26,20 @@ Repository controls now confirmed live on 2026-09-03:
 
 - active ruleset `protect-main` targets the default branch;
 - `main` is protected;
-- pull request is required before merge;
-- required GitHub Actions check is `verify`;
+- pull request is required before merge with `Required approvals = 0`;
+- required GitHub Actions check is `verify` and Actions `review-gate`;
 - strict up-to-date policy is enabled;
+- conversation resolution is already enabled;
 - bypass list is empty and current user cannot bypass;
 - deletion and non-fast-forward/force-push protection are active;
 - all nine canonical workflow-state labels exist.
 
 However the workflow is **not yet fully controlled for merge/unattended development** because the solo-owner trusted review gate setup is completing under Scope Revision 3:
 
-- active ruleset `protect-main` currently has `Required approvals = 0` and requires `verify`;
+- active ruleset `protect-main` currently has `Required approvals = 0`, requires `verify` and Actions `review-gate`, strict up-to-date policy, conversation resolution already enabled, and no bypass;
 - the review authority is being transitioned from PR-controlled GitHub Actions code to a dedicated GitHub App check named `terra-review-gate` (`apps/review-gate-worker/`);
 - `.github/workflows/review-gate.yml` is retained only as a bootstrap/self-test artifact and is not final merge authority;
-- after Terra reviews and approves the implementation, Owner will create/install the dedicated GitHub App, deploy the reviewed worker, add `terra-review-gate` (expected source: dedicated GitHub App) to `protect-main` required status checks, and enable conversation resolution before merge;
+- after Terra reviews and approves the implementation, Owner will create/install the dedicated GitHub App, deploy the reviewed worker, and update `protect-main` required status checks to replace Actions `review-gate` with `terra-review-gate` (expected source: dedicated GitHub App);
 - any new commit pushed to the PR automatically changes `head_sha`, invalidating prior attestations.
 
 New unattended development-agent automation remains blocked until the migration is merged and one manual pilot succeeds.
@@ -132,10 +133,10 @@ No model may declare final `VERIFIED`.
 
 Workflow migration status:
 
-- Scope Revision 3 implemented: dedicated GitHub App review gate worker under `apps/review-gate-worker/` (pure validator, HMAC verification, strict calendar UTC date validation, AGENT_CONTROL_BLOCK_V1 and OWNER_SCOPE_RESET_V1 validation, Owner provenance checks, GitHub Checks API adapter);
-- Issue #7 at `state: implementing`, `scope_revision: 3`, `fix_reentries: 0`, linked to Owner approval record #5534707230;
+- Scope Revision 3 fix re-entry #1 implemented: dedicated GitHub App review gate worker under `apps/review-gate-worker/` (pure validator, non-PR-controlled trusted configuration, strict Owner provenance checks requiring `author_association: OWNER`, strict `owner_scope_reset` URL checks, exhaustive comment pagination with fail-closed safety cap, `issues` event webhook handler to recompute when control issue changes, canonical Terra carrier only with duplicate/fenced block rejection and strict key validation, same-head check run dedup/update via PATCH, HMAC verification, strict calendar UTC date validation, AGENT_CONTROL_BLOCK_V1 and OWNER_SCOPE_RESET_V1 validation, GitHub Checks API adapter);
+- Issue #7 at `state: implementing`, `scope_revision: 3`, `fix_reentries: 1`, linked to Owner approval record #5534707230;
 - `.github/workflows/review-gate.yml` retained as bootstrap/self-test only;
-- Future Owner action items after Terra review approval: create/install the dedicated GitHub App, deploy the reviewed worker, update `protect-main` ruleset to require `terra-review-gate` (expected source: dedicated GitHub App) alongside `verify`, and enable conversation resolution.
+- Future Owner action items after Terra review approval: create/install the dedicated GitHub App, deploy the reviewed worker, and update `protect-main` ruleset to replace Actions `review-gate` with `terra-review-gate` (expected source: dedicated GitHub App). Note: `protect-main` already has conversation resolution enabled, `Required approvals = 0`, `verify`, and strict up-to-date.
 
 Separate product/ops decision:
 
@@ -160,9 +161,9 @@ Product work that requires any of the following must use `blocked-owner` or `blo
 5. If Terra returns `NEEDS_FIX`, fix loop routes through controller (at most 2 fix re-entries).
 6. Upon Terra `RECOMMEND_PASS`, Owner installs the dedicated GitHub App and deploys the reviewed worker.
 7. Worker evaluates PR #6 and emits `terra-review-gate` on the current PR head.
-8. Owner updates `protect-main` ruleset to require `verify` and `terra-review-gate` (from the GitHub App source) and conversation resolution.
+8. Owner updates `protect-main` ruleset to replace Actions `review-gate` with `terra-review-gate` (from the GitHub App source).
 9. Controller posts the authorized Owner-carried Terra attestation for the current head; `terra-review-gate` passes.
-10. Merge PR #6 when both checks pass and conversations are resolved.
+10. Merge PR #6 when both checks pass and required conversations are resolved.
 11. Run manual pilot on one small task before unattended automation.
 
 ## Update rule

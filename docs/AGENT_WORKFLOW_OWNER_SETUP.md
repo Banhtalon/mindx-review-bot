@@ -24,7 +24,7 @@ Because this repository has a single GitHub user account (solo-owner), requiring
 - require the repository `verify` CI check to pass on the current PR head;
 - require the `terra-review-gate` check to pass on the current PR head, emitted by the dedicated `mindx-review-gate` GitHub App (`apps/review-gate-worker/`) through the GitHub Checks API;
 - the gate validates that a fresh Terra xHigh attestation exists in top-level PR comments, strictly bound to the current re-fetched PR head SHA, authored by the authorized Owner identity (`Banhtalon`, user ID `105797112`, `author_association: OWNER`);
-- enable **Require conversation resolution before merging**;
+- keep **Require conversation resolution before merging** active (already enabled on live protect-main ruleset);
 - any new commit changes `head_sha`, automatically invalidating any prior attestation;
 - no PR-controlled workflow or worker can forge or alter the check;
 - the legacy GitHub Actions `.github/workflows/review-gate.yml` remains bootstrap/self-test only.
@@ -42,8 +42,8 @@ Owner setup steps for the dedicated GitHub App cutover:
 5. Install the GitHub App on the `Banhtalon/mindx-review-bot` repository.
 6. In repository ruleset `protect-main`:
    - Keep `verify` required;
-   - Add `terra-review-gate` as a required status check, specifying the dedicated GitHub App as the expected source;
-   - Enable `Require conversation resolution before merging`.
+   - Replace Actions `review-gate` with `terra-review-gate` as a required status check, specifying the dedicated GitHub App as the expected source;
+   - Keep `Require conversation resolution before merging` enabled (already active on live protect-main).
 
 ## 2. Workflow state labels — complete
 

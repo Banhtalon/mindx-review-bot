@@ -85,7 +85,7 @@ For this solo-owner repository, the required merge authority is:
 - current-head `verify`;
 - current-head `terra-review-gate` check produced via GitHub Checks API by the dedicated GitHub App (`apps/review-gate-worker/`), validating a fresh Terra xHigh attestation authored by the authorized Owner identity (`Banhtalon`, ID `105797112`, `author_association: OWNER`) and bound to the exact re-fetched PR head SHA;
 - bootstrap GitHub Actions `review-gate` retained for offline/PR self-test only;
-- required conversation resolution;
+- required conversation resolution (already enabled on protect-main ruleset);
 - protected `main` with no bypass actors and no force pushes;
 - `Required approvals = 0` because there is only one GitHub account.
 

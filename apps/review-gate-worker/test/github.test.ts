@@ -4,6 +4,7 @@ import {
   createOrUpdateCheckRun,
   fetchAllIssueComments,
   fetchPullRequest,
+  findExistingCheckRun,
   generateAppJwt,
   verifyWebhookSignature,
 } from "../src/github.ts";
@@ -113,6 +114,70 @@ describe("GitHub Adapter & Crypto", () => {
       expect(comments).toHaveLength(125);
       expect(comments[0].id).toBe(1);
       expect(comments[124].id).toBe(125);
+    });
+
+    it("fails closed throwing PAGINATION_LIMIT_EXCEEDED when pagination limit is exceeded", async () => {
+      const mockFetch = async () => {
+        const items = Array.from({ length: 100 }, (_, i) => ({ id: i + 1, body: `Comment ${i + 1}` }));
+        return new Response(JSON.stringify(items), { status: 200 });
+      };
+
+      await expect(
+        fetchAllIssueComments(
+          "Banhtalon/mindx-review-bot",
+          6,
+          "mock-token",
+          mockFetch as unknown as typeof fetch,
+          2 // limit to 2 pages
+        )
+      ).rejects.toThrow("PAGINATION_LIMIT_EXCEEDED");
+    });
+
+    it("findExistingCheckRun returns existing run if found", async () => {
+      const mockFetch = async () =>
+        new Response(
+          JSON.stringify({
+            total_count: 1,
+            check_runs: [
+              {
+                id: 54321,
+                url: "https://api.github.com/...",
+                name: "terra-review-gate",
+                head_sha: "abc1234567890abcdef1234567890abcdef12345",
+                status: "completed",
+                conclusion: "failure",
+              },
+            ],
+          }),
+          { status: 200 }
+        );
+
+      const found = await findExistingCheckRun(
+        "Banhtalon/mindx-review-bot",
+        "abc1234567890abcdef1234567890abcdef12345",
+        "terra-review-gate",
+        "mock-token",
+        mockFetch as unknown as typeof fetch
+      );
+
+      expect(found).not.toBeNull();
+      expect(found?.id).toBe(54321);
+      expect(found?.name).toBe("terra-review-gate");
+    });
+
+    it("findExistingCheckRun returns null when no check runs exist", async () => {
+      const mockFetch = async () =>
+        new Response(JSON.stringify({ total_count: 0, check_runs: [] }), { status: 200 });
+
+      const found = await findExistingCheckRun(
+        "Banhtalon/mindx-review-bot",
+        "abc1234567890abcdef1234567890abcdef12345",
+        "terra-review-gate",
+        "mock-token",
+        mockFetch as unknown as typeof fetch
+      );
+
+      expect(found).toBeNull();
     });
 
     it("creates check run enforcing check name 'terra-review-gate'", async () => {
