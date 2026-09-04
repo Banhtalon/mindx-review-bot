@@ -82,14 +82,14 @@ A failed deterministic gate that requires implementation changes must route to `
 
 Before merge/`done`, verify:
 
-- `protect-main` ruleset requires `verify` and `review-gate` with `Required approvals = 0`;
-- `review-gate` check is PASS for the exact current PR head SHA;
-- valid Terra xHigh attestation exists matching PR number, control issue, scope revision, with `RECOMMEND_PASS`, P0=0, P1=0, and material findings resolved;
+- `protect-main` ruleset requires `verify` and `terra-review-gate` (from the dedicated GitHub App) with `Required approvals = 0`;
+- `terra-review-gate` check is PASS for the exact current PR head SHA;
+- valid Terra xHigh attestation exists authored by authorized Owner identity (`Banhtalon`, user ID `105797112`, `author_association: OWNER`), matching PR number, control issue, scope revision, with `RECOMMEND_PASS`, P0=0, P1=0, material findings resolved, and real calendar UTC timestamp;
 - any new push invalidates earlier attestations via head-SHA mismatch;
 - all material review conversations/threads are resolved;
 - no unresolved P0/P1 finding remains.
 
-A green `verify` check alone is not sufficient if `review-gate` fails or review conversations remain open.
+A green `verify` check alone is not sufficient if `terra-review-gate` fails or review conversations remain open.
 
 ## Completion checklist
 

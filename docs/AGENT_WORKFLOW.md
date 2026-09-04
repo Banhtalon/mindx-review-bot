@@ -83,7 +83,8 @@ Final authority is deterministic evidence, not model opinion.
 For this solo-owner repository, the required merge authority is:
 
 - current-head `verify`;
-- current-head `review-gate` validating a fresh Terra xHigh attestation bound to the exact PR head;
+- current-head `terra-review-gate` check produced via GitHub Checks API by the dedicated GitHub App (`apps/review-gate-worker/`), validating a fresh Terra xHigh attestation authored by the authorized Owner identity (`Banhtalon`, ID `105797112`, `author_association: OWNER`) and bound to the exact re-fetched PR head SHA;
+- bootstrap GitHub Actions `review-gate` retained for offline/PR self-test only;
 - required conversation resolution;
 - protected `main` with no bypass actors and no force pushes;
 - `Required approvals = 0` because there is only one GitHub account.
@@ -259,16 +260,16 @@ Terra returns findings with P0/P1/P2/P3 severity and exactly one verdict:
 
 Terra never declares final `VERIFIED`.
 
-For solo-owner merge authority, a Terra `RECOMMEND_PASS` must be recorded as the structured current-head attestation required by `review-gate`. Any new push changes the PR head SHA and invalidates the prior attestation automatically.
+For solo-owner merge authority, a Terra `RECOMMEND_PASS` must be posted by the authorized Owner identity (`Banhtalon`, user ID `105797112`, `author_association: OWNER`) as a structured `TERRA_REVIEW_ATTESTATION_V1` block in top-level PR comments, and verified by the dedicated GitHub App check `terra-review-gate`. Any new push changes the PR head SHA and invalidates the prior attestation automatically.
 
 ## Merge authority
 
 A PR may merge only when all applicable conditions are true on the exact current head:
 
 - `verify` passes;
-- `review-gate` passes when Terra review is required;
+- `terra-review-gate` passes from the dedicated GitHub App when Terra review is required;
 - required conversation/review threads are resolved;
-- the linked control issue is in a valid verification state and its label matches the Agent Control Block;
+- the linked control issue is in a valid verification state (`ready-for-review` or `ready-for-verify`) and its label matches the unique Agent Control Block;
 - there are no unresolved P0/P1 findings;
 - required live/runtime evidence exists for claims that depend on authenticated live-web behavior.
 

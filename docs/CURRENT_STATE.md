@@ -33,11 +33,12 @@ Repository controls now confirmed live on 2026-09-03:
 - deletion and non-fast-forward/force-push protection are active;
 - all nine canonical workflow-state labels exist.
 
-However the workflow is **not yet fully controlled for merge/unattended development** because the solo-owner review gate setup is completing under Scope Revision 2:
+However the workflow is **not yet fully controlled for merge/unattended development** because the solo-owner trusted review gate setup is completing under Scope Revision 3:
 
 - active ruleset `protect-main` currently has `Required approvals = 0` and requires `verify`;
-- `.github/workflows/review-gate.yml` is being added to provide the required `review-gate` status check (validates fresh Terra xHigh attestation bound to exact PR head SHA);
-- after `review-gate` context first appears on a PR run, Owner must add `review-gate` to `protect-main` required status checks and enable conversation resolution before merge;
+- the review authority is being transitioned from PR-controlled GitHub Actions code to a dedicated GitHub App check named `terra-review-gate` (`apps/review-gate-worker/`);
+- `.github/workflows/review-gate.yml` is retained only as a bootstrap/self-test artifact and is not final merge authority;
+- after Terra reviews and approves the implementation, Owner will create/install the dedicated GitHub App, deploy the reviewed worker, add `terra-review-gate` (expected source: dedicated GitHub App) to `protect-main` required status checks, and enable conversation resolution before merge;
 - any new commit pushed to the PR automatically changes `head_sha`, invalidating prior attestations.
 
 New unattended development-agent automation remains blocked until the migration is merged and one manual pilot succeeds.
@@ -131,9 +132,10 @@ No model may declare final `VERIFIED`.
 
 Workflow migration status:
 
-- Scope Revision 2 implemented: solo-owner Terra review gate (`review-gate.yml`, validator, unit tests);
-- Owner action item remaining: add `review-gate` context to `protect-main` required status checks once context appears on PR #6, and enable conversation resolution;
-- obtain fresh Terra re-review with no unresolved P0/P1 bound to exact current head SHA.
+- Scope Revision 3 implemented: dedicated GitHub App review gate worker under `apps/review-gate-worker/` (pure validator, HMAC verification, strict calendar UTC date validation, AGENT_CONTROL_BLOCK_V1 and OWNER_SCOPE_RESET_V1 validation, Owner provenance checks, GitHub Checks API adapter);
+- Issue #7 at `state: implementing`, `scope_revision: 3`, `fix_reentries: 0`, linked to Owner approval record #5534707230;
+- `.github/workflows/review-gate.yml` retained as bootstrap/self-test only;
+- Future Owner action items after Terra review approval: create/install the dedicated GitHub App, deploy the reviewed worker, update `protect-main` ruleset to require `terra-review-gate` (expected source: dedicated GitHub App) alongside `verify`, and enable conversation resolution.
 
 Separate product/ops decision:
 
@@ -151,17 +153,17 @@ Product work that requires any of the following must use `blocked-owner` or `blo
 
 ## Next sequence
 
-1. Complete Scope Revision 2 implementation and verify all deterministic gates pass.
+1. Complete Scope Revision 3 implementation and verify all deterministic gates pass.
 2. Push commit to PR #6 (`chore/agent-workflow-migration`).
-3. Owner adds `review-gate` to `protect-main` required status checks and enables conversation resolution.
-4. Controller moves Issue #7 to `ready-for-review`.
-5. Terra xHigh performs fresh-context review and posts attestation bound to PR #6 head SHA.
-6. Both `verify` and `review-gate` pass on current head, and conversation threads are resolved.
-7. Merge Agent Workflow Migration PR #6.
-8. Select exactly one small/medium real task as a manual pilot.
-9. Run manual Sol -> controller -> Gemini -> CI -> Terra -> controller/Gemini fix if needed -> CI handoff using a linked Agent Control Block.
-10. Evaluate scope control, finding quality, time/token cost, and deterministic evidence.
-11. Only then consider enabling Antigravity Scheduled Tasks/background development-agent handoff.
+3. Controller moves Issue #7 to `ready-for-review`.
+4. Terra xHigh performs fresh-context review of the exact current PR head diff.
+5. If Terra returns `NEEDS_FIX`, fix loop routes through controller (at most 2 fix re-entries).
+6. Upon Terra `RECOMMEND_PASS`, Owner installs the dedicated GitHub App and deploys the reviewed worker.
+7. Worker evaluates PR #6 and emits `terra-review-gate` on the current PR head.
+8. Owner updates `protect-main` ruleset to require `verify` and `terra-review-gate` (from the GitHub App source) and conversation resolution.
+9. Controller posts the authorized Owner-carried Terra attestation for the current head; `terra-review-gate` passes.
+10. Merge PR #6 when both checks pass and conversations are resolved.
+11. Run manual pilot on one small task before unattended automation.
 
 ## Update rule
 

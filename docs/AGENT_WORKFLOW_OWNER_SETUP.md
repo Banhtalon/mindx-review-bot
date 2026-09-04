@@ -16,18 +16,34 @@ Confirmed live on 2026-09-03:
 - deletion protection is enabled;
 - non-fast-forward/force-push protection is enabled.
 
-Solo-owner review gate configuration (Scope Revision 2):
+Solo-owner review gate configuration (Scope Revision 3):
 
-Because this repository has a single GitHub user account (solo-owner), requiring GitHub human approvals (`Required approvals >= 1`) blocks the repo owner from merging pull requests. Scope Revision 2 replaces this with a machine-enforced review gate:
+Because this repository has a single GitHub user account (solo-owner), requiring GitHub human approvals (`Required approvals >= 1`) blocks the repo owner from merging pull requests. Scope Revision 3 establishes a trusted machine review gate:
 
 - keep **Required approvals** at `0`;
 - require the repository `verify` CI check to pass on the current PR head;
-- require the `review-gate` CI check to pass on the current PR head (validates fresh Terra xHigh attestation bound to exact current head SHA);
+- require the `terra-review-gate` check to pass on the current PR head, emitted by the dedicated `mindx-review-gate` GitHub App (`apps/review-gate-worker/`) through the GitHub Checks API;
+- the gate validates that a fresh Terra xHigh attestation exists in top-level PR comments, strictly bound to the current re-fetched PR head SHA, authored by the authorized Owner identity (`Banhtalon`, user ID `105797112`, `author_association: OWNER`);
 - enable **Require conversation resolution before merging**;
 - any new commit changes `head_sha`, automatically invalidating any prior attestation;
-- no unattended development worker may create or edit Terra attestations.
+- no PR-controlled workflow or worker can forge or alter the check;
+- the legacy GitHub Actions `.github/workflows/review-gate.yml` remains bootstrap/self-test only.
 
-After `review-gate` context first appears on PR #6, Owner must add `review-gate` to the active `protect-main` ruleset required status checks list alongside `verify`, and enable conversation resolution.
+Owner setup steps for the dedicated GitHub App cutover:
+
+1. Create a dedicated GitHub App (`mindx-review-gate`) with minimum permissions:
+   - Metadata: Read-only
+   - Pull requests: Read-only
+   - Issues: Read-only
+   - Checks: Read and write
+2. Generate and download the RS256 private key (PEM format).
+3. Set up a Webhook URL pointing to the deployed `apps/review-gate-worker` instance with a secure `GITHUB_WEBHOOK_SECRET`.
+4. Deploy `apps/review-gate-worker` to an external/serverless host (e.g. Cloudflare Worker, Vercel, AWS Lambda, or container) configured with `GITHUB_APP_ID`, `GITHUB_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`.
+5. Install the GitHub App on the `Banhtalon/mindx-review-bot` repository.
+6. In repository ruleset `protect-main`:
+   - Keep `verify` required;
+   - Add `terra-review-gate` as a required status check, specifying the dedicated GitHub App as the expected source;
+   - Enable `Require conversation resolution before merging`.
 
 ## 2. Workflow state labels — complete
 

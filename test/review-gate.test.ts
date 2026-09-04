@@ -25,7 +25,7 @@ const VALID_HEAD_SHA = "7074b025458d63e009da12e5e85f891852108004";
 const STALE_HEAD_SHA = "2222222222222222222222222222222222222222";
 const PR_NUMBER = 6;
 const CONTROL_ISSUE = 7;
-const SCOPE_REVISION = 2;
+const SCOPE_REVISION = 3;
 const VALID_TIMESTAMP = "2026-09-03T20:00:00Z";
 const VALID_RESET_LINK = "https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5526241968";
 
@@ -193,6 +193,14 @@ reviewed_at_utc: ${VALID_TIMESTAMP}
     it("validates strict UTC ISO-8601 timestamps", () => {
       expect(isValidStrictUtcIsoTimestamp("2026-09-04T01:23:45Z")).toBe(true);
       expect(isValidStrictUtcIsoTimestamp("2026-09-04T01:23:45.678Z")).toBe(true);
+      expect(isValidStrictUtcIsoTimestamp("2024-02-29T12:00:00Z")).toBe(true); // leap year
+    });
+
+    it("rejects impossible calendar dates (non-leap year Feb 29, April 31)", () => {
+      expect(isValidStrictUtcIsoTimestamp("2026-02-29T00:00:00Z")).toBe(false); // 2026 not leap
+      expect(isValidStrictUtcIsoTimestamp("2026-04-31T00:00:00Z")).toBe(false); // April has 30 days
+      expect(isValidStrictUtcIsoTimestamp("2026-13-01T00:00:00Z")).toBe(false); // month 13
+      expect(isValidStrictUtcIsoTimestamp("2026-09-04T24:00:00Z")).toBe(false); // hour 24
     });
 
     it("rejects date-only, local timestamps without Z, or timezone offsets", () => {
@@ -500,7 +508,7 @@ owner_scope_reset: https://github.com/example/approval
       expect(REVIEWABLE_CONTROL_STATES).toEqual(["ready-for-review", "ready-for-verify"]);
       expect(BOOTSTRAP_PR_NUMBER).toBe(6);
       expect(BOOTSTRAP_CONTROL_ISSUE).toBe(7);
-      expect(BOOTSTRAP_SCOPE_REVISION).toBe(2);
+      expect(BOOTSTRAP_SCOPE_REVISION).toBe(3);
     });
 
     it("fails closed on linked issue fetch failure (null/empty input)", () => {
@@ -547,7 +555,7 @@ owner_scope_reset: https://github.com/example/approval
     it("fails closed when fix_reentries is outside allowed range 0..2", () => {
       const issue = {
         number: CONTROL_ISSUE,
-        body: `\`\`\`text\nstate: ready-for-review\nscope_revision: 2\nfix_reentries: 3\nowner_scope_reset: ${VALID_RESET_LINK}\n\`\`\``,
+        body: `\`\`\`text\nstate: ready-for-review\nscope_revision: ${SCOPE_REVISION}\nfix_reentries: 3\nowner_scope_reset: ${VALID_RESET_LINK}\n\`\`\``,
         labels: [{ name: "ready-for-review" }],
       };
       const result = validateControlIssue(issue, SCOPE_REVISION);
@@ -559,7 +567,7 @@ owner_scope_reset: https://github.com/example/approval
     it("fails closed when owner_scope_reset is none or empty for scope_revision >= 2", () => {
       const issueNone = {
         number: CONTROL_ISSUE,
-        body: "```text\nstate: ready-for-review\nscope_revision: 2\nfix_reentries: 0\nowner_scope_reset: none\n```",
+        body: `\`\`\`text\nstate: ready-for-review\nscope_revision: ${SCOPE_REVISION}\nfix_reentries: 0\nowner_scope_reset: none\n\`\`\``,
         labels: [{ name: "ready-for-review" }],
       };
       const resultNone = validateControlIssue(issueNone, SCOPE_REVISION);

@@ -1,3 +1,7 @@
+// BOOTSTRAP / SELF-TEST ONLY: Not final merge authority.
+// Trusted review check authority is emitted as 'terra-review-gate' by the dedicated GitHub App.
+// See docs/superpowers/plans/2026-09-04-trusted-review-architecture.md
+
 /* global console */
 
 import { readFileSync } from "node:fs";
@@ -24,7 +28,7 @@ export const REVIEWABLE_CONTROL_STATES = [
 
 export const BOOTSTRAP_PR_NUMBER = 6;
 export const BOOTSTRAP_CONTROL_ISSUE = 7;
-export const BOOTSTRAP_SCOPE_REVISION = 2;
+export const BOOTSTRAP_SCOPE_REVISION = 3;
 
 /**
  * Validates and parses a canonical non-negative decimal integer.
@@ -50,18 +54,53 @@ export function parseCanonicalNonNegativeInteger(val) {
 }
 
 /**
- * Validates that reviewed_at_utc is a strict ISO-8601 UTC timestamp ending in 'Z'.
+ * Validates that reviewed_at_utc is a strict ISO-8601 UTC timestamp ending in 'Z'
+ * with real calendar day verification (leap years, 30/31-day months).
  * Rejects date-only values, local timestamps without Z, and offsets like +07:00.
  */
 export function isValidStrictUtcIsoTimestamp(val) {
   if (typeof val !== "string") return false;
-  const trimmed = val.trim();
-  const strictUtcRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
-  if (!strictUtcRegex.test(trimmed)) {
+  if (val.trim() !== val) return false;
+  if (!val) return false;
+
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?Z$/.exec(val);
+  if (!match) {
     return false;
   }
-  const timestamp = Date.parse(trimmed);
-  return !isNaN(timestamp);
+
+  const year = parseInt(match[1], 10);
+  const month = parseInt(match[2], 10);
+  const day = parseInt(match[3], 10);
+  const hour = parseInt(match[4], 10);
+  const minute = parseInt(match[5], 10);
+  const second = parseInt(match[6], 10);
+  const ms = match[7] ? parseInt(match[7].padEnd(3, "0"), 10) : 0;
+
+  if (month < 1 || month > 12) return false;
+  if (hour < 0 || hour > 23) return false;
+  if (minute < 0 || minute > 59) return false;
+  if (second < 0 || second > 59) return false;
+
+  const isLeapYear = (year % 4 === 0 && year % 100 !== 0) || (year % 400 === 0);
+  const daysInMonth = [31, isLeapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+
+  const maxDay = daysInMonth[month - 1];
+  if (day < 1 || day > maxDay) return false;
+
+  const date = new Date(Date.UTC(year, month - 1, day, hour, minute, second, ms));
+  if (
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day ||
+    date.getUTCHours() !== hour ||
+    date.getUTCMinutes() !== minute ||
+    date.getUTCSeconds() !== second ||
+    date.getUTCMilliseconds() !== ms
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function findDuplicateKeysInJson(jsonString) {
@@ -374,6 +413,21 @@ export function parseAttestationsFromComments(comments) {
  */
 export function parseControlBlock(text) {
   if (!text) return {};
+  const v1Match = /<!--\s*AGENT_CONTROL_BLOCK_V1\s*-->([\s\S]*?)<!--\s*\/AGENT_CONTROL_BLOCK_V1\s*-->/i.exec(text);
+  if (v1Match) {
+    const result = {};
+    for (const line of v1Match[1].split(/\r?\n/)) {
+      const idx = line.indexOf(":");
+      if (idx !== -1) {
+        const k = line.slice(0, idx).trim();
+        const v = line.slice(idx + 1).trim();
+        if (k === "state" || k === "scope_revision" || k === "fix_reentries" || k === "owner_scope_reset") {
+          result[k] = v;
+        }
+      }
+    }
+    return result;
+  }
   const blockMatch = /```text[\r\n]+([\s\S]*?)```/i.exec(text) || [null, text];
   const content = blockMatch[1] || text;
   const result = {};
