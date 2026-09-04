@@ -1,22 +1,32 @@
 # Current Project State
 
-Last workflow baseline on `main`: manual pilot merge `4edeb6e8e3f00fdf8915c00c03ff6268732bffae` (incorporating Agent Workflow Migration merge `f6dcaa9bd9e95fea69f63fdb868a385ac28aee7a` and CLI timeout hardening merge `1c13cb4f3bda8ec8d31da1ede25f2f2a0f1646c9`).
+Last workflow baseline on `main`: current-state housekeeping merge
+`255ccf9635aecc50474a0a88049355ef4c3638fc` (incorporating manual pilot merge
+`4edeb6e8e3f00fdf8915c00c03ff6268732bffae`, Agent Workflow Migration merge
+`f6dcaa9bd9e95fea69f63fdb868a385ac28aee7a`, and CLI timeout hardening merge
+`1c13cb4f3bda8ec8d31da1ede25f2f2a0f1646c9`).
 
 This file is a routing/status summary for agents. It does not replace the V4 master specification. Live GitHub issue/ruleset/CI state is authoritative for rapidly changing workflow-control fields.
 
 ## Current approved work
 
+Issue #11, **Phase 2 hosted/off-PC closure**, is the current Owner-approved
+product task under Scope Revision 1. Sol planning is complete on the dedicated
+task branch; product implementation and hosted execution have not started.
+
 No product Phase 6 task is currently approved.
 
 The Agent Workflow Migration (PR #6 / Issue #7) and the subsequent manual pilot (PR #9 / Issue #8) have both completed successfully and merged to `main`.
 
-Any next product task requires a separate standalone GitHub issue with an Agent Control Block, specification/plan, and explicit Owner approval.
+Issue #11 owns the authoritative Agent Control Block and links its dedicated
+design/implementation plan. Any different product task still requires a separate
+standalone issue, plan, and explicit Owner approval.
 
 Recommended next engineering priority: Phase 2 hosted/off-PC closure and live-readiness prerequisites (followed by Phase 3 live Teaching reader and Phase 4 live LMS reader), rather than starting Phase 6 prematurely.
 
 ## Baseline health
 
-- Latest merged baseline on `main` (`4edeb6e8e3f00fdf8915c00c03ff6268732bffae`) has successful GitHub Actions CI evidence.
+- Latest merged baseline on `main` (`255ccf9635aecc50474a0a88049355ef4c3638fc`) has successful GitHub Actions CI evidence.
 - Existing repository verification includes web lint/typecheck/tests/build, no-secret and no-live-write guards, local Supabase/RLS checks, and Python runner Ruff/Mypy/Pytest.
 - All deterministic gates remain enforced on `main`. Future work must not weaken any existing gate.
 
@@ -61,14 +71,23 @@ The repository contains implementation/report slices from Spike 0 through Phase 
 
 `.github/workflows/cron-dispatch.yml` already schedules read-only product jobs (`sync_teaching` / `read_lms_pending`) three times daily. It predates the Agent Workflow Migration and is **not** Antigravity/Gemini development-agent automation.
 
-Observed state:
+Observed state as of 2026-09-04:
 
-- a scheduled `cron-dispatch` run on 2026-09-03 completed with `failure`;
-- the scheduler uses configured secrets to dispatch read-only product jobs;
+- all 42 recorded `cron-dispatch` runs completed with `failure`;
+- the first and latest inspected runs both returned `CRON_CONFIG_INVALID`;
+- GitHub Actions currently has no repository or environment secrets, so the
+  scheduler cannot satisfy its required configuration;
+- `browser-runner.yml` has no hosted run, and the CLI remains fail-closed with
+  `SITE_ADAPTER_NOT_CONFIGURED` before job claim;
+- the scheduler is designed to use configured secrets to dispatch read-only
+  product jobs, but those secrets are not currently configured;
 - Phase 2 hosted/off-PC closure remains BLOCKED;
 - this migration does not claim the scheduler is healthy, pilot-approved, or evidence that unattended development agents are safe.
 
-Owner decision remains open: keep, disable, or repair the pre-existing product schedule. This is a separate product/ops decision, not permission to bypass the manual development-agent pilot. Until Phase 2 hosted verification is resolved, do not convert cron failures into PASS by inference.
+The Issue #11 plan selects a fail-closed, reversible default: temporarily disable
+product cron dispatch until hosted configuration passes and later Phase 3/4 site
+adapters are ready. Manual Phase 2 synthetic verification remains separate. Do
+not convert cron failures, skipped runs, or synthetic probes into a product PASS.
 
 ### Phase 3 — Teaching reader / reconciliation
 
@@ -140,9 +159,11 @@ Product blockers / prerequisites:
 - Phase 4 live LMS reader remains BLOCKED (live selectors, browser-state reuse, stable ID mapping).
 - Phase 5C durable persistence, reload recovery, and review generation remain unverified against live systems.
 
-Separate product/ops decision:
+Separate product/ops disposition in the Issue #11 plan:
 
-- decide whether to keep, temporarily disable, or repair the failing pre-existing `cron-dispatch` schedule.
+- temporarily disable the failing pre-existing `cron-dispatch` schedule by
+  default; later enablement requires hosted configuration PASS and Phase 3/4
+  site-adapter readiness.
 
 Product work that requires any of the following must use `blocked-owner` or `blocked-external` rather than guessing:
 
@@ -156,12 +177,17 @@ Product work that requires any of the following must use `blocked-owner` or `blo
 
 ## Next sequence
 
-1. Choose and approve the next product task with a dedicated standalone GitHub issue (Agent Control Block) and plan.
-2. Address operational/hosted blockers in order of dependency:
-   - **Phase 2 hosted/off-PC closure**: Deployed migration/RPC verification, hosted Storage, and cloud dispatch with PC off.
-   - **Phase 3 Teaching live reader**: Selectors, authentication, read-only extraction, and production Supabase reconciliation.
-   - **Phase 4 LMS live reader**: Selectors, session reuse, and deterministic stable-ID student mapping.
-3. Proceed to later product phases (including Phase 6) only after earlier operational, hosted, and live-readiness prerequisites are satisfied.
+1. Controller validates Issue #11 and moves it from `ready-for-implementation`
+   to `implementing` before invoking the implementation worker.
+2. Implement and locally verify the approved Phase 2 hosted/off-PC plan without
+   live site access; route missing hosted configuration to the documented Owner
+   checkpoint.
+3. Complete hosted RPC/Storage, synthetic dispatch, and PC-off evidence; keep the
+   product cron disabled and preserve the live/synthetic boundary.
+4. Only after Phase 2 infrastructure closure, create separately approved tasks
+   for Phase 3 Teaching and Phase 4 LMS live readers.
+5. Proceed to later product phases, including Phase 6, only after earlier hosted
+   and live-readiness prerequisites are satisfied.
 
 ## Update rule
 
