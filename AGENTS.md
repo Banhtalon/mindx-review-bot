@@ -243,11 +243,10 @@ Authenticated live-web changes cần thêm browser/E2E evidence phù hợp; unit
 - `main` phải được active ruleset chặn direct push/force-push/delete.
 - Repo thuộc sở hữu solo-owner (1 tài khoản): giữ `Required approvals = 0` trên GitHub; việc đòi hỏi tài khoản người thứ 2 approve là không khả thi.
 - Quy trình merge đáng tin cậy (Scope Revision 4 — manual trusted merge gate):
-  1. Required status check trên GitHub: `verify` (toàn bộ deterministic gates: lint, typecheck, test, build, no-secrets, no-live-write, Supabase RLS, Python runner);
-  2. Độc lập với machine CI, Terra xHigh adversarial review bắt buộc trên đúng `head_sha` hiện tại (`RECOMMEND_PASS`, `p0: 0`, `p1: 0`, `material_findings_resolved: true`);
-  3. Controller kiểm tra chéo độc lập: PR head SHA khớp exact reviewed SHA, Terra verdict/findings, current-head `verify`, Agent Control Block và primary label trong control issue (`ready-for-review` hoặc `ready-for-verify`), branch up-to-date, review conversation threads resolved;
-  4. Controller tuyên bố PR `merge-eligible` khi toàn bộ điều kiện thoả mãn;
-  5. Owner thực hiện thao tác Merge thủ công sau khi Controller prompt. Model/worker tuyệt đối không tự ý merge PR.
+  1. **STEP A — Trước cutover**: Required status check `verify` PASS trên đúng `head_sha` hiện tại; độc lập với CI, Terra xHigh adversarial review bắt buộc trên đúng `head_sha` (`RECOMMEND_PASS`, `p0: 0`, `p1: 0`, `material_findings_resolved: true`); review conversation threads resolved; Issue #7 control state/label khớp; Controller xác nhận bằng chứng sẵn sàng cho cutover (PR chưa merge-eligible do ruleset còn đòi check `review-gate` cũ);
+  2. **STEP B — Owner cutover**: Owner chỉnh sửa `protect-main` ruleset để gỡ bỏ check `review-gate`, giữ `verify`, strict up-to-date, conversation resolution, `Required approvals = 0`, không bypass;
+  3. **STEP C — Controller recheck**: Controller re-fetch live ruleset và kiểm tra chéo độc lập toàn bộ điều kiện. Chỉ sau khi recheck thành công, Controller mới tuyên bố PR `merge-eligible` và prompt Owner;
+  4. **STEP D — Owner merge**: Owner thực hiện thao tác Merge thủ công sau khi Controller prompt. Model/worker tuyệt đối không tự ý merge PR.
 - Bắt buộc resolve toàn bộ conversation/review threads trước khi merge.
 - Bất kỳ push commit mới nào làm thay đổi `head_sha` đều tự động vô hiệu hóa review trước đó (head SHA mismatch).
 - Worker phát triển (Gemini, Sol) tuyệt đối không được tự ý tạo hoặc chỉnh sửa Terra attestation.

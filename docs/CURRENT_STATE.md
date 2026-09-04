@@ -37,14 +37,12 @@ Repository controls now confirmed live on 2026-09-03:
 However the workflow is **not yet fully controlled for merge/unattended development** because the solo-owner trusted review gate setup is completing under Scope Revision 4 (GitHub-native manual trusted merge gate):
 
 - active ruleset `protect-main` currently has `Required approvals = 0`, requires `verify` and Actions `review-gate`, strict up-to-date policy, conversation resolution enabled, and no bypass;
-- under Scope Revision 4, external review-gate infrastructure (`apps/review-gate-worker/`, Cloudflare Workers, dedicated GitHub App) and PR-controlled Actions review gate (`.github/workflows/review-gate.yml`) are retired;
-- merge authority simplifies to GitHub-native manual trusted merge gate:
-  1. deterministic CI `verify` status check;
-  2. fresh Terra xHigh adversarial review on the exact current PR head SHA;
-  3. Controller independent verification of all evidence, control issue state/labels, branch freshness, and resolved review threads;
-  4. Controller declares PR `merge-eligible` and prompts Owner;
-  5. Owner performs manual Merge action on GitHub.
-- at merge eligibility, Owner will be prompted to remove Actions `review-gate` from the `protect-main` ruleset required status checks (leaving `verify`);
+- under Scope Revision 4, external review-gate infrastructure (`apps/review-gate-worker/`, Cloudflare Workers, dedicated GitHub App) and PR-controlled Actions review gate (`.github/workflows/review-gate.yml`, `.github/scripts/validate_terra_attestation.*`, `test/review-gate.test.ts`) are retired and deleted;
+- ruleset cutover and merge authority follow the unified 4-step sequence:
+  - **STEP A — BEFORE OWNER CUTOVER**: Implementation complete, current-head `verify` PASS, fresh Terra exact-head review acceptable (`RECOMMEND_PASS`, P0=0, P1=0, material findings resolved), Controller confirms code/review evidence is ready for cutover. PR is NOT yet merge-eligible because `protect-main` still requires obsolete `review-gate`.
+  - **STEP B — OWNER CUTOVER**: Owner edits `protect-main` to remove required status check `review-gate`, keeping `verify`, strict up-to-date, conversation resolution, `Required approvals = 0`, and no-bypass protections.
+  - **STEP C — CONTROLLER RECHECK**: Controller re-fetches live ruleset and verifies required checks include `verify` and not `review-gate`, with all protections intact. Only AFTER this post-change recheck plus all other gates can Controller declare PR `merge-eligible`.
+  - **STEP D — OWNER MERGE**: Owner performs final Merge action on PR #6 when explicitly prompted.
 - any new commit pushed to the PR automatically changes `head_sha`, invalidating prior attestations/review.
 
 New unattended development-agent automation remains blocked until the migration is merged and one manual pilot succeeds.
@@ -139,10 +137,10 @@ No model may declare final `VERIFIED`.
 Workflow migration status:
 
 - Scope Revision 4 implemented: GitHub-native manual trusted merge gate replacing external review-gate infrastructure;
-- `apps/review-gate-worker/` and `.github/workflows/review-gate.yml` retired and deleted;
-- Issue #7 at `state: implementing`, `scope_revision: 4`, `fix_reentries: 0`, linked to Owner approval record #5535792176;
+- `apps/review-gate-worker/`, `.github/workflows/review-gate.yml`, `.github/scripts/validate_terra_attestation.*`, and `test/review-gate.test.ts` retired and deleted;
+- Authoritative task control: live GitHub Issue #7 Agent Control Block and its single matching primary workflow-state label are authoritative for current state, scope revision, and fix re-entries (approved under scope revision 4 via Owner record #5535792176). Transient state/counter values are not copied here to prevent stale snapshots;
 - No external Cloudflare, Durable Object, or GitHub App deployment required;
-- Expected Owner action at this stage: NONE (Owner will only update `protect-main` to require `verify` alone and perform manual Merge when prompted after Terra approval and CI pass).
+- Expected Owner action at this stage: NONE (Owner ruleset cutover of `protect-main` occurs only in STEP B after Terra approval and verify CI pass).
 
 Separate product/ops decision:
 
@@ -160,17 +158,17 @@ Product work that requires any of the following must use `blocked-owner` or `blo
 
 ## Next sequence
 
-1. Complete Scope Revision 4 implementation and verify all deterministic gates pass.
+1. Complete Scope Revision 4 fix implementation and verify all deterministic gates pass.
 2. Push commit to PR #6 (`chore/agent-workflow-migration`).
 3. Controller moves Issue #7 to `ready-for-review`.
 4. Terra xHigh performs fresh-context review of the exact current PR head diff.
-5. If Terra returns `NEEDS_FIX`, fix loop routes through controller (at most 2 fix re-entries).
-6. Upon Terra `RECOMMEND_PASS` (P0=0, P1=0, material findings resolved) and current-head `verify` PASS:
-   - Controller verifies all conditions (exact reviewed SHA matches current PR head, CI `verify` pass, Issue #7 control state, branch freshness, conversations resolved);
-   - Controller prompts Owner to remove Actions `review-gate` from `protect-main` ruleset (leaving `verify`);
-   - Controller declares PR `merge-eligible`.
-7. Owner performs manual Merge on PR #6.
-8. Run manual pilot on one small task before unattended automation.
+5. If Terra returns `NEEDS_FIX`, fix loop routes through controller (at most 2 fix re-entries permitted).
+6. Execute unified ruleset cutover and merge sequence:
+   - **STEP A — BEFORE OWNER CUTOVER**: Implementation complete, current-head `verify` PASS, fresh Terra exact-head review acceptable (`RECOMMEND_PASS`, P0=0, P1=0, material findings resolved), Controller confirms code/review evidence is ready for ruleset cutover. PR is NOT yet merge-eligible because `protect-main` still requires obsolete `review-gate`.
+   - **STEP B — OWNER CUTOVER**: Owner performs exactly one manual repository-settings action: edit `protect-main`, remove required status check `review-gate`, keep required `verify`, keep strict up-to-date, keep conversation resolution, keep `Required approvals = 0`, keep no bypass / force-push protections.
+   - **STEP C — CONTROLLER RECHECK**: Controller re-fetches live ruleset and verifies: required checks exactly include `verify`, old `review-gate` no longer required, strict up-to-date remains true, conversation resolution remains true, `Required approvals = 0`, bypass remains empty, force-push/deletion protections remain active. Only AFTER this post-change recheck plus all other gates can Controller declare PR `merge-eligible`.
+   - **STEP D — OWNER MERGE**: Owner performs final Merge action on PR #6 when explicitly prompted.
+7. Run manual pilot on one small task before unattended automation.
 
 ## Update rule
 

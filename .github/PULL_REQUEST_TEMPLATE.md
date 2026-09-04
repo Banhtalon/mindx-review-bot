@@ -101,13 +101,12 @@ Use `blocked-owner` for missing business/scope/live-credential/reviewer decision
 
 ## Solo-Owner Trusted Merge Gate & Verification
 
-- [ ] Deterministic `verify` status check is green on current PR head
-- [ ] Fresh Terra xHigh adversarial review exists for the exact current PR head SHA
-- [ ] Review verdict is `RECOMMEND_PASS`, P0=0, P1=0, and material findings are resolved
-- [ ] Review matches linked control issue and scope revision
-- [ ] All material review conversations/threads are resolved
-- [ ] Controller independently verified all evidence and declared PR `merge-eligible`
-- [ ] Owner manual Merge action performed
+- [ ] STEP A: Deterministic `verify` status check is green on current PR head
+- [ ] STEP A: Fresh Terra xHigh adversarial review exists for exact current PR head SHA (`RECOMMEND_PASS`, P0=0, P1=0, material findings resolved)
+- [ ] STEP A: Review matches linked control issue and scope revision; review threads resolved
+- [ ] STEP B: Owner ruleset cutover performed (removed old `review-gate` from `protect-main`, kept `verify`)
+- [ ] STEP C: Controller rechecked live ruleset and declared PR `merge-eligible`
+- [ ] STEP D: Owner manual Merge action performed
 
 > The active `main` ruleset enforces `verify` with `Required approvals = 0`. All conversation threads must be resolved before merge. Merge is performed manually by Owner.
 

@@ -20,20 +20,46 @@ This revision intentionally replaces the revision-3 external GitHub App / Cloudf
 - Keep Controller review of evidence and workflow state.
 - Keep final merge under explicit Owner control.
 
-## Authoritative merge process
+## Authoritative ruleset cutover and merge sequence
 
-1. Implementation is pushed only to `chore/agent-workflow-migration`.
-2. Current-head GitHub Actions `verify` must pass.
-3. Issue #7 must be in a reviewable workflow state with exactly one matching primary state label.
-4. Terra xHigh receives fresh context and reviews the exact current PR head SHA.
-5. Terra reports P0/P1/P2/P3 plus verdict `RECOMMEND_PASS`, `NEEDS_FIX`, or `BLOCKED`.
-6. A pass candidate requires P0=0, P1=0, no unresolved material findings, and exact-head evidence.
-7. Controller re-fetches the PR head, current-head CI, Issue #7, branch freshness, and material review conversations.
-8. Any new push after Terra review invalidates that Terra evidence and requires a fresh exact-head review.
-9. Controller may report `merge-eligible` only when all required evidence is current and consistent.
-10. Owner performs or explicitly authorizes the final Merge action only after Controller prompts.
+Revision 4 resolves the transitional live ruleset (where `protect-main` still requires obsolete Actions `review-gate` even though `.github/workflows/review-gate.yml` was deleted) via this exact 4-step sequence:
 
-The assistant/model must not silently merge PR #6.
+### STEP A — BEFORE OWNER CUTOVER
+- Implementation is complete and pushed to `chore/agent-workflow-migration`.
+- Current-head GitHub Actions `verify` must pass.
+- Issue #7 must be in a reviewable workflow state (`ready-for-review` or `ready-for-verify`) with exactly one matching primary state label.
+- Terra xHigh receives fresh context and reviews the exact current PR head SHA.
+- Terra reports P0/P1/P2/P3 plus verdict `RECOMMEND_PASS`, `NEEDS_FIX`, or `BLOCKED`.
+- A pass candidate requires P0=0, P1=0, no unresolved material findings, and exact-head evidence.
+- Controller confirms code/review evidence is ready for ruleset cutover.
+- **PR is NOT yet merge-eligible** because `protect-main` still requires obsolete `review-gate`.
+
+### STEP B — OWNER CUTOVER
+Owner performs exactly one manual repository-settings action when prompted:
+- Edit repository ruleset `protect-main`.
+- Remove required status check `review-gate`.
+- Keep required status check `verify`.
+- Keep strict up-to-date branch policy enabled.
+- Keep conversation resolution required (`Require conversation resolution before merging`).
+- Keep `Required approvals = 0` (solo-owner constraint).
+- Keep bypass list empty and non-fast-forward/force-push/deletion protections active.
+
+### STEP C — CONTROLLER RECHECK
+After Owner change, Controller MUST re-fetch live ruleset via GitHub API and verify:
+- Required checks exactly include `verify` for this migration architecture.
+- Old Actions `review-gate` is no longer required.
+- Strict up-to-date remains true.
+- Conversation resolution remains true.
+- `Required approvals` remains 0.
+- Bypass list remains empty.
+- Force-push/deletion protections remain active.
+
+Only AFTER this post-change recheck plus all other gates can Controller declare:
+`merge-eligible`.
+
+### STEP D — OWNER MERGE
+Owner performs the final Merge action on PR #6 when explicitly prompted by Controller.
+The assistant/model must not silently or autonomously merge PR #6.
 
 ## Required GitHub protections
 
@@ -117,6 +143,10 @@ For scope revision 4:
 
 ## Owner interaction policy
 
-Do not ask Owner to create infrastructure or secrets for this workflow.
+Do not ask Owner to create external infrastructure, serverless functions, GitHub Apps, or secrets for this workflow.
 
-The expected Owner interaction is only the final Merge action when all evidence is complete. The Controller should explicitly prompt Owner at that point and not before.
+Owner actions are limited to:
+1. **Ruleset cutover (STEP B)**: Removing old `review-gate` from `protect-main` required status checks once Controller confirms STEP A evidence is ready.
+2. **Manual merge (STEP D)**: Clicking Merge on PR #6 once Controller completes STEP C post-cutover recheck and declares `merge-eligible`.
+
+At the current implementation stage, expected Owner action is **NONE**.

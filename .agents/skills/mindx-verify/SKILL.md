@@ -80,17 +80,47 @@ A failed deterministic gate that requires implementation changes must route to `
 
 ## Independent review checks (solo-owner manual trusted merge gate)
 
-Before Controller declares PR `merge-eligible`:
+Merge eligibility follows the unified 4-step sequence:
 
-- `protect-main` ruleset requires `verify` (and Owner removes Actions `review-gate` if still listed), with `Required approvals = 0`, and conversation resolution is enabled;
+### STEP A — BEFORE OWNER CUTOVER
+Verify:
+- implementation is complete and pushed to task branch;
+- required deterministic gates PASS on current PR head (`verify`);
+- linked control issue has valid Agent Control Block and matching primary label (`ready-for-review` or `ready-for-verify`);
 - fresh Terra xHigh adversarial review exists for the exact current PR head SHA with `RECOMMEND_PASS`, P0=0, P1=0, and material findings resolved;
 - any new push invalidates earlier review via head-SHA mismatch;
-- all material review conversations/threads are resolved (enforced by live ruleset);
-- no unresolved P0/P1 finding remains;
-- linked control issue has valid Agent Control Block and matching primary label (`ready-for-review` or `ready-for-verify`);
+- all material review conversations/threads are resolved;
 - branch is up-to-date with `main`.
 
-Controller reports PR `merge-eligible` only when all above conditions are met, then prompts Owner to perform the manual Merge action.
+Controller confirms code and review evidence are ready for cutover.
+**PR is NOT yet merge-eligible** because `protect-main` ruleset still requires obsolete `review-gate`.
+
+### STEP B — OWNER CUTOVER
+Owner performs exactly one manual repository-settings action when prompted:
+- edit `protect-main` ruleset;
+- remove required status check `review-gate`;
+- keep required status check `verify`;
+- keep strict up-to-date branch policy enabled;
+- keep `Require conversation resolution before merging` enabled;
+- keep `Required approvals = 0` (solo-owner constraint);
+- keep bypass list empty and deletion/force-push protections active.
+
+### STEP C — CONTROLLER RECHECK
+After Owner changes ruleset, Controller MUST re-fetch live ruleset via GitHub API and verify:
+- required checks exactly include `verify` for this migration architecture;
+- old `review-gate` is no longer required;
+- strict up-to-date remains true;
+- conversation resolution remains true;
+- `Required approvals` remains 0;
+- bypass remains empty;
+- force-push/deletion protections remain active.
+
+Only AFTER this post-cutover recheck plus all other gates can Controller declare:
+`merge-eligible`.
+
+### STEP D — OWNER MERGE
+Owner performs the final Merge action on the PR when explicitly prompted by Controller.
+The assistant/model must not silently or autonomously merge PRs.
 
 ## Completion checklist
 
@@ -108,8 +138,8 @@ Before moving to `done`, confirm:
 - `docs/CURRENT_STATE.md` does not contradict the claimed result;
 - no synthetic/local evidence is mislabeled live;
 - any live/hosted claim is supported by the relevant evidence index;
-- repository branch protection/required CI/review prerequisites are active when this workflow is being treated as controlled;
-- Owner has performed manual merge on PR.
+- repository branch protection/required CI/review prerequisites verified via STEP C Controller recheck;
+- Owner has performed manual merge on PR (STEP D).
 
 ## Output
 

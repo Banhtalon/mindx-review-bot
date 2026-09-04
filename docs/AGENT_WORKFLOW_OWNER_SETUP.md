@@ -23,12 +23,16 @@ Scope Revision 4 replaces external infrastructure (Cloudflare Worker, Durable Ob
 - keep **Required approvals** at `0` (solo-owner repository: requiring human approvals blocks the solo owner from merging);
 - require the repository deterministic `verify` CI check to pass on the current PR head;
 - require fresh Terra xHigh adversarial review on the exact current PR head SHA (`RECOMMEND_PASS`, P0=0, P1=0, material findings resolved);
-- require Controller independent verification of all evidence (PR head SHA matching reviewed SHA, `verify` pass, Issue #7 control block and primary label matching `ready-for-review` or `ready-for-verify`, branch freshness, and conversation resolution);
 - keep **Require conversation resolution before merging** active (already enabled on live protect-main ruleset);
 - any new commit changes `head_sha`, automatically invalidating any prior review;
-- Controller prompts Owner when PR is `merge-eligible`;
-- Owner performs the manual Merge action on GitHub. No external host, GitHub App, or secret setup is required from Owner;
-- at merge eligibility, Owner updates `protect-main` ruleset to remove Actions `review-gate` from required status checks (leaving `verify`).
+
+Ruleset cutover and merge sequence:
+- **STEP A — BEFORE OWNER CUTOVER**: Implementation complete, current-head `verify` PASS, fresh Terra exact-head review acceptable (`RECOMMEND_PASS`, P0=0, P1=0, material findings resolved), Controller confirms code/review evidence is ready for cutover. PR is NOT yet merge-eligible because `protect-main` still requires obsolete `review-gate`.
+- **STEP B — OWNER CUTOVER**: Owner edits `protect-main` to remove required status check `review-gate`, keeping `verify`, strict up-to-date, conversation resolution, `Required approvals = 0`, and no-bypass protections.
+- **STEP C — CONTROLLER RECHECK**: Controller re-fetches live ruleset and verifies required checks include `verify` and not `review-gate`, with all protections intact. Only AFTER this post-change recheck plus all other gates can Controller declare PR `merge-eligible`.
+- **STEP D — OWNER MERGE**: Owner performs final Merge action on PR #6 when explicitly prompted.
+
+At the current implementation stage, expected Owner action is **NONE**.
 
 ## 2. Workflow state labels — complete
 
@@ -126,9 +130,11 @@ Before Scheduled Tasks/background **development-agent** handoff:
 8. controller routes accepted findings through authoritative `needs-fix` and atomic re-entry transition if the counter permits;
 9. Gemini fixes only from valid `implementing` state;
 10. final deterministic CI `verify` passes;
-11. fresh Terra xHigh adversarial review recommends pass (P0=0, P1=0, material findings resolved), Controller declares PR `merge-eligible`, and material review threads are resolved;
-12. Owner performs manual Merge on PR;
-13. Owner reviews pilot outcome.
+11. fresh Terra xHigh adversarial review recommends pass (P0=0, P1=0, material findings resolved) and material review threads are resolved (STEP A);
+12. Owner performs ruleset cutover to remove old `review-gate` (STEP B) when prompted by Controller;
+13. Controller re-fetches live ruleset, confirms all protections, and declares PR `merge-eligible` (STEP C);
+14. Owner performs manual Merge on PR (STEP D);
+15. Owner reviews pilot outcome.
 
 Pilot success criteria:
 

@@ -1,5 +1,10 @@
 # Agent Workflow Migration Plan
 
+> [!NOTE]
+> **SUPERSEDED FOR MERGE-AUTHORITY DETAILS**: This plan remains historical context only.
+> For current merge authority use [Scope Revision 4 — GitHub-native manual trusted merge gate](file:///e:/mindx-review-bot/docs/superpowers/plans/2026-09-04-github-native-manual-trusted-merge-gate.md) approved in [Issue #7 comment 5535792176](https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5535792176).
+> Any old review-gate / Terra Actions gate content must not be interpreted as active Revision-4 authority.
+
 ## Goal
 
 Migrate the repository development workflow to a bounded, evidence-driven multi-model pipeline without changing product behavior.

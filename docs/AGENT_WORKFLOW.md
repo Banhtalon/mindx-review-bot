@@ -270,13 +270,11 @@ For solo-owner merge authority, a Terra `RECOMMEND_PASS` must be evaluated again
 
 ## Merge authority
 
-A PR may merge only when all applicable conditions are true on the exact current head:
+Merge eligibility and completion follow the unified 4-step sequence:
 
-- `verify` CI passes;
-- fresh Terra xHigh adversarial review on the exact current head SHA returns `RECOMMEND_PASS` with P0=0, P1=0, and all material findings resolved;
-- Controller independently verifies that the exact reviewed SHA matches current PR head, `verify` passed, Issue #7 control block and primary label match (`ready-for-review` or `ready-for-verify`), branch is up-to-date, and conversation/review threads are resolved;
-- required conversation/review threads are resolved;
-- Controller declares PR `merge-eligible` and prompts Owner;
-- Owner performs the final manual Merge action on GitHub.
+- **STEP A — BEFORE OWNER CUTOVER**: Implementation complete, current-head `verify` CI passes, fresh Terra xHigh adversarial review on the exact current head SHA returns `RECOMMEND_PASS` with P0=0, P1=0, and all material findings resolved, conversation threads resolved, and control issue state/label consistent. Controller confirms evidence is ready for cutover. PR is NOT yet merge-eligible because `protect-main` ruleset still requires obsolete `review-gate`.
+- **STEP B — OWNER CUTOVER**: Owner edits `protect-main` ruleset to remove required status check `review-gate`, keeping `verify`, strict up-to-date, conversation resolution, `Required approvals = 0`, and no-bypass protections.
+- **STEP C — CONTROLLER RECHECK**: Controller re-fetches live ruleset and verifies required checks include `verify` and not `review-gate`, with all branch protections intact. Only AFTER this post-cutover recheck plus all other gates can Controller declare PR `merge-eligible` and prompt Owner.
+- **STEP D — OWNER MERGE**: Owner performs the final manual Merge action on GitHub.
 
 No model may declare `VERIFIED` or merge the PR autonomously; deterministic machine evidence and Owner authority govern completion.
