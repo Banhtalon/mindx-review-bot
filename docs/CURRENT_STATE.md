@@ -1,51 +1,44 @@
 # Current Project State
 
-Last workflow baseline on `main`: CLI timeout hardening merge `1c13cb4f3bda8ec8d31da1ede25f2f2a0f1646c9`.
+Last workflow baseline on `main`: manual pilot merge `4edeb6e8e3f00fdf8915c00c03ff6268732bffae` (incorporating Agent Workflow Migration merge `f6dcaa9bd9e95fea69f63fdb868a385ac28aee7a` and CLI timeout hardening merge `1c13cb4f3bda8ec8d31da1ede25f2f2a0f1646c9`).
 
 This file is a routing/status summary for agents. It does not replace the V4 master specification. Live GitHub issue/ruleset/CI state is authoritative for rapidly changing workflow-control fields.
 
 ## Current approved work
 
-`Agent Workflow Migration` only.
+No product Phase 6 task is currently approved.
 
-No product feature or Phase 6 implementation is currently approved by this file.
+The Agent Workflow Migration (PR #6 / Issue #7) and the subsequent manual pilot (PR #9 / Issue #8) have both completed successfully and merged to `main`.
 
-Migration control record: GitHub issue #7 (`[agent] Agent Workflow Migration control record`). Read its live Agent Control Block and primary workflow label before acting; do not copy a stale counter snapshot from this file.
+Any next product task requires a separate standalone GitHub issue with an Agent Control Block, specification/plan, and explicit Owner approval.
+
+Recommended next engineering priority: Phase 2 hosted/off-PC closure and live-readiness prerequisites (followed by Phase 3 live Teaching reader and Phase 4 live LMS reader), rather than starting Phase 6 prematurely.
 
 ## Baseline health
 
-- Latest merged CLI timeout hardening on `main` has successful GitHub Actions evidence.
+- Latest merged baseline on `main` (`4edeb6e8e3f00fdf8915c00c03ff6268732bffae`) has successful GitHub Actions CI evidence.
 - Existing repository verification includes web lint/typecheck/tests/build, no-secret and no-live-write guards, local Supabase/RLS checks, and Python runner Ruff/Mypy/Pytest.
-- Migration PR #6 had a full current-head `verify` PASS at `ff8283109327662dbf52d0c65d60846a291da303` before the second Terra-finding fix pass.
-- Any later migration commit invalidates that cached CI evidence; the live current PR head must rerun `verify` before merge.
-- Migration work must not weaken any existing gate.
+- All deterministic gates remain enforced on `main`. Future work must not weaken any existing gate.
 
 ## Workflow-control readiness
 
-Repository controls now confirmed live on 2026-09-03:
+Repository controls confirmed live on `main`:
 
 - active ruleset `protect-main` targets the default branch;
-- `main` is protected;
-- pull request is required before merge with `Required approvals = 0`;
-- required GitHub Actions check is `verify` and Actions `review-gate`;
-- strict up-to-date policy is enabled;
-- conversation resolution is already enabled;
+- `main` is protected against direct push, deletion, and force-push (`non_fast_forward`);
+- pull request is required before merge with `Required approvals = 0` (solo-owner repository constraint);
+- required GitHub Actions status check is strictly `verify` (old Actions `review-gate` was removed during cutover);
+- strict up-to-date branch policy is enabled (`strict_required_status_checks_policy = true`);
+- conversation resolution is enabled and enforced before merge;
 - bypass list is empty and current user cannot bypass;
-- deletion and non-fast-forward/force-push protection are active;
 - all nine canonical workflow-state labels exist.
 
-However the workflow is **not yet fully controlled for merge/unattended development** because the solo-owner trusted review gate setup is completing under Scope Revision 4 (GitHub-native manual trusted merge gate):
+Workflow control status:
 
-- active ruleset `protect-main` currently has `Required approvals = 0`, requires `verify` and Actions `review-gate`, strict up-to-date policy, conversation resolution enabled, and no bypass;
-- under Scope Revision 4, external review-gate infrastructure (`apps/review-gate-worker/`, Cloudflare Workers, dedicated GitHub App) and PR-controlled Actions review gate (`.github/workflows/review-gate.yml`, `.github/scripts/validate_terra_attestation.*`, `test/review-gate.test.ts`) are retired and deleted;
-- ruleset cutover and merge authority follow the unified 4-step sequence:
-  - **STEP A — BEFORE OWNER CUTOVER**: Implementation complete, current-head `verify` PASS, fresh Terra exact-head review acceptable (`RECOMMEND_PASS`, P0=0, P1=0, material findings resolved), Controller confirms code/review evidence is ready for cutover. PR is NOT yet merge-eligible because `protect-main` still requires obsolete `review-gate`.
-  - **STEP B — OWNER CUTOVER**: Owner edits `protect-main` to remove required status check `review-gate`, keeping `verify`, strict up-to-date, conversation resolution, `Required approvals = 0`, and no-bypass protections.
-  - **STEP C — CONTROLLER RECHECK**: Controller re-fetches live ruleset and verifies required checks include `verify` and not `review-gate`, with all protections intact. Only AFTER this post-change recheck plus all other gates can Controller declare PR `merge-eligible`.
-  - **STEP D — OWNER MERGE**: Owner performs final Merge action on PR #6 when explicitly prompted.
-- any new commit pushed to the PR automatically changes `head_sha`, invalidating prior attestations/review.
-
-New unattended development-agent automation remains blocked until the migration is merged and one manual pilot succeeds.
+- **Agent Workflow Migration**: Completed under Scope Revision 4 (PR #6 merged at `f6dcaa9bd9e95fea69f63fdb868a385ac28aee7a`, Issue #7 closed with state `done`).
+- **Ruleset Cutover**: Completed. Owner removed the obsolete `review-gate` check from `protect-main`; `verify` is the sole enforced machine check.
+- **Manual Pilot**: Completed successfully end-to-end (PR #9 merged at `4edeb6e8e3f00fdf8915c00c03ff6268732bffae`, Issue #8 closed with state `done`).
+- **Unattended Automation Gate**: The development-agent workflow is no longer blocked specifically by the "no manual pilot yet" prerequisite. However, unattended/scheduled development automation is **not** automatically enabled and remains standing by until explicitly configured and approved by Owner for specific task scopes. Routine development continues via explicit task dispatch.
 
 ## Product state summary
 
@@ -120,11 +113,11 @@ Still mandatory:
 - No credential/cookie/token/PII in repo logs/evidence.
 - No secret in frontend.
 
-## Current engineering workflow migration
+## Engineering workflow (post-migration)
 
 Target pipeline:
 
-Owner -> Sol High plan/spec -> GitHub issue control state -> controller transition -> Gemini 3.8 Flash implementation/test/fix -> deterministic CI -> Terra xHigh fresh adversarial review -> controller transition if needed -> Gemini fix -> final deterministic verification -> Controller declares merge-eligible -> Owner manual merge.
+Owner -> Sol High plan/spec -> GitHub issue control state -> controller transition -> Gemini 3.8 Flash implementation/test/fix -> deterministic CI -> Terra xHigh fresh adversarial review (when risk-routed) -> controller transition if needed -> Gemini fix -> final deterministic verification -> Controller declares merge-eligible -> Owner manual merge.
 
 Superpowers remains the shared methodology.
 
@@ -134,13 +127,18 @@ No model may declare final `VERIFIED`.
 
 ## Current blockers / owner decisions
 
-Workflow migration status:
+Workflow status:
 
-- Scope Revision 4 implemented: GitHub-native manual trusted merge gate replacing external review-gate infrastructure;
-- `apps/review-gate-worker/`, `.github/workflows/review-gate.yml`, `.github/scripts/validate_terra_attestation.*`, and `test/review-gate.test.ts` retired and deleted;
-- Authoritative task control: live GitHub Issue #7 Agent Control Block and its single matching primary workflow-state label are authoritative for current state, scope revision, and fix re-entries (approved under scope revision 4 via Owner record #5535792176). Transient state/counter values are not copied here to prevent stale snapshots;
-- No external Cloudflare, Durable Object, or GitHub App deployment required;
-- Expected Owner action at this stage: NONE (Owner ruleset cutover of `protect-main` occurs only in STEP B after Terra approval and verify CI pass).
+- Agent Workflow Migration (PR #6 / Issue #7) and Manual Pilot (PR #9 / Issue #8) are successfully completed and merged into `main`.
+- The repository workflow is fully established and operational under Scope Revision 4 (manual trusted merge gate).
+
+Product blockers / prerequisites:
+
+- Phase 1 hosted Auth/workspace closure remains BLOCKED.
+- Phase 2 hosted/off-PC closure remains BLOCKED (deployed migration/RPC, hosted Storage, cloud dispatch without PC).
+- Phase 3 live Teaching reader remains BLOCKED (live selectors, session handling, production reconciliation).
+- Phase 4 live LMS reader remains BLOCKED (live selectors, browser-state reuse, stable ID mapping).
+- Phase 5C durable persistence, reload recovery, and review generation remain unverified against live systems.
 
 Separate product/ops decision:
 
@@ -158,17 +156,12 @@ Product work that requires any of the following must use `blocked-owner` or `blo
 
 ## Next sequence
 
-1. Complete Scope Revision 4 fix implementation and verify all deterministic gates pass.
-2. Push commit to PR #6 (`chore/agent-workflow-migration`).
-3. Controller moves Issue #7 to `ready-for-review`.
-4. Terra xHigh performs fresh-context review of the exact current PR head diff.
-5. If Terra returns `NEEDS_FIX`, fix loop routes through controller (at most 2 fix re-entries permitted).
-6. Execute unified ruleset cutover and merge sequence:
-   - **STEP A — BEFORE OWNER CUTOVER**: Implementation complete, current-head `verify` PASS, fresh Terra exact-head review acceptable (`RECOMMEND_PASS`, P0=0, P1=0, material findings resolved), Controller confirms code/review evidence is ready for ruleset cutover. PR is NOT yet merge-eligible because `protect-main` still requires obsolete `review-gate`.
-   - **STEP B — OWNER CUTOVER**: Owner performs exactly one manual repository-settings action: edit `protect-main`, remove required status check `review-gate`, keep required `verify`, keep strict up-to-date, keep conversation resolution, keep `Required approvals = 0`, keep no bypass / force-push protections.
-   - **STEP C — CONTROLLER RECHECK**: Controller re-fetches live ruleset and verifies: required checks exactly include `verify`, old `review-gate` no longer required, strict up-to-date remains true, conversation resolution remains true, `Required approvals = 0`, bypass remains empty, force-push/deletion protections remain active. Only AFTER this post-change recheck plus all other gates can Controller declare PR `merge-eligible`.
-   - **STEP D — OWNER MERGE**: Owner performs final Merge action on PR #6 when explicitly prompted.
-7. Run manual pilot on one small task before unattended automation.
+1. Choose and approve the next product task with a dedicated standalone GitHub issue (Agent Control Block) and plan.
+2. Address operational/hosted blockers in order of dependency:
+   - **Phase 2 hosted/off-PC closure**: Deployed migration/RPC verification, hosted Storage, and cloud dispatch with PC off.
+   - **Phase 3 Teaching live reader**: Selectors, authentication, read-only extraction, and production Supabase reconciliation.
+   - **Phase 4 LMS live reader**: Selectors, session reuse, and deterministic stable-ID student mapping.
+3. Proceed to later product phases (including Phase 6) only after earlier operational, hosted, and live-readiness prerequisites are satisfied.
 
 ## Update rule
 
