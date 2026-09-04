@@ -119,7 +119,7 @@ Still mandatory:
 
 Target pipeline:
 
-Owner -> Sol High plan/spec -> GitHub issue control state -> controller transition -> Gemini 3.8 Flash implementation/test/fix -> deterministic CI -> Terra xHigh fresh adversarial review -> controller transition if needed -> Gemini fix -> final deterministic verification -> independent current approval/thread resolution -> merge.
+Owner -> Sol High plan/spec -> GitHub issue control state -> controller transition -> Gemini 3.8 Flash implementation/test/fix -> deterministic CI -> Terra xHigh fresh adversarial review -> controller transition if needed -> Gemini fix -> final deterministic verification -> Terra attestation + review-gate pass / thread resolution -> merge.
 
 Superpowers remains the shared methodology.
 

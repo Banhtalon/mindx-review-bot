@@ -19,7 +19,7 @@ No model opinion, self-review, or old test result can create final `VERIFIED` st
 4. task acceptance criteria
 5. PR diff
 6. current verification evidence
-7. current PR review/approval state and unresolved review threads
+7. current PR review-gate/attestation state and unresolved review threads
 8. relevant `docs/evidence/index.json` entries when a live/hosted readiness claim is made
 
 If control state is missing, malformed, conflicting, or ambiguous, verification is `BLOCKED`.
@@ -61,7 +61,7 @@ If a required live prerequisite is unavailable, use `blocked-owner` or `blocked-
 
 Verification evidence must correspond to the current PR head/diff. If code changes after a gate ran, rerun every gate whose result could be invalidated by that change.
 
-A prior approval that is invalidated by a new commit is not current review evidence.
+A prior Terra attestation that is invalidated by a new commit (head SHA mismatch) is not current review evidence.
 
 ## Task-control checks
 
@@ -97,7 +97,7 @@ Before moving to `done`, confirm:
 
 - acceptance criteria satisfied;
 - required review completed according to risk routing;
-- required independent approval is current;
+- required independent review-gate check is current and passing;
 - material review threads are resolved;
 - no unresolved material finding;
 - no out-of-scope diff;

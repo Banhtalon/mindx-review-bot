@@ -1,4 +1,4 @@
-﻿export interface TerraAttestation {
+export interface TerraAttestation {
   readonly malformed: boolean;
   readonly error?: string;
   readonly reviewer_model?: string;
@@ -30,6 +30,7 @@ export interface ControlIssueValidationResult {
   readonly controlBlock?: Record<string, string>;
   readonly primaryLabel?: string;
   readonly scopeRevision?: number;
+  readonly fixReentries?: number;
   readonly state?: string;
 }
 
@@ -59,6 +60,18 @@ export interface GitHubComment {
 
 export const CANONICAL_WORKFLOW_STATES: readonly string[];
 export const REVIEWABLE_CONTROL_STATES: readonly string[];
+export const BOOTSTRAP_PR_NUMBER: number;
+export const BOOTSTRAP_CONTROL_ISSUE: number;
+export const BOOTSTRAP_SCOPE_REVISION: number;
+
+export function parseCanonicalNonNegativeInteger(val: unknown): number | null;
+
+export function isValidStrictUtcIsoTimestamp(val: unknown): boolean;
+
+export function areAttestationsIdentical(
+  a: TerraAttestation | Record<string, unknown>,
+  b: TerraAttestation | Record<string, unknown>
+): boolean;
 
 export function parseTerraAttestationBlock(content: string): TerraAttestation;
 
@@ -74,3 +87,9 @@ export function validateControlIssue(
   issueData: ControlIssueData | null | undefined,
   expectedScopeRevision?: number
 ): ControlIssueValidationResult;
+
+export function fetchAllPagedItems<T = unknown>(
+  baseUrl: string,
+  token?: string,
+  getFn?: (url: string, token?: string) => Promise<T[]>
+): Promise<T[]>;

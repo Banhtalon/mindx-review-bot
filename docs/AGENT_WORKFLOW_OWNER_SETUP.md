@@ -125,7 +125,7 @@ Before Scheduled Tasks/background **development-agent** handoff:
 8. controller routes accepted findings through authoritative `needs-fix` and atomic re-entry transition if the counter permits;
 9. Gemini fixes only from valid `implementing` state;
 10. final deterministic CI passes;
-11. current independent GitHub approval exists and material review threads are resolved;
+11. current-head review-gate check passes and material review threads are resolved;
 12. Owner reviews pilot outcome.
 
 Pilot success criteria:

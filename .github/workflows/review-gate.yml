@@ -1,4 +1,4 @@
-﻿name: review-gate
+name: review-gate
 
 on:
   pull_request:
@@ -29,5 +29,7 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          CONTROL_ISSUE: "7"
+          SCOPE_REVISION: "2"
         run: |
           node .github/scripts/validate_terra_attestation.mjs

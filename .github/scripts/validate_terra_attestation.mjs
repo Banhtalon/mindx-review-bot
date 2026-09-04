@@ -1,4 +1,4 @@
-﻿/* global console */
+/* global console */
 
 import { readFileSync } from "node:fs";
 import { request as httpsRequest } from "node:https";
@@ -22,6 +22,48 @@ export const REVIEWABLE_CONTROL_STATES = [
   "ready-for-verify",
 ];
 
+export const BOOTSTRAP_PR_NUMBER = 6;
+export const BOOTSTRAP_CONTROL_ISSUE = 7;
+export const BOOTSTRAP_SCOPE_REVISION = 2;
+
+/**
+ * Validates and parses a canonical non-negative decimal integer.
+ * Accepts only canonical non-negative decimal integers (e.g. 0, 1, 2).
+ * Rejects negative numbers (-1), explicit signs (+1), floats (0.5, 1.0),
+ * exponent notation (1e5), leading zeros (01), and whitespace.
+ */
+export function parseCanonicalNonNegativeInteger(val) {
+  if (typeof val === "number") {
+    if (Number.isSafeInteger(val) && val >= 0 && Object.is(val, Math.abs(val))) {
+      return val;
+    }
+    return null;
+  }
+  if (typeof val !== "string") {
+    return null;
+  }
+  if (!/^(?:0|[1-9]\d*)$/.test(val)) {
+    return null;
+  }
+  const parsed = Number(val);
+  return Number.isSafeInteger(parsed) ? parsed : null;
+}
+
+/**
+ * Validates that reviewed_at_utc is a strict ISO-8601 UTC timestamp ending in 'Z'.
+ * Rejects date-only values, local timestamps without Z, and offsets like +07:00.
+ */
+export function isValidStrictUtcIsoTimestamp(val) {
+  if (typeof val !== "string") return false;
+  const trimmed = val.trim();
+  const strictUtcRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/;
+  if (!strictUtcRegex.test(trimmed)) {
+    return false;
+  }
+  const timestamp = Date.parse(trimmed);
+  return !isNaN(timestamp);
+}
+
 function findDuplicateKeysInJson(jsonString) {
   const keyRegex = /"([^"\\]*(?:\\.[^"\\]*)*)"\s*:/g;
   const seen = new Set();
@@ -36,10 +78,50 @@ function findDuplicateKeysInJson(jsonString) {
   return null;
 }
 
+function hasNonCanonicalNumbersInJson(jsonString) {
+  const numRegex = /"(?:p0|p1|pr_number|control_issue|scope_revision)"\s*:\s*([^\s,}]+)/g;
+  let m;
+  while ((m = numRegex.exec(jsonString)) !== null) {
+    const rawVal = m[1].replace(/^["']|["']$/g, "");
+    if (!/^(?:0|[1-9]\d*)$/.test(rawVal)) {
+      return rawVal;
+    }
+  }
+  return null;
+}
+
+/**
+ * Compares whether two parsed attestation blocks are completely identical
+ * across all normalized required fields.
+ */
+export function areAttestationsIdentical(a, b) {
+  if (!a || !b || a.malformed || b.malformed) {
+    return false;
+  }
+  const fields = [
+    "reviewer_model",
+    "head_sha",
+    "pr_number",
+    "control_issue",
+    "scope_revision",
+    "verdict",
+    "p0",
+    "p1",
+    "material_findings_resolved",
+    "reviewed_at_utc",
+  ];
+  for (const field of fields) {
+    if (a[field] !== b[field]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Parses a string content (either JSON or YAML-like key-value pairs)
  * into a structured attestation object.
- * Duplicate keys fail closed.
+ * Duplicate keys and non-canonical forms fail closed.
  */
 export function parseTerraAttestationBlock(content) {
   if (!content || typeof content !== "string") {
@@ -53,6 +135,13 @@ export function parseTerraAttestationBlock(content) {
     const dupKey = findDuplicateKeysInJson(trimmed);
     if (dupKey) {
       return { malformed: true, error: `Duplicate key '${dupKey}' in JSON attestation block` };
+    }
+    const nonCanonical = hasNonCanonicalNumbersInJson(trimmed);
+    if (nonCanonical !== null) {
+      return {
+        malformed: true,
+        error: `Numeric field value '${nonCanonical}' is not a canonical non-negative decimal integer`,
+      };
     }
     try {
       const parsed = JSON.parse(trimmed);
@@ -96,7 +185,7 @@ export function parseTerraAttestationBlock(content) {
       result[key] = true;
     } else if (val.toLowerCase() === "false") {
       result[key] = false;
-    } else if (key !== "head_sha" && /^-?\d+$/.test(val)) {
+    } else if (key !== "head_sha" && /^(?:0|[1-9]\d*)$/.test(val)) {
       result[key] = parseInt(val, 10);
     } else {
       result[key] = val;
@@ -134,17 +223,17 @@ function normalizeAttestation(raw) {
     }
   }
 
-  // Type checks
-  const p0Num = typeof raw.p0 === "number" ? raw.p0 : parseInt(raw.p0, 10);
-  const p1Num = typeof raw.p1 === "number" ? raw.p1 : parseInt(raw.p1, 10);
-  const prNum = typeof raw.pr_number === "number" ? raw.pr_number : parseInt(raw.pr_number, 10);
-  const issueNum = typeof raw.control_issue === "number" ? raw.control_issue : parseInt(raw.control_issue, 10);
-  const scopeRev = typeof raw.scope_revision === "number" ? raw.scope_revision : parseInt(raw.scope_revision, 10);
+  // Strict numeric checks
+  const p0Num = parseCanonicalNonNegativeInteger(raw.p0);
+  const p1Num = parseCanonicalNonNegativeInteger(raw.p1);
+  const prNum = parseCanonicalNonNegativeInteger(raw.pr_number);
+  const issueNum = parseCanonicalNonNegativeInteger(raw.control_issue);
+  const scopeRev = parseCanonicalNonNegativeInteger(raw.scope_revision);
 
-  if (isNaN(p0Num) || isNaN(p1Num) || isNaN(prNum) || isNaN(issueNum) || isNaN(scopeRev)) {
+  if (p0Num === null || p1Num === null || prNum === null || issueNum === null || scopeRev === null) {
     return {
       malformed: true,
-      error: "Numeric fields (p0, p1, pr_number, control_issue, scope_revision) must be valid integers",
+      error: "Numeric fields (p0, p1, pr_number, control_issue, scope_revision) must be canonical non-negative decimal integers",
       raw,
     };
   }
@@ -158,12 +247,11 @@ function normalizeAttestation(raw) {
     };
   }
 
-  const reviewedAt = String(raw.reviewed_at_utc).trim();
-  const timestamp = Date.parse(reviewedAt);
-  if (isNaN(timestamp)) {
+  const reviewedAt = typeof raw.reviewed_at_utc === "string" ? raw.reviewed_at_utc.trim() : "";
+  if (!isValidStrictUtcIsoTimestamp(reviewedAt)) {
     return {
       malformed: true,
-      error: `Invalid reviewed_at_utc timestamp: '${reviewedAt}' is not a valid ISO-8601 date string`,
+      error: `reviewed_at_utc must be a valid full ISO-8601 UTC timestamp ending in 'Z' (e.g. '2026-09-04T01:23:45Z'), got '${raw.reviewed_at_utc}'`,
       raw,
     };
   }
@@ -228,7 +316,8 @@ export function extractAttestationsFromText(text) {
 
 /**
  * Parses attestations from a list of GitHub comments/reviews in chronological order.
- * Handles duplicate/conflicting attestations within a comment and enforces later-attestation precedence.
+ * Multi-block comments fail closed unless all normalized fields are completely identical.
+ * Later attestations override earlier ones according to latest-attestation precedence.
  */
 export function parseAttestationsFromComments(comments) {
   if (!Array.isArray(comments) || comments.length === 0) {
@@ -240,7 +329,7 @@ export function parseAttestationsFromComments(comments) {
     const timeA = new Date(a.created_at || a.submitted_at || 0).getTime();
     const timeB = new Date(b.created_at || b.submitted_at || 0).getTime();
     if (timeA !== timeB) return timeA - timeB;
-    return (a.id || 0) - (b.id || 0);
+    return (Number(a.id) || 0) - (Number(b.id) || 0);
   });
 
   const parsedEntries = [];
@@ -250,21 +339,21 @@ export function parseAttestationsFromComments(comments) {
     const found = extractAttestationsFromText(body);
     if (found.length === 0) continue;
 
-    // Check for conflicting attestations in the same comment
     if (found.length > 1) {
-      const distinctVerdicts = new Set(found.map((f) => (f.malformed ? "MALFORMED" : f.verdict)));
-      const distinctSHAs = new Set(found.map((f) => (f.malformed ? "MALFORMED" : f.head_sha)));
-      if (distinctVerdicts.size > 1 || distinctSHAs.size > 1) {
+      // Multiple attestation blocks in the same comment must be 100% identical
+      const first = found[0];
+      const allIdentical = found.every((item) => areAttestationsIdentical(first, item));
+      if (!allIdentical) {
         parsedEntries.push({
           conflicting: true,
           commentId: comment.id,
-          error: "Multiple conflicting attestation blocks found in the same comment",
+          error: "Multiple conflicting or non-identical attestation blocks found in the same comment",
         });
         continue;
       }
       // Deduplicate identical blocks
       parsedEntries.push({
-        ...found[0],
+        ...first,
         commentId: comment.id,
         createdAt: comment.created_at || comment.submitted_at,
       });
@@ -304,7 +393,11 @@ export function parseControlBlock(text) {
 /**
  * Validates the authoritative control issue:
  * 1. Must exist (fetch did not fail)
- * 2. Must contain valid Agent Control Block (state and scope_revision)
+ * 2. Must contain valid, complete Agent Control Block:
+ *    - state
+ *    - scope_revision (canonical non-negative integer)
+ *    - fix_reentries (canonical integer in 0..2)
+ *    - owner_scope_reset (non-empty / non-none for scope_revision >= 2)
  * 3. Must match expected scope_revision (if provided)
  * 4. Must have exactly one primary workflow-state label
  * 5. Primary label must match Agent Control Block state
@@ -320,20 +413,23 @@ export function validateControlIssue(issueData, expectedScopeRevision) {
   }
 
   const controlBlock = parseControlBlock(issueData.body || "");
-  if (!controlBlock || !controlBlock.state || controlBlock.scope_revision === undefined) {
-    return {
-      valid: false,
-      reason: "MISSING_AGENT_CONTROL_BLOCK",
-      details: "Authoritative control issue is missing a valid Agent Control Block (state and scope_revision required).",
-    };
+  const requiredFields = ["state", "scope_revision", "fix_reentries", "owner_scope_reset"];
+  for (const field of requiredFields) {
+    if (controlBlock[field] === undefined || controlBlock[field] === null || controlBlock[field].trim() === "") {
+      return {
+        valid: false,
+        reason: "MISSING_AGENT_CONTROL_BLOCK",
+        details: `Authoritative control issue Agent Control Block is missing required field '${field}'.`,
+      };
+    }
   }
 
-  const issueScopeRev = parseInt(controlBlock.scope_revision, 10);
-  if (isNaN(issueScopeRev)) {
+  const issueScopeRev = parseCanonicalNonNegativeInteger(controlBlock.scope_revision);
+  if (issueScopeRev === null) {
     return {
       valid: false,
       reason: "MISSING_AGENT_CONTROL_BLOCK",
-      details: `Agent Control Block scope_revision '${controlBlock.scope_revision}' is not a valid integer.`,
+      details: `Agent Control Block scope_revision '${controlBlock.scope_revision}' is not a valid canonical integer.`,
     };
   }
 
@@ -343,6 +439,26 @@ export function validateControlIssue(issueData, expectedScopeRevision) {
       reason: "WRONG_SCOPE_REVISION",
       details: `Authoritative control issue scope_revision (${issueScopeRev}) does not match expected (${expectedScopeRevision}).`,
     };
+  }
+
+  const fixReentries = parseCanonicalNonNegativeInteger(controlBlock.fix_reentries);
+  if (fixReentries === null || fixReentries < 0 || fixReentries > 2) {
+    return {
+      valid: false,
+      reason: "INVALID_CONTROL_BLOCK",
+      details: `Agent Control Block fix_reentries '${controlBlock.fix_reentries}' must be a canonical integer in allowed range 0..2.`,
+    };
+  }
+
+  const resetVal = controlBlock.owner_scope_reset.trim();
+  if (issueScopeRev >= 2) {
+    if (!resetVal || resetVal.toLowerCase() === "none") {
+      return {
+        valid: false,
+        reason: "INVALID_CONTROL_BLOCK",
+        details: `Agent Control Block owner_scope_reset must be present and non-empty for scope_revision >= 2 (got '${resetVal}').`,
+      };
+    }
   }
 
   const rawLabels = issueData.labels || [];
@@ -390,6 +506,7 @@ export function validateControlIssue(issueData, expectedScopeRevision) {
     controlBlock,
     primaryLabel,
     scopeRevision: issueScopeRev,
+    fixReentries,
     state: controlBlock.state,
   };
 }
@@ -514,21 +631,21 @@ export function validateTerraAttestation({
     };
   }
 
-  // P0 check
-  if (latest.p0 > 0) {
+  // Strict P0 check: exact 0 required
+  if (latest.p0 !== 0) {
     return {
       valid: false,
       reason: "UNRESOLVED_P0_FINDINGS",
-      details: `Attestation reports ${latest.p0} unresolved P0 finding(s). Must be 0.`,
+      details: `Attestation reports ${latest.p0} unresolved P0 finding(s). Must be exactly 0.`,
     };
   }
 
-  // P1 check
-  if (latest.p1 > 0) {
+  // Strict P1 check: exact 0 required
+  if (latest.p1 !== 0) {
     return {
       valid: false,
       reason: "UNRESOLVED_P1_FINDINGS",
-      details: `Attestation reports ${latest.p1} unresolved P1 finding(s). Must be 0.`,
+      details: `Attestation reports ${latest.p1} unresolved P1 finding(s). Must be exactly 0.`,
     };
   }
 
@@ -584,6 +701,30 @@ function githubApiGet(url, token) {
   });
 }
 
+/**
+ * Deterministically fetches all paginated items from a GitHub REST endpoint
+ * until there are no further pages or returned page length < perPage.
+ */
+export async function fetchAllPagedItems(baseUrl, token, getFn = githubApiGet) {
+  const allItems = [];
+  let page = 1;
+  const perPage = 100;
+  while (true) {
+    const separator = baseUrl.includes("?") ? "&" : "?";
+    const pageUrl = `${baseUrl}${separator}per_page=${perPage}&page=${page}`;
+    const items = await getFn(pageUrl, token);
+    if (!Array.isArray(items) || items.length === 0) {
+      break;
+    }
+    allItems.push(...items);
+    if (items.length < perPage) {
+      break;
+    }
+    page++;
+  }
+  return allItems;
+}
+
 function parseCliArgs() {
   const args = process.argv.slice(2);
   const parsed = {};
@@ -637,20 +778,38 @@ async function main() {
       }
     }
 
+    const prNumber = args.pr ? Number(args.pr) : process.env.PR_NUMBER ? Number(process.env.PR_NUMBER) : undefined;
+    let expectedControlIssue = args["control-issue"]
+      ? Number(args["control-issue"])
+      : process.env.CONTROL_ISSUE
+      ? Number(process.env.CONTROL_ISSUE)
+      : undefined;
+    let expectedScopeRevision = args["scope-revision"]
+      ? Number(args["scope-revision"])
+      : process.env.SCOPE_REVISION
+      ? Number(process.env.SCOPE_REVISION)
+      : undefined;
+
+    // Immutable bootstrap binding for PR #6
+    if (prNumber === BOOTSTRAP_PR_NUMBER) {
+      if (expectedControlIssue !== undefined && expectedControlIssue !== BOOTSTRAP_CONTROL_ISSUE) {
+        console.error(`[FAIL] review-gate failed closed: PR #${BOOTSTRAP_PR_NUMBER} bootstrap must bind to control issue #${BOOTSTRAP_CONTROL_ISSUE}, got #${expectedControlIssue}`);
+        process.exit(1);
+      }
+      if (expectedScopeRevision !== undefined && expectedScopeRevision !== BOOTSTRAP_SCOPE_REVISION) {
+        console.error(`[FAIL] review-gate failed closed: PR #${BOOTSTRAP_PR_NUMBER} bootstrap must bind to scope revision ${BOOTSTRAP_SCOPE_REVISION}, got ${expectedScopeRevision}`);
+        process.exit(1);
+      }
+      expectedControlIssue = BOOTSTRAP_CONTROL_ISSUE;
+      expectedScopeRevision = BOOTSTRAP_SCOPE_REVISION;
+    }
+
     const result = validateTerraAttestation({
       attestations,
       expectedHeadSha: args["head-sha"] || process.env.HEAD_SHA,
-      expectedPrNumber: args.pr ? Number(args.pr) : process.env.PR_NUMBER ? Number(process.env.PR_NUMBER) : undefined,
-      expectedControlIssue: args["control-issue"]
-        ? Number(args["control-issue"])
-        : process.env.CONTROL_ISSUE
-        ? Number(process.env.CONTROL_ISSUE)
-        : undefined,
-      expectedScopeRevision: args["scope-revision"]
-        ? Number(args["scope-revision"])
-        : process.env.SCOPE_REVISION
-        ? Number(process.env.SCOPE_REVISION)
-        : undefined,
+      expectedPrNumber: prNumber,
+      expectedControlIssue,
+      expectedScopeRevision,
       controlIssueData,
     });
 
@@ -666,7 +825,8 @@ async function main() {
   // GitHub Actions API mode
   const token = process.env.GITHUB_TOKEN;
   const repo = process.env.GITHUB_REPOSITORY || process.env.REPOSITORY || args.repo;
-  const prNumber = args.pr || process.env.PR_NUMBER;
+  const rawPrNumber = args.pr || process.env.PR_NUMBER;
+  const prNumber = rawPrNumber ? Number(rawPrNumber) : undefined;
   let headSha = args["head-sha"] || process.env.HEAD_SHA;
   let controlIssue = args["control-issue"] || process.env.CONTROL_ISSUE;
   let scopeRevision = args["scope-revision"] || process.env.SCOPE_REVISION;
@@ -676,12 +836,25 @@ async function main() {
     process.exit(1);
   }
 
+  // Immutable bootstrap binding for PR #6
+  if (prNumber === BOOTSTRAP_PR_NUMBER) {
+    if (controlIssue && Number(controlIssue) !== BOOTSTRAP_CONTROL_ISSUE) {
+      console.error(`[FAIL] review-gate failed closed: PR #${BOOTSTRAP_PR_NUMBER} bootstrap must bind to control issue #${BOOTSTRAP_CONTROL_ISSUE}, got #${controlIssue}`);
+      process.exit(1);
+    }
+    if (scopeRevision && Number(scopeRevision) !== BOOTSTRAP_SCOPE_REVISION) {
+      console.error(`[FAIL] review-gate failed closed: PR #${BOOTSTRAP_PR_NUMBER} bootstrap must bind to scope revision ${BOOTSTRAP_SCOPE_REVISION}, got ${scopeRevision}`);
+      process.exit(1);
+    }
+    controlIssue = BOOTSTRAP_CONTROL_ISSUE;
+    scopeRevision = BOOTSTRAP_SCOPE_REVISION;
+  }
+
   try {
     // 1. Fetch PR details
     const pr = await githubApiGet(`https://api.github.com/repos/${repo}/pulls/${prNumber}`, token);
     headSha = headSha || pr.head.sha;
 
-    // Extract control issue number from PR body if not provided
     if (!controlIssue) {
       const issueMatch = /(?:Authoritative control issue|Linked issue|Linked GitHub issue):\s*#?(\d+)/i.exec(pr.body || "");
       if (issueMatch) {
@@ -690,7 +863,7 @@ async function main() {
     }
 
     if (!controlIssue) {
-      console.error("[FAIL] review-gate failed closed: No linked authoritative control issue found in PR body.");
+      console.error("[FAIL] review-gate failed closed: No linked authoritative control issue found.");
       process.exit(1);
     }
 
@@ -703,7 +876,7 @@ async function main() {
       process.exit(1);
     }
 
-    // 3. Validate control issue state and labels
+    // 3. Validate control issue state, complete control block, and labels
     const issueValidation = validateControlIssue(
       issueData,
       scopeRevision ? Number(scopeRevision) : undefined
@@ -716,14 +889,17 @@ async function main() {
 
     scopeRevision = issueValidation.scopeRevision;
 
-    // 4. Fetch issue comments & PR reviews
-    const comments = await githubApiGet(`https://api.github.com/repos/${repo}/issues/${prNumber}/comments?per_page=100`, token);
-    const reviews = await githubApiGet(`https://api.github.com/repos/${repo}/pulls/${prNumber}/reviews?per_page=100`, token);
+    // 4. Fetch all pages of issue comments & PR reviews
+    const commentsUrl = `https://api.github.com/repos/${repo}/issues/${prNumber}/comments`;
+    const reviewsUrl = `https://api.github.com/repos/${repo}/pulls/${prNumber}/reviews`;
 
-    const allItems = [...(comments || []), ...(reviews || [])];
+    const comments = await fetchAllPagedItems(commentsUrl, token);
+    const reviews = await fetchAllPagedItems(reviewsUrl, token);
+
+    const allItems = [...comments, ...reviews];
     const attestations = parseAttestationsFromComments(allItems);
 
-    console.log(`[INFO] Evaluating ${attestations.length} attestation candidate(s) for PR #${prNumber} at head ${headSha} (control issue #${controlIssue}, state: ${issueValidation.state}, scope_rev: ${scopeRevision})...`);
+    console.log(`[INFO] Evaluating ${attestations.length} attestation candidate(s) across ${allItems.length} comment/review items for PR #${prNumber} at head ${headSha} (control issue #${controlIssue}, state: ${issueValidation.state}, scope_rev: ${scopeRevision})...`);
 
     const result = validateTerraAttestation({
       attestations,

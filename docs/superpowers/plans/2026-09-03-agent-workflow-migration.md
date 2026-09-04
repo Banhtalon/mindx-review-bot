@@ -135,13 +135,14 @@ Current repository gates include:
 The active `main` ruleset must enforce:
 
 - PR required;
+- `Required approvals = 0` (solo-owner repository model);
 - current-head `verify` required with branch up to date;
+- current-head `review-gate` required;
 - no bypass/direct worker merge;
-- at least one current independent approval;
-- stale approvals dismissed after new pushes;
+- fresh Terra attestation bound to exact current head SHA (push automatically invalidates previous attestation);
 - material review conversations resolved before merge.
 
-A green CI result alone is not sufficient.
+A green `verify` CI result alone is not sufficient; both `verify` and `review-gate` must pass.
 
 ## Task state machine
 
@@ -234,13 +235,13 @@ No application behavior file should change.
 - AC7: PR/issue templates require authoritative control linkage, acceptance criteria, scope, tests, verification, limitations, and current independent review evidence.
 - AC8: Migration changes no product source, browser runtime, schema, migration, or business behavior.
 - AC9: Current-head CI remains green after final migration changes.
-- AC10: Active `main` rules enforce current independent approval, stale-approval invalidation, review-thread resolution, and required current-head `verify` before merge.
+- AC10: Active `main` rules enforce `Required approvals = 0`, dual required status checks (`verify` and `review-gate`), stale-attestation invalidation by head SHA, and review-thread resolution before merge.
 - AC11: Scheduled/unattended development agents stay disabled until one manual pilot completes successfully.
 
 ## Pilot after merge
 
 Choose one small or medium real task. Run the complete manual handoff:
 
-Owner -> Sol plan -> controller state transition -> Gemini 3.8 Flash implement -> CI -> Terra fresh review -> controller fix transition if needed -> Gemini fix -> final CI -> current independent approval/thread resolution -> merge.
+Owner -> Sol plan -> controller state transition -> Gemini 3.8 Flash implement -> CI -> Terra fresh review -> controller fix transition if needed -> Gemini fix -> final CI -> Terra attestation + review-gate pass / thread resolution -> merge.
 
 Only after this pilot demonstrates bounded scope, independent review, and deterministic verification should scheduled/background development-agent handoff be enabled.

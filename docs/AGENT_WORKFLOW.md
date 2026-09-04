@@ -276,12 +276,12 @@ A green `verify` check is necessary but not sufficient for merge.
 
 The active `main` ruleset must also enforce:
 
-- at least one current independent PR approval;
-- stale approvals are dismissed when new commits are pushed;
-- unresolved review conversations block merge;
-- the PR author cannot use self-approval as independent review evidence.
-
-For a personal repository, this means a second GitHub identity/app capable of valid independent approval is required if the PR is authored by the Owner account. If no such reviewer identity exists, merge remains blocked rather than weakening the review requirement.
+- `Required approvals = 0` (solo-owner repository model);
+- dual required status checks: `verify` and `review-gate`;
+- fresh Terra attestation bound to the exact current PR head SHA;
+- automatic attestation invalidation when new commits are pushed (head SHA mismatch);
+- unresolved review conversations/threads block merge;
+- PR author / worker cannot self-attest or bypass review-gate.
 
 ## Gemini fix protocol
 
@@ -394,7 +394,7 @@ Move to `blocked-owner` when:
 - acceptance criteria conflict;
 - material architecture change is required;
 - a third fix implementation re-entry would be required for the same scope revision;
-- independent GitHub approval cannot be obtained under the active ruleset;
+- Terra review or review-gate requirements cannot be satisfied under the active ruleset;
 - live credential/re-authentication is required;
 - a safety rule would need an exception;
 - a live write path would need enabling;
