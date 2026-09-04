@@ -1,0 +1,91 @@
+name: Agent task
+description: Create a controlled Sol/Gemini/Terra development task with authoritative workflow state.
+title: "[agent] "
+labels:
+  - needs-plan
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This standalone issue is the authoritative control record for one agent-driven task.
+        The PR may reference this state but must not own or reset it.
+        New tasks start at `needs-plan` with exactly one matching primary workflow label.
+
+  - type: textarea
+    id: requirement
+    attributes:
+      label: Requirement
+      description: Describe the requested behavior and link the governing product requirement/spec.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: List objective acceptance criteria before implementation begins.
+    validations:
+      required: true
+
+  - type: input
+    id: spec
+    attributes:
+      label: Specification / plan
+      description: Link the approved spec/plan artifact, or write `pending` while the task remains needs-plan.
+      placeholder: docs/... or URL
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - small
+        - medium
+        - high
+    validations:
+      required: true
+
+  - type: textarea
+    id: agent_control_block
+    attributes:
+      label: Agent Control Block
+      description: Keep exactly one block. Controller/Owner updates it together with exactly one matching primary workflow-state label. Workers must not edit/reset it unattended.
+      value: |
+        ```text
+        state: needs-plan
+        scope_revision: 1
+        fix_reentries: 0
+        owner_scope_reset: none
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: reentry_history
+    attributes:
+      label: Re-entry history
+      description: Append controller transitions. Exactly two needs-fix -> implementing re-entries are allowed for one scope revision; the third is blocked.
+      value: |
+        - Initial task creation: `needs-plan / scope_revision=1 / fix_reentries=0`.
+    validations:
+      required: true
+
+  - type: markdown
+    attributes:
+      value: |
+        ### Atomic transition rule
+        - Initial implementation: `ready-for-implementation / 0 -> implementing / 0`.
+        - First fix re-entry: `needs-fix / 0 -> implementing / 1` — allowed.
+        - Second fix re-entry: `needs-fix / 1 -> implementing / 2` — allowed.
+        - Third attempted fix re-entry from `needs-fix / 2` — do not increment; route to `blocked-owner`.
+        - Counter reset requires a new `scope_revision` plus an explicit Owner approval link in `owner_scope_reset`.
+
+  - type: textarea
+    id: blockers
+    attributes:
+      label: Known blockers / limitations
+      description: Record blocked-owner or blocked-external prerequisites without guessing.
+    validations:
+      required: false
