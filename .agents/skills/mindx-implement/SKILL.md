@@ -1,6 +1,6 @@
 ---
 name: mindx-implement
-description: Implements approved MindX Review Bot tasks with TDD, scoped changes, deterministic verification, authoritative task-state checks, and safety guards.
+description: Implements scoped MindX Review Bot tasks using FAST/STANDARD/STRICT routing, focused tests, and safety guards.
 ---
 
 # MindX Implement
@@ -9,120 +9,71 @@ description: Implements approved MindX Review Bot tasks with TDD, scoped changes
 
 1. `AGENTS.md`
 2. `docs/CURRENT_STATE.md`
-3. linked GitHub issue Agent Control Block and current workflow-state label
-4. linked specification/acceptance criteria
-5. linked implementation plan
-6. current PR state
+3. `docs/DEVELOPMENT_SPEED_POLICY.md`
+4. current task scope and DONE condition
 
-## Entry condition
+## Route by risk
 
-Implementation code may start only when the linked issue is already in valid `implementing` state and exactly one `implementing` workflow label matches it.
+Use the lightest workflow that is sufficient for the exact change:
 
-The controller transition is separate from the implementation worker:
+- **FAST** — low-risk/localized bug, UI/CSS/text, parser/validation, mechanical refactor;
+- **STANDARD** — ordinary feature or non-trivial bug without a high-risk boundary;
+- **STRICT** — migrations/RLS/schema, auth/session/browser state, live Teaching/LMS, identity/mapping, privacy/PII, live-write safeguards, risky infrastructure, or material architecture/data-integrity change.
 
-- initial implementation: `ready-for-implementation / fix_reentries=0 -> implementing / fix_reentries=0`;
-- fix re-entry: if current state is `needs-fix` and current `fix_reentries < MAX_FIX_LOOPS`, the controller atomically sets `state=implementing`, increments `fix_reentries` by exactly 1, and replaces the primary label with `implementing`;
-- `fix_reentries=1` authorizes the first fix re-entry;
-- `fix_reentries=2` authorizes the second fix re-entry;
-- if a new fix re-entry is requested while current `fix_reentries >= MAX_FIX_LOOPS` (2), the controller must not increment or invoke implementation; it routes to `blocked-owner` instead.
+Do not escalate a task to STRICT merely because the repository contains high-risk code elsewhere.
 
-Therefore exactly two `needs-fix -> implementing` re-entries are permitted for one unchanged scope revision; the third attempt is blocked.
+## Work loop
 
-Fail closed and make no code change if:
+1. Change the smallest set of files needed for the current DONE condition.
+2. Run the smallest focused test that reproduces or covers the behavior.
+3. For bug fixes, add/strengthen a regression test when practical; TDD/RED evidence is not mandatory when it adds no value.
+4. When focused behavior is green, run affected-subsystem tests once.
+5. Use required current-head CI as the broad final repository gate. Do not rerun the whole repository after every edit.
 
-- linked issue is missing;
-- Agent Control Block is missing/malformed;
-- state is not `implementing` when the worker is invoked;
-- multiple primary workflow-state labels exist;
-- issue `state` and label disagree;
-- `scope_revision` is invalid;
-- `fix_reentries` is invalid/out of range;
-- a counter reset lacks an Owner-linked scope-reset record;
-- specification/plan is ambiguous or conflicts with an ADR.
+Superpowers techniques such as TDD, systematic debugging, brainstorming, or worktrees are optional tools. Use them when the problem actually benefits from them; they are not a mandatory checklist.
 
-Workers must not edit/reset the authoritative issue counter or workflow labels unattended.
+## Failure routing
 
-## Method
+Classify a new failure before doing more work:
 
-Use Superpowers:
+- **CONFIG** — provider secret/variable/project/deployment issue: correct configuration; do not start a code-review loop.
+- **CODE-IN-SCOPE** — blocks the current DONE condition or was caused by the current diff: focused regression + smallest patch.
+- **UNRELATED** — real issue but unrelated to the current DONE/current diff: record separately and continue the current task.
+- **SAFETY** — could expose secrets/PII, affect real jobs, weaken read-only behavior, or require CAPTCHA/OTP bypass: stop and escalate/block.
 
-- `test-driven-development`;
-- `systematic-debugging`;
-- `using-git-worktrees` where appropriate;
-- `verification-before-completion`.
+Do not turn one unrelated finding into a phase-wide audit.
 
-Work cycle:
+## Review routing
 
-`RED -> GREEN -> REFACTOR -> VERIFY`.
+- FAST: no Terra by default.
+- STANDARD: one review when useful or risk-routed.
+- STRICT: collect implementation + required runtime/hosted evidence first, then request one fresh Terra review on the stable final candidate head.
 
-For a bug fix, create or strengthen a regression test before the final fix when deterministic reproduction is practical.
+Do not request a fresh review after configuration-only changes. A new final-head review is needed only after a material code commit invalidates an exact-head review gate.
 
-## Scope discipline
+## Safety
 
-- Change the smallest set of files needed.
-- Do not perform unrelated cleanup/refactoring.
-- Do not change business rules or architecture silently.
-- Do not weaken tests, guards, typing, RLS, or validation to make CI green.
-- Preserve read-only LMS/Teaching boundaries.
-- Preserve deterministic identity/mapping rules.
+Always preserve:
 
-## Verification
+- Teaching/LMS read-only MVP boundary;
+- no LMS Save/Submit/comment write path;
+- no automatic Zalo send;
+- no CAPTCHA/OTP/anti-bot bypass;
+- no student mapping by row order;
+- deterministic sensitive identity/extraction;
+- no credential/cookie/token/PII in repo logs or evidence;
+- no secret in frontend;
+- no weakening of tests/guards/RLS/validation simply to obtain PASS.
 
-Run focused tests during development, then all required gates for the changed scope.
+## Handoff
 
-Typical web gates:
+Keep the handoff short:
 
-- `npm run lint`
-- `npm run typecheck`
-- `npm run test`
-- `npm run build`
-- `npm run verify:no-secrets`
-- `npm run verify:no-live-write`
-
-For Supabase changes:
-
-- `npx supabase db reset`
-- `npm run test:rls`
-
-For browser-runner changes from `apps/browser-runner`:
-
-- `uv run ruff check .`
-- `uv run mypy src`
-- `uv run pytest`
-
-Authenticated live-web behavior needs appropriate runtime/browser evidence when available; unit tests alone are not sufficient proof.
-
-## PR handoff
-
-Before `ready-for-review`, provide:
-
-- linked issue and Agent Control Block state;
-- requirement/spec link;
-- acceptance criteria status;
+- scope + DONE condition;
 - changed files/behavior;
-- explicitly not changed scope;
-- tests added/updated;
-- verification results from current PR head;
-- known limitations/blockers.
+- focused/affected test result;
+- runtime/hosted result if required;
+- remaining blocker, if any;
+- exact candidate head when requesting final review/merge.
 
-Do not provide chain-of-thought as review evidence.
-
-## Review fixes
-
-For each accepted Terra finding:
-
-1. confirm the controller has routed the issue to `needs-fix`;
-2. confirm the controller performed the atomic transition to `implementing` and incremented the counter exactly once;
-3. confirm the resulting `fix_reentries` is `1` or `2` and the issue/label both say `implementing`;
-4. reproduce/prove where practical;
-5. add regression coverage;
-6. apply smallest fix;
-7. rerun focused gates;
-8. rerun required final gates;
-9. update PR evidence.
-
-If the issue is still `needs-fix` with `fix_reentries >= 2`, no third autonomous fix is allowed; return `BLOCKED` / `blocked-owner` without changing code.
-
-`MAX_FIX_LOOPS = 2` is controlled by the linked issue `fix_reentries` value, not a PR self-report field.
-
-Never output final `VERIFIED`; deterministic gates own that state.
+Do not include chain-of-thought or duplicate full-suite logs.
