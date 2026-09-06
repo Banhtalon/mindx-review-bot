@@ -4,128 +4,138 @@
 
 Đọc theo thứ tự trước khi làm việc:
 
-1. `AGENTS.md` — luật kỹ thuật và safety lâu dài;
-2. `docs/CURRENT_STATE.md` — trạng thái hiện tại, blocker và scope đã được duyệt;
-3. `docs/spec/KE_HOACH_MVP_BOT_NHAN_XET_MINDX_V4_BROWSER_USE_SUPABASE.md` — source of truth cho product requirements;
-4. specification/plan được link trong task hiện tại.
+1. `AGENTS.md` — luật kỹ thuật/safety và cách route công việc;
+2. `docs/CURRENT_STATE.md` — trạng thái hiện tại, blocker và scope đã duyệt;
+3. `docs/DEVELOPMENT_SPEED_POLICY.md` — FAST / STANDARD / STRICT và test ladder;
+4. `docs/spec/KE_HOACH_MVP_BOT_NHAN_XET_MINDX_V4_BROWSER_USE_SUPABASE.md` — product requirements;
+5. specification/plan được link trong task hiện tại.
 
-Chỉ triển khai phase/task được Owner chỉ định hoặc task đã ở trạng thái được controller cho phép.
-
-`docs/CURRENT_STATE.md` không được tự ý ghi đè business rule trong master spec.
+Chỉ triển khai phase/task được Owner chỉ định hoặc task đã được controller cho phép. `docs/CURRENT_STATE.md` không được ghi đè business rule trong master spec.
 
 ## Project scope
 
-Đây là dự án cá nhân/nhóm nhỏ phục vụ học tập và nghiên cứu.
+Đây là dự án cá nhân/nhóm nhỏ phục vụ học tập và nghiên cứu. Không mở rộng thành SaaS đa tenant, microservices, Kubernetes, enterprise RBAC hoặc hệ thống production phức tạp nếu không có yêu cầu mới rõ ràng.
 
-Không mở rộng thành:
+## Primary workflow principle
 
-- SaaS đa tenant;
-- microservices;
-- Kubernetes;
-- enterprise RBAC;
-- hệ thống production phức tạp.
+**Dùng workflow nhẹ nhất đủ an toàn cho đúng thay đổi đang làm.**
+
+Không áp dụng toàn bộ Superpowers, full test suite và fresh review cho mọi bug nhỏ. Không biến một lỗi cục bộ thành audit toàn phase nếu lỗi đó không chặn DONE condition hiện tại.
+
+Canonical routing nằm trong `docs/DEVELOPMENT_SPEED_POLICY.md`:
+
+- **FAST** — low-risk/localized;
+- **STANDARD** — feature/bug thông thường;
+- **STRICT** — migration, auth/session, live systems, privacy/PII, identity/mapping, live-write safeguards, architecture/data-integrity high-risk.
+
+Superpowers là bộ phương pháp **tùy theo nhu cầu**, không phải checklist bắt buộc cho mọi task. Dùng brainstorming/planning/TDD/systematic-debugging/review khi rủi ro hoặc độ phức tạp thực sự cần chúng.
 
 ## Agent roles
 
 ### Sol High — planner / architect
 
-Trách nhiệm:
+Dùng khi:
 
-- làm rõ requirement;
-- kiến trúc và trade-off quan trọng;
-- acceptance criteria;
-- implementation plan cho task medium/high-risk;
-- phát hiện business decision cần Owner quyết định.
+- requirement/spec mơ hồ;
+- task medium/high-risk cần plan;
+- có architecture/trade-off lớn;
+- cần acceptance criteria hoặc Owner decision.
 
-Thông thường không làm:
+Không cần Sol cho bug nhỏ, CSS/UI nhỏ, validation cục bộ hoặc refactor cơ học.
 
-- code feature thường lệ;
-- fix bug thường lệ;
-- làm message broker giữa Gemini và Terra;
-- tự tuyên bố task đã VERIFIED.
+Sol rời execution loop sau khi task đủ rõ. Chỉ quay lại khi có blocker, scope change hoặc architecture decision mới.
 
-Sol rời execution loop sau khi task đạt `ready-for-implementation`. Chỉ quay lại khi có `blocked-owner`, `blocked-external`, spec mơ hồ hoặc thay đổi kiến trúc đáng kể.
-
-### Gemini 3.8 Flash — implementer / fixer
+### Implementation worker — Codex/Gemini
 
 Trách nhiệm:
 
-- đọc plan/spec đã duyệt;
-- implementation;
-- test;
-- debugging;
-- refactor trong đúng scope;
-- CI fixes;
-- xử lý review findings;
-- chuẩn bị PR/evidence.
+- đọc scope + DONE condition;
+- implement đúng phạm vi;
+- chạy focused tests trước;
+- debug theo nguyên nhân cụ thể;
+- chỉ mở rộng test khi cần;
+- chuẩn bị diff/evidence ngắn gọn.
 
 Không được:
 
 - tự phát minh business rule;
 - đổi kiến trúc âm thầm;
-- mở rộng scope không xin escalation;
+- mở rộng scope vì thấy lỗi không liên quan;
 - làm yếu test/safety gate để lấy PASS;
-- waive acceptance criteria;
-- tự reset fix-loop counter hoặc workflow state;
-- tự tuyên bố task đã VERIFIED.
-
-Gemini chỉ bắt đầu sửa code khi linked issue đã ở `implementing` và label `implementing` khớp. Nếu requirement hoặc task control state mơ hồ/xung đột: dừng và trả `BLOCKED`, không đoán.
+- tự tuyên bố task/phase đã VERIFIED.
 
 ### Terra xHigh — fresh adversarial reviewer
 
-Terra bắt đầu từ fresh context và phải đọc tối thiểu:
+Terra **bắt buộc cho STRICT/high-risk diff** trước merge. Terra không bắt buộc cho mọi commit trung gian.
 
-- `AGENTS.md`;
-- `docs/CURRENT_STATE.md`;
-- linked GitHub issue Agent Control Block + workflow-state label;
-- task specification;
-- acceptance criteria;
-- PR diff;
-- current-head test/CI evidence;
-- relevant `docs/evidence/index.json` entries nếu có claim live/hosted readiness.
+Review nên được gọi **muộn**, sau khi implementation + deterministic checks + runtime/hosted evidence đã ổn định, để tránh invalidate review sau từng commit nhỏ.
 
-Không dựa vào chain-of-thought hoặc reasoning transcript của implementer.
-
-Review hai pass:
-
-1. **Spec compliance** — thiếu requirement, thừa behavior, sai acceptance criteria, vượt scope;
-2. **Adversarial review** — edge case, regression, auth/session, retry/idempotency, partial failure, data integrity, privacy/PII, student identity/mapping và live-write safety khi liên quan.
-
-Terra chỉ trả một trong:
+Terra trả một trong:
 
 - `RECOMMEND_PASS`;
 - `NEEDS_FIX`;
 - `BLOCKED`.
 
-Terra không được đổi scope hoặc rewrite code chỉ vì preference.
+P2/P3 optional/style findings không tự động tạo thêm một vòng fix/review nếu không ảnh hưởng acceptance, correctness, safety hoặc maintainability đáng kể.
 
 ## Verification authority
 
-**Không model nào được tự tạo trạng thái `VERIFIED`.**
+Không model nào được tự tạo trạng thái `VERIFIED`.
 
-Sol, Gemini và Terra chỉ đưa recommendation. `VERIFIED` chỉ được xác lập bằng deterministic evidence tương ứng với scope: test, lint, typecheck, build, RLS, security guards, browser/E2E hoặc các gate máy khác.
+Machine evidence và runtime evidence phù hợp với scope mới là authority. AI review là risk gate, không thay thế CI/runtime verification.
 
-Nếu AI nói PASS nhưng required machine gate fail thì task vẫn FAIL.
+## Test ladder
 
-## Required development workflow
+### Level 1 — focused
 
-Sử dụng Superpowers làm methodology:
+Dùng lặp lại trong khi code/debug. Chạy đúng test file/module tái hiện behavior.
 
-1. brainstorming;
-2. writing-plans;
-3. using-git-worktrees;
-4. test-driven-development;
-5. systematic-debugging;
-6. requesting-code-review;
-7. verification-before-completion.
+Ví dụ:
 
-Mỗi behavior phải đi qua:
+- `npx vitest run test/cron-workflow.test.ts`
+- `cd apps/browser-runner && uv run pytest tests/unit/test_hosted_probe.py`
 
-RED → GREEN → REFACTOR → VERIFY.
+### Level 2 — affected subsystem
 
-Role-specific project skills nằm ở `.agents/skills/` và không được làm yếu các Superpowers/safety rules này.
+Chạy khi focused behavior đã green và trước khi coi implementation slice hoàn thành.
 
-## Task states and authoritative loop counter
+Ví dụ:
+
+- `npx vitest run test/cron-workflow.test.ts test/ci-contract.test.ts`
+- `cd apps/browser-runner && uv run pytest tests/unit/test_hosted_probe.py tests/unit/test_supabase_client.py tests/unit/test_workflow_contract.py`
+
+Thêm lint/typecheck/Ruff/Mypy khi touched code cần cross-file/static verification.
+
+### Level 3 — final repository gate
+
+Chạy **một lần trên stable final candidate head**, hoặc dùng required GitHub `verify` CI nếu nó đã chạy cùng deterministic checks trên đúng head.
+
+Baseline checks có thể gồm:
+
+- `npm run lint`
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+- `npm run verify:no-secrets`
+- `npm run verify:no-live-write`
+- Supabase reset/RLS khi Supabase behavior thay đổi
+- Python Ruff/Mypy/Pytest khi Python behavior thay đổi
+
+**Không rerun full suite sau mỗi edit nhỏ. Không chạy full suite hai lần chỉ để tạo duplicate evidence nếu code không đổi.**
+
+Authenticated/live/hosted changes vẫn cần runtime evidence phù hợp; unit tests không thay thế hosted proof.
+
+## Scope-creep guard
+
+Khi phát hiện lỗi mới, classify trước:
+
+1. lỗi có chặn DONE condition hiện tại không?
+2. lỗi có do current diff gây ra không?
+3. lỗi có phải safety/security blocker không?
+
+Nếu cả ba đều `no`, ghi riêng và tiếp tục task hiện tại. Không audit toàn repo/phase vì một phát hiện phụ.
+
+## Task states and bounded fix loop
 
 Canonical states:
 
@@ -139,7 +149,7 @@ Canonical states:
 - `blocked-owner`;
 - `blocked-external`.
 
-Mỗi agent-driven task phải link đúng một GitHub issue có **Agent Control Block**:
+Issue Agent Control Block vẫn là authoritative cho agent-driven task:
 
 ```text
 state: <canonical state>
@@ -148,39 +158,53 @@ fix_reentries: <0..2>
 owner_scope_reset: <none | Owner approval link>
 ```
 
-GitHub issue là authoritative source. PR chỉ tham chiếu, không sở hữu counter.
+`MAX_FIX_LOOPS = 2` vẫn giữ nguyên: cho phép hai implementation re-entries cho material fix trong cùng scope revision; lần thứ ba phải route `blocked-owner`.
 
-Rules:
+Không tiêu tốn fix re-entry chỉ vì:
 
-- exactly one primary workflow-state label phải khớp với `state`;
-- worker chỉ đọc control state, không được unattended-edit issue/label/counter;
-- controller thực hiện transition trước khi worker code;
-- initial implementation: `ready-for-implementation / 0 -> implementing / 0`;
-- fix re-entry chỉ hợp lệ khi current state là `needs-fix` và current `fix_reentries < MAX_FIX_LOOPS`;
-- transition fix phải atomic: controller đồng thời đổi `state/label` sang `implementing` và tăng `fix_reentries` đúng 1;
-- `needs-fix / 0 -> implementing / 1` là fix re-entry thứ nhất, được phép;
-- `needs-fix / 1 -> implementing / 2` là fix re-entry thứ hai, được phép;
-- nếu một re-entry mới được yêu cầu khi task đang `needs-fix` và current `fix_reentries >= 2`, đó là lần thứ ba: không increment, chuyển `blocked-owner`, không code;
-- deterministic verification fail cần code change cũng phải đi qua `needs-fix` và tiêu tốn re-entry kế tiếp theo cùng rule;
-- missing/malformed/conflicting control state => fail closed, trả `BLOCKED`, không sửa code;
-- reset counter chỉ hợp lệ khi `scope_revision` tăng và có `owner_scope_reset` link tới Owner approval record.
+- thay đổi configuration/provider secret;
+- rerun cùng hosted check;
+- docs/evidence-only update;
+- optional P2/P3 suggestion không cần sửa code.
 
-`MAX_FIX_LOOPS = 2` nghĩa là **cho phép đúng 2 fix implementation re-entries; chặn lần thứ 3**.
+Controller/Owner giữ authority với state/counter. Worker không tự reset counter.
 
 ## Risk routing
 
-Terra review là bắt buộc với thay đổi liên quan:
+### FAST / low risk
 
-- Teaching/LMS;
-- student identity hoặc mapping;
-- Supabase/RLS/migrations;
+Ví dụ: text, CSS, localized parser/validation, mechanical refactor.
+
+Flow:
+
+`implement -> focused test -> inspect diff -> required CI -> merge`
+
+Terra optional.
+
+### STANDARD
+
+Ví dụ: feature vừa, API/UI behavior, nhiều file liên quan nhưng không chạm high-risk boundary.
+
+Flow:
+
+`short plan -> implement -> focused tests -> affected subsystem -> CI -> one review if useful -> merge`
+
+### STRICT / high risk
+
+Bắt buộc khi thay đổi liên quan:
+
+- Teaching/LMS live behavior;
+- student identity/mapping;
+- Supabase migrations/RLS/schema;
 - auth/session/browser state;
-- privacy/PII;
-- model payload boundary;
+- privacy/PII/model payload boundary;
 - live-write safeguards;
-- thay đổi kiến trúc hoặc dữ liệu high-risk.
+- deployment/infrastructure có thể ảnh hưởng real jobs;
+- material architecture/data-integrity change.
 
-Thay đổi text/CSS/mechanical nhỏ có thể không cần Terra nếu không chạm safety boundary và deterministic gates đầy đủ.
+Flow:
+
+`plan/spec if needed -> implementation -> focused tests -> risk-specific runtime/hosted evidence -> final CI -> one fresh Terra review on stable head -> Owner merge`
 
 ## Safety rules
 
@@ -192,90 +216,53 @@ Thay đổi text/CSS/mechanical nhỏ có thể không cần Terra nếu không 
 - Không suy đoán danh tính lớp, buổi hoặc học viên.
 - Không map học viên theo thứ tự row.
 - Browser Use Agent chỉ dùng cho navigation có kiểm soát.
-- Identity và extraction nhạy cảm phải deterministic.
+- Identity/extraction nhạy cảm phải deterministic.
 - Không gửi tên học viên cho Gemini hoặc Browser Use LLM.
 - Không ghi credential, cookie, token hoặc PII vào log/evidence.
 - Không đưa secret vào frontend.
 
-## Definition of done
+## Definition of DONE
 
-Một task chỉ hoàn thành khi:
+Một task hoàn thành khi:
 
-- acceptance criteria rõ và không còn blocker chưa xử lý;
-- Agent Control Block hợp lệ và state/counter không mâu thuẫn;
-- test RED được chứng minh cho behavior mới/bug fix khi phù hợp;
-- implementation GREEN;
-- required lint/typecheck/test/build pass;
-- security/privacy checks pass;
-- evidence được tạo;
-- diff được review theo risk routing;
-- không có unresolved material review thread;
-- không có thay đổi ngoài scope;
-- final deterministic verification pass trên current PR head.
+- acceptance criteria/DONE condition của task đạt;
+- focused + affected tests liên quan pass;
+- runtime/hosted evidence bắt buộc pass nếu task cần;
+- required final CI pass trên candidate head;
+- mandatory risk-routed review hoàn thành;
+- không còn P0/P1 hoặc material blocker;
+- không có out-of-scope behavior.
 
-## Required commands
-
-Web:
-
-- `npm run lint`
-- `npm run typecheck`
-- `npm run test`
-- `npm run build`
-- `npm run verify:no-secrets`
-- `npm run verify:no-live-write`
-
-Supabase khi task liên quan:
-
-- `npx supabase db reset`
-- `npm run test:rls`
-
-Python runner khi task liên quan:
-
-- `uv run ruff check .`
-- `uv run mypy src`
-- `uv run pytest`
-
-Authenticated live-web changes cần thêm browser/E2E evidence phù hợp; unit review không thay thế runtime verification.
+DONE **không có nghĩa** phải chứng minh toàn repository không còn lỗi không liên quan.
 
 ## Git / PR rules
 
 - Không push feature/fix trực tiếp vào `main`.
-- `main` phải được active ruleset chặn direct push/force-push/delete.
-- Repo thuộc sở hữu solo-owner (1 tài khoản): giữ `Required approvals = 0` trên GitHub; việc đòi hỏi tài khoản người thứ 2 approve là không khả thi.
-- Quy trình merge đáng tin cậy (Scope Revision 4 — manual trusted merge gate):
-  1. **STEP A — Trước cutover**: Required status check `verify` PASS trên đúng `head_sha` hiện tại; độc lập với CI, Terra xHigh adversarial review bắt buộc trên đúng `head_sha` (`RECOMMEND_PASS`, `p0: 0`, `p1: 0`, `material_findings_resolved: true`); review conversation threads resolved; Issue #7 control state/label khớp; Controller xác nhận bằng chứng sẵn sàng cho cutover (PR chưa merge-eligible do ruleset còn đòi check `review-gate` cũ);
-  2. **STEP B — Owner cutover**: Owner chỉnh sửa `protect-main` ruleset để gỡ bỏ check `review-gate`, giữ `verify`, strict up-to-date, conversation resolution, `Required approvals = 0`, không bypass;
-  3. **STEP C — Controller recheck**: Controller re-fetch live ruleset và kiểm tra chéo độc lập toàn bộ điều kiện. Chỉ sau khi recheck thành công, Controller mới tuyên bố PR `merge-eligible` và prompt Owner;
-  4. **STEP D — Owner merge**: Owner thực hiện thao tác Merge thủ công sau khi Controller prompt. Model/worker tuyệt đối không tự ý merge PR.
-- Bắt buộc resolve toàn bộ conversation/review threads trước khi merge.
-- Bất kỳ push commit mới nào làm thay đổi `head_sha` đều tự động vô hiệu hóa review trước đó (head SHA mismatch).
-- Worker phát triển (Gemini, Sol) tuyệt đối không được tự ý tạo hoặc chỉnh sửa Terra attestation.
-- Dùng branch/worktree riêng cho task.
-- PR phải ghi requirement, acceptance criteria, changed/not-changed scope, tests, current-head verification evidence, known limitations và linked task control state.
-- Không merge khi required CI (`verify`) còn đỏ hoặc required review/controller criteria chưa đạt.
-- Không dùng review transcript của implementer làm bằng chứng thay cho fresh review hoặc machine verification.
+- `main` giữ ruleset chống direct push/force-push/delete.
+- Solo-owner: `Required approvals = 0` là hợp lệ; Owner thực hiện final Merge thủ công.
+- Required status check hiện tại là `verify` với strict up-to-date policy.
+- Resolve material review conversations trước merge.
+- Fresh Terra exact-head review chỉ bắt buộc khi risk routing yêu cầu. Nếu exact-head review là merge gate, code commit mới làm stale review; vì vậy hãy review trên stable final head.
+- PR phải ghi scope, explicit non-scope, tests/evidence cần thiết và known blocker ngắn gọn; không cần reasoning transcript dài.
+- Không merge khi required CI đỏ hoặc mandatory risk gate chưa đạt.
 
 ## Secrets
 
 Agent chỉ được tạo/cập nhật `.env.example`; không ghi secret thật vào repo.
 
-Owner tự nhập secret trong:
+Owner tự nhập secret trong provider secret stores. Không yêu cầu Owner gửi mật khẩu, OTP, cookie, JWT hoặc token vào chat.
 
-- GitHub Actions Secrets;
-- Supabase Edge Function Secrets;
-- frontend hosting environment.
+## Current Phase 2 execution
 
-Không yêu cầu Owner gửi mật khẩu, OTP, cookie hoặc token vào chat.
+Issue #11 sử dụng kế hoạch rút gọn:
 
-## Background automation gate
+`docs/superpowers/plans/2026-09-06-phase2-fast-closure.md`
 
-Phân biệt hai loại automation:
+Nguyên tắc Phase 2 hiện tại:
 
-1. `.github/workflows/cron-dispatch.yml` là pre-existing read-only **product-job scheduler**; nó có trước migration này, recent scheduled run đang failure và Phase 2 hosted/off-PC vẫn BLOCKED. Migration này không coi nó là bằng chứng pilot cho development agents.
-2. **New unattended development-agent automation** (Antigravity Scheduled Tasks / equivalent) chưa được bật cho tới khi hoàn thành ít nhất một manual pilot:
-
-Owner → Sol plan → controller transition → Gemini implement → CI → Terra fresh review → controller transition nếu needs-fix → Gemini fix → final CI → merge.
-
-Scheduled development controller phải fail closed nếu Agent Control Block thiếu/sai, label/state mâu thuẫn, third fix re-entry would be attempted at current `fix_reentries >= 2`, scope reset thiếu Owner approval, task blocked hoặc spec/plan bị thiếu. Worker chỉ code sau khi controller đã đưa task sang `implementing` hợp lệ.
-
-Sau pilot mới được đề xuất automation/background handoff cho development workers.
+- không reopen local work đã PASS nếu hosted failure không chỉ tới nó;
+- hosted failure phải classify CONFIG / CODE-IN-SCOPE / UNRELATED / SAFETY trước khi sửa;
+- focused tests khi fix;
+- full CI + Terra chỉ ở stable final checkpoint;
+- product cron giữ default-off;
+- Phase 3/4/6 và live-write vẫn ngoài scope.
