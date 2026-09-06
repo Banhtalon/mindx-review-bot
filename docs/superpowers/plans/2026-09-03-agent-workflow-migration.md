@@ -1,5 +1,8 @@
 # Agent Workflow Migration Plan
 
+> **SUPERSEDED BY QQ AI WORKFLOW v9.** Historical audit record only; it cannot
+> override `.ai-workflow/V9_CANONICAL_SPEC.md`.
+
 > [!NOTE]
 > **SUPERSEDED FOR MERGE-AUTHORITY DETAILS**: This plan remains historical context only.
 > For current merge authority use [Scope Revision 4 — GitHub-native manual trusted merge gate](./2026-09-04-github-native-manual-trusted-merge-gate.md) approved in [Issue #7 comment 5535792176](https://github.com/Banhtalon/mindx-review-bot/issues/7#issuecomment-5535792176).

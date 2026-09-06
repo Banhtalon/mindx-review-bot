@@ -1,16 +1,16 @@
 # Current Project State
 
-Last workflow baseline on `main`: manual pilot merge `4edeb6e8e3f00fdf8915c00c03ff6268732bffae` (incorporating Agent Workflow Migration merge `f6dcaa9bd9e95fea69f63fdb868a385ac28aee7a` and CLI timeout hardening merge `1c13cb4f3bda8ec8d31da1ede25f2f2a0f1646c9`).
+Last workflow baseline on `main`: `255ccf9635aecc50474a0a88049355ef4c3638fc`. v9 is authorized by Issue #12 and is on final clean-slate attempt 4; it is not active on `main` until review and merge.
 
 This file is a routing/status summary for agents. It does not replace the V4 master specification. Live GitHub issue/ruleset/CI state is authoritative for rapidly changing workflow-control fields.
 
 ## Current approved work
 
-No product Phase 6 task is currently approved.
+No product Phase 6 task is approved. Issue #12 changes workflow controls only and excludes product code, database, secrets, deployment, live write, automatic routing, and merge.
 
-The Agent Workflow Migration (PR #6 / Issue #7) and the subsequent manual pilot (PR #9 / Issue #8) have both completed successfully and merged to `main`.
+PR #6/Issue #7 and PR #9/Issue #8 remain historical workflow evidence. v9 supersedes their actor/state/retry policy on this branch.
 
-Any next product task requires a separate standalone GitHub issue with an Agent Control Block, specification/plan, and explicit Owner approval.
+The next product task needs its own issue, v9 record, frozen manifest, and explicit Owner scope approval.
 
 Recommended next engineering priority: Phase 2 hosted/off-PC closure and live-readiness prerequisites (followed by Phase 3 live Teaching reader and Phase 4 live LMS reader), rather than starting Phase 6 prematurely.
 
@@ -35,10 +35,10 @@ Repository controls confirmed live on `main`:
 
 Workflow control status:
 
-- **Agent Workflow Migration**: Completed under Scope Revision 4 (PR #6 merged at `f6dcaa9bd9e95fea69f63fdb868a385ac28aee7a`, Issue #7 closed with state `done`).
-- **Ruleset Cutover**: Completed. Owner removed the obsolete `review-gate` check from `protect-main`; `verify` is the sole enforced machine check.
-- **Manual Pilot**: Completed successfully end-to-end (PR #9 merged at `4edeb6e8e3f00fdf8915c00c03ff6268732bffae`, Issue #8 closed with state `done`).
-- **Unattended Automation Gate**: The development-agent workflow is no longer blocked specifically by the "no manual pilot yet" prerequisite. However, unattended/scheduled development automation is **not** automatically enabled and remains standing by until explicitly configured and approved by Owner for specific task scopes. Routine development continues via explicit task dispatch.
+- **Revision-4 baseline**: Historical workflow completed through PR #6 and PR #9.
+- **v9 task**: Issue #12, scope revision 1, final clean-slate attempt 4 has local frozen-manifest PASS. Prior attempts stopped at recorded gates and were not reused.
+- **Verification**: Required `verify` CI remains unchanged; v9 adds frozen task gates and redacted evidence without weakening product checks.
+- **Routing**: `MANUAL`; no scheduled development router or automatic retry is enabled.
 
 ## Product state summary
 
@@ -113,24 +113,25 @@ Still mandatory:
 - No credential/cookie/token/PII in repo logs/evidence.
 - No secret in frontend.
 
-## Engineering workflow (post-migration)
+## Engineering workflow (v9 candidate)
 
 Target pipeline:
 
-Owner -> Sol High plan/spec -> GitHub issue control state -> controller transition -> Gemini 3.8 Flash implementation/test/fix -> deterministic CI -> Terra xHigh fresh adversarial review (when risk-routed) -> controller transition if needed -> Gemini fix -> final deterministic verification -> Controller declares merge-eligible -> Owner manual merge.
+Owner intent -> Controller task plus separate risk/complexity -> frozen manifest -> manually assigned clean attempt -> diff tripwire -> redacted gates -> exact-head Qualified Review when required -> Owner acceptance when applicable -> Controller readiness -> Owner manual merge.
 
-Superpowers remains the shared methodology.
+Superpowers may remain a methodology; v9 is the workflow authority.
 
-`MAX_FIX_LOOPS = 2` means exactly two fix implementation re-entries are permitted for one unchanged `scope_revision`; the third attempted `needs-fix -> implementing` transition is blocked. The authoritative count lives in the linked GitHub issue Agent Control Block. Workers may not reset it; a reset requires a new `scope_revision` plus Owner-linked approval.
+v9 allows four attempts at most: two default, one senior, and one final escalation. Each starts at the same base in a new worktree. Any next code-changing failure stops for Technical Operator.
 
-No model may declare final `VERIFIED`.
+No model opinion can declare deterministic PASS or final DONE.
 
 ## Current blockers / owner decisions
 
 Workflow status:
 
-- Agent Workflow Migration (PR #6 / Issue #7) and Manual Pilot (PR #9 / Issue #8) are successfully completed and merged into `main`.
-- The repository workflow is fully established and operational under Scope Revision 4 (manual trusted merge gate).
+- Revision-4 remains active on `main` until v9 is merged.
+- Issue #12 has local/hermetic PASS and still needs exact-head Qualified Review, PR CI, and Owner manual merge.
+- Automatic model routing is deliberately deferred to a separately approved future task.
 
 Product blockers / prerequisites:
 
@@ -156,12 +157,13 @@ Product work that requires any of the following must use `blocked-owner` or `blo
 
 ## Next sequence
 
-1. Choose and approve the next product task with a dedicated standalone GitHub issue (Agent Control Block) and plan.
-2. Address operational/hosted blockers in order of dependency:
+1. Complete Issue #12 gates, Qualified Review, PR CI, and manual merge without enabling routing.
+2. Create the next product task with a v9 record and frozen manifest.
+3. Address operational/hosted blockers in order of dependency:
    - **Phase 2 hosted/off-PC closure**: Deployed migration/RPC verification, hosted Storage, and cloud dispatch with PC off.
    - **Phase 3 Teaching live reader**: Selectors, authentication, read-only extraction, and production Supabase reconciliation.
    - **Phase 4 LMS live reader**: Selectors, session reuse, and deterministic stable-ID student mapping.
-3. Proceed to later product phases (including Phase 6) only after earlier operational, hosted, and live-readiness prerequisites are satisfied.
+4. Proceed to later product phases only after prior hosted/live prerequisites are satisfied.
 
 ## Update rule
 

@@ -16,7 +16,13 @@
     "test:rls": "npx supabase test db",
     "cron:dispatch": "node scripts/cron_dispatch.mjs",
     "verify:no-secrets": "node scripts/verify_no_secrets.mjs",
-    "verify:no-live-write": "node scripts/verify_no_live_write.mjs"
+    "verify:no-live-write": "node scripts/verify_no_live_write.mjs",
+    "workflow:test": "node --test test/workflow-v9.test.mjs",
+    "workflow:pilot": "node scripts/qq-ai-workflow/run-pilots.mjs",
+    "workflow:freeze": "node scripts/qq-ai-workflow/freeze-manifest.mjs",
+    "workflow:risk": "node scripts/qq-ai-workflow/inspect-risk.mjs",
+    "workflow:verify": "node scripts/qq-ai-workflow/verify-task.mjs",
+    "workflow:owner-status": "node scripts/qq-ai-workflow/owner-status.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

@@ -1,123 +1,36 @@
-## Requirement
+## Authority
 
-Link issue/task/spec:
+- Owner-visible outcome and linked issue/task:
+- frozen manifest and anchored SHA-256:
+- scope revision, approved base, current head, clean attempt number:
 
-## Authoritative Task Control
+## Risk and complexity
 
-Linked standalone GitHub issue:
+- declared / observed / effective risk: `GREEN | YELLOW | RED`
+- independent complexity: `S | M | L | XL`
+- tripwires and required reviewer/operator:
 
-Current control snapshot (reference only; issue is authoritative):
+## Scope and evidence
 
-- state:
-- scope_revision:
-- fix_reentries:
-- owner_scope_reset:
+Changed:
 
-> Do not edit/reset authoritative task state through this PR body. Workflow state/counter live in the linked GitHub issue and must match exactly one primary workflow-state label.
+Explicitly unchanged:
 
-## Specification / Plan
+- [ ] manifest matches lock and Controller anchor
+- [ ] actual diff rescanned without lowering risk
+- [ ] frozen gates PASS on current head through redaction boundary
+- [ ] evidence tier is accurate; local/synthetic is not called hosted/live
+- [ ] required independent exact-head review has no unresolved material finding
+- [ ] current-state claim is accurate
+- [ ] no unapproved model routing/retry, scheduler, migration, deployment, live
+      write, or merge
 
-- Spec:
-- Plan:
+## Owner handoff
 
-## Acceptance Criteria
+- status: `WAITING_FOR_OWNER | READY_FOR_OWNER_TEST | DONE | BLOCKED`
+- Owner action or `NONE`:
+- agent: `RECOMMEND_PASS | NEEDS_FIX | BLOCKED`
+- deterministic gates: `PASS | FAIL | BLOCKED`
+- Owner acceptance: `PASS | PENDING | NOT_APPLICABLE`
 
-- [ ] AC1:
-- [ ] AC2:
-
-## Changed
-
-Describe only behavior/files intentionally changed.
-
-## Explicitly Not Changed
-
-List adjacent behavior/scope that this PR deliberately leaves unchanged.
-
-## Tests Added / Updated
-
-- [ ] Regression/acceptance coverage added where applicable
-- [ ] Existing relevant tests preserved
-
-## Deterministic Verification
-
-Record results from the **current PR head** only.
-
-### Web
-
-- [ ] `npm run lint`
-- [ ] `npm run typecheck`
-- [ ] `npm run test`
-- [ ] `npm run build`
-- [ ] `npm run verify:no-secrets`
-- [ ] `npm run verify:no-live-write`
-
-### Supabase — when relevant
-
-- [ ] `npx supabase db reset`
-- [ ] `npm run test:rls`
-
-### Browser runner — when relevant
-
-- [ ] `uv run ruff check .`
-- [ ] `uv run mypy src`
-- [ ] `uv run pytest`
-
-### Live browser/E2E — when relevant
-
-- [ ] Runtime/browser evidence recorded without secrets/PII
-- [ ] Read-only/no-mutation boundary verified
-- [ ] Relevant `docs/evidence/index.json` entries support any live/hosted readiness claim
-
-## Review Package
-
-- [ ] `AGENTS.md` available
-- [ ] `docs/CURRENT_STATE.md` reviewed
-- [ ] Linked standalone issue Agent Control Block + workflow label checked
-- [ ] Requirement and acceptance criteria available
-- [ ] Diff is scoped
-- [ ] Deterministic evidence is attached/current
-- [ ] Known limitations/blockers are stated
-- [ ] Implementer reasoning transcript is **not** being used as review evidence
-
-## Risk / Reviewer Routing
-
-Risk: `small | medium | high`
-
-Terra fresh adversarial review required? `yes | no`
-
-If yes, reason:
-
-## Review Status
-
-`READY_FOR_REVIEW | NEEDS_FIX | BLOCKED`
-
-Authoritative fix-loop state: see linked issue `fix_reentries`.
-
-`MAX_FIX_LOOPS = 2` means fix re-entry counts `1` and `2` are both permitted; a new third re-entry request from `needs-fix` while the current count is already `2` is blocked.
-
-## Known Limitations / Blockers
-
-Use `blocked-owner` for missing business/scope/live-credential/reviewer decisions and `blocked-external` for unavailable external prerequisites.
-
-## Solo-Owner Trusted Merge Gate & Verification
-
-- [ ] STEP A: Deterministic `verify` status check is green on current PR head
-- [ ] STEP A: Fresh Terra xHigh adversarial review exists for exact current PR head SHA (`RECOMMEND_PASS`, P0=0, P1=0, material findings resolved)
-- [ ] STEP A: Review matches linked control issue and scope revision; review threads resolved
-- [ ] STEP B: Owner ruleset cutover performed (removed old `review-gate` from `protect-main`, kept `verify`)
-- [ ] STEP C: Controller rechecked live ruleset and declared PR `merge-eligible`
-- [ ] STEP D: Owner manual Merge action performed
-
-> The active `main` ruleset enforces `verify` with `Required approvals = 0`. All conversation threads must be resolved before merge. Merge is performed manually by Owner.
-
-## Final Verification
-
-- [ ] Required reviews resolved
-- [ ] Required deterministic gates green on current PR head
-- [ ] Linked issue control state is valid and consistent with its workflow label
-- [ ] No unresolved material findings
-- [ ] No out-of-scope change
-- [ ] `docs/CURRENT_STATE.md` does not contradict the result
-- [ ] Synthetic/local evidence is not mislabeled as live
-
-> AI reviewer recommendations are not final verification. Only required deterministic evidence, valid control state, and current enforced independent review may produce `VERIFIED` / `done`.
+Controller confirms readiness; Owner manually merges.

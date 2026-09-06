@@ -1,5 +1,8 @@
 # Scope Revision 4 — GitHub-native manual trusted merge gate
 
+> **SUPERSEDED BY QQ AI WORKFLOW v9.** Protected-main safeguards remain; this
+> historical plan no longer defines actor, state, or retry policy.
+
 ## Decision
 
 Owner approved simplifying PR #6 so that no external review-gate infrastructure is required.

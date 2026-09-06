@@ -1,0 +1,33 @@
+{
+  "schema_version": "qq.workflow.task.v9",
+  "task_id": "TASK-12",
+  "title": "Áp dụng workflow v9 và chứng minh ba kịch bản kiểm soát",
+  "scope_revision": 1,
+  "state": "REVIEW",
+  "base_sha": "255ccf9635aecc50474a0a88049355ef4c3638fc",
+  "risk": { "declared": "YELLOW", "prior_effective": "YELLOW", "effective": "YELLOW", "observations": ["development-control-plane tripwire"] },
+  "complexity": { "level": "L", "drivers": ["policy migration", "conflict inventory", "three pilots"] },
+  "scope": {
+    "in": ["workflow policy", "roles", "state/data", "scripts", "templates", "hermetic pilots"],
+    "out": ["product", "database", "secrets", "deployment", "live write", "automatic routing", "merge"]
+  },
+  "owner_acceptance": ["Plain-language status without technical review duties"],
+  "attempt": { "number": 4, "max": 4 },
+  "assignments": {
+    "controller": "Codex current thread",
+    "planner": "Codex current thread",
+    "implementer": "final clean-slate escalation attempt",
+    "qualified_reviewer": "pending fresh exact-head review",
+    "technical_operator": "next stop if code-changing failure occurs"
+  },
+  "verification_manifest": ".ai-workflow/tasks/TASK-12/verification-manifest.json",
+  "owner_summary": "Frozen local gates và ba pilot đã PASS; product không thay đổi.",
+  "owner_action": "NONE; hệ thống còn phải hoàn tất Qualified Review và PR CI.",
+  "current_limit": "LOCAL_HERMETIC PASS only; exact-head review, CI and merge remain separate.",
+  "evidence": [
+    ".ai-workflow/evidence/TASK-12-risk-decision.json",
+    ".ai-workflow/evidence/pilot-summary.json",
+    ".ai-workflow/evidence/TASK-12-local-verification.json",
+    "Issue #12 comments 5561525344, 5561625764, 5561752802"
+  ]
+}

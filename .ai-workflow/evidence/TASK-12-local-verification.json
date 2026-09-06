@@ -1,0 +1,152 @@
+{
+  "schema_version": "qq.workflow.verification-evidence.v9",
+  "task_id": "TASK-12",
+  "scope_revision": 1,
+  "base_sha": "255ccf9635aecc50474a0a88049355ef4c3638fc",
+  "evidence_tier": "LOCAL_HERMETIC",
+  "manifest_sha256": "sha256:8706b2a390579cb6f4d3b960715981987f08f60cf7f8a6ab790882d1f24488aa",
+  "started_at": "2026-09-06T20:03:58.230Z",
+  "finished_at": "2026-09-06T20:04:08.179Z",
+  "gate_results": [
+    {
+      "id": "workflow-v9-unit",
+      "argv_display": [
+        "node",
+        "<arg>",
+        "<arg>"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 202,
+      "stdout": "✔ risk is monotonic within a revision (0.5758ms)\n✔ pilot keeps routing manual and product workflows unchanged (35.6945ms)\n✔ risk and complexity remain independent (0.7851ms)\n✔ declared yellow risk requires qualified review without a path match (0.4679ms)\n✔ path tripwires are cross-platform (0.0945ms)\n✔ yellow path requires qualified review (0.1605ms)\n✔ destructive migration stops and escalates (0.1215ms)\n✔ redaction masks environment and token formats (0.4405ms)\n✔ redaction boundary rejects secret-like command arguments (0.4054ms)\n✔ frozen manifest verifies, then tampering fails closed (53.6097ms)\nℹ tests 10\nℹ suites 0\nℹ pass 10\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 148.9739\n",
+      "stderr": "",
+      "redaction_applied": true,
+      "verdict": "PASS"
+    },
+    {
+      "id": "workflow-v9-pilots",
+      "argv_display": [
+        "node",
+        "<arg>",
+        "<arg>",
+        "<arg>",
+        "<arg>",
+        "<arg>"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 157,
+      "stdout": "{\n  \"output\": \"C:\\\\Users\\\\Quang\\\\Documents\\\\Codex\\\\2026-09-07\\\\referenced-chatgpt-conversation-this-is-an\\\\work\\\\mindx-review-bot-attempt-4\\\\.ai-workflow\\\\runtime\\\\pilot-summary.json\",\n  \"verdict\": \"PASS\",\n  \"adoption_decision\": \"READY_FOR_NEW_PROJECTS\"\n}\n",
+      "stderr": "",
+      "redaction_applied": true,
+      "verdict": "PASS"
+    },
+    {
+      "id": "lint",
+      "argv_display": [
+        "npm",
+        "<arg>",
+        "<arg>"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 1776,
+      "stdout": "\n> mindx-review-bot@0.1.0 lint\n> eslint .\n\n",
+      "stderr": "npm warn Unknown user config \"allow-scripts\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n",
+      "redaction_applied": true,
+      "verdict": "PASS"
+    },
+    {
+      "id": "typecheck",
+      "argv_display": [
+        "npm",
+        "<arg>",
+        "<arg>"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 1943,
+      "stdout": "\n> mindx-review-bot@0.1.0 typecheck\n> tsc --noEmit\n\n",
+      "stderr": "npm warn Unknown user config \"allow-scripts\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n",
+      "redaction_applied": true,
+      "verdict": "PASS"
+    },
+    {
+      "id": "web-tests",
+      "argv_display": [
+        "npm",
+        "<arg>",
+        "<arg>"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 2499,
+      "stdout": "\n> mindx-review-bot@0.1.0 test\n> vitest run\n\n\n RUN  v4.1.10 C:/Users/Quang/Documents/Codex/2026-09-07/referenced-chatgpt-conversation-this-is-an/work/mindx-review-bot-attempt-4\n\n\n Test Files  23 passed (23)\n      Tests  125 passed (125)\n   Start at  03:04:02\n   Duration  1.79s (transform 1.31s, setup 4.26s, import 1.71s, tests 1.36s, environment 2.38s)\n\n",
+      "stderr": "npm warn Unknown user config \"allow-scripts\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n",
+      "redaction_applied": true,
+      "verdict": "PASS"
+    },
+    {
+      "id": "build",
+      "argv_display": [
+        "npm",
+        "<arg>",
+        "<arg>"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 2329,
+      "stdout": "\n> mindx-review-bot@0.1.0 build\n> tsc -b && vite build\n\nvite v8.2.1 building client environment for production...\n\u001b[2K\rtransforming...✓ 70 modules transformed.\nrendering chunks...\ncomputing gzip size...\ndist/index.html                   0.41 kB │ gzip:   0.27 kB\ndist/assets/index-NviEnqif.css    7.21 kB │ gzip:   1.95 kB\ndist/assets/index-B5pXp3Kb.js   427.09 kB │ gzip: 121.19 kB\n\n✓ built in 110ms\n",
+      "stderr": "npm warn Unknown user config \"allow-scripts\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n",
+      "redaction_applied": true,
+      "verdict": "PASS"
+    },
+    {
+      "id": "no-secrets",
+      "argv_display": [
+        "npm",
+        "<arg>",
+        "<arg>"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 506,
+      "stdout": "\n> mindx-review-bot@0.1.0 verify:no-secrets\n> node scripts/verify_no_secrets.mjs\n\nSecrets check passed.\n",
+      "stderr": "npm warn Unknown user config \"allow-scripts\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n",
+      "redaction_applied": true,
+      "verdict": "PASS"
+    },
+    {
+      "id": "no-live-write",
+      "argv_display": [
+        "npm",
+        "<arg>",
+        "<arg>"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 463,
+      "stdout": "\n> mindx-review-bot@0.1.0 verify:no-live-write\n> node scripts/verify_no_live_write.mjs\n\nLive LMS write check passed.\n",
+      "stderr": "npm warn Unknown user config \"allow-scripts\". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.\n",
+      "redaction_applied": true,
+      "verdict": "PASS"
+    },
+    {
+      "id": "diff-check",
+      "argv_display": [
+        "git",
+        "<arg>",
+        "<arg>",
+        "<arg>"
+      ],
+      "exit_code": 0,
+      "timed_out": false,
+      "duration_ms": 74,
+      "stdout": "",
+      "stderr": "warning: in the working copy of '.ai-workflow/evidence/pilot-summary.json', LF will be replaced by CRLF the next time Git touches it\n",
+      "redaction_applied": true,
+      "verdict": "PASS"
+    }
+  ],
+  "verdict": "PASS"
+}
