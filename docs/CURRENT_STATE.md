@@ -1,206 +1,221 @@
 # Current Project State
 
-Last workflow baseline on `main`: current-state housekeeping merge
-`255ccf9635aecc50474a0a88049355ef4c3638fc` (incorporating manual pilot merge
-`4edeb6e8e3f00fdf8915c00c03ff6268732bffae`, Agent Workflow Migration merge
-`f6dcaa9bd9e95fea69f63fdb868a385ac28aee7a`, and CLI timeout hardening merge
-`1c13cb4f3bda8ec8d31da1ede25f2f2a0f1646c9`).
+Last merged workflow baseline on `main`:
 
-This file is a routing/status summary for agents. It does not replace the V4 master specification. Live GitHub issue/ruleset/CI state is authoritative for rapidly changing workflow-control fields.
+`255ccf9635aecc50474a0a88049355ef4c3638fc`
+
+This file is a routing/status summary for agents. It does not replace the V4 master specification. Live GitHub issue/ruleset/CI state is authoritative for rapidly changing control fields.
 
 ## Current approved work
 
-Issue #11, **Phase 2 hosted/off-PC closure**, is the current Owner-approved
-product task under Scope Revision 1. Sol planning is complete and the issue is
-in `implementing`. The dedicated branch is implementing the default-off cron
-gate and manual synthetic hosted probe; hosted execution has not started.
+Issue #11 — **Phase 2 hosted/off-PC closure** — is the current Owner-approved product task.
 
-No product Phase 6 task is currently approved.
+Current implementation branch:
 
-The Agent Workflow Migration (PR #6 / Issue #7) and the subsequent manual pilot (PR #9 / Issue #8) have both completed successfully and merged to `main`.
+`codex/issue-11-phase2-hosted-closure`
 
-Issue #11 owns the authoritative Agent Control Block and links its dedicated
-design/implementation plan. Any different product task still requires a separate
-standalone issue, plan, and explicit Owner approval.
+Current branch head after the workflow simplification docs update:
 
-Recommended next engineering priority: Phase 2 hosted/off-PC closure and live-readiness prerequisites (followed by Phase 3 live Teaching reader and Phase 4 live LMS reader), rather than starting Phase 6 prematurely.
+`0ea7a2c4c068f68f5788406cd86d50063894ddf9`
 
-## Baseline health
+Important: the latest branch-head changes after `3d61757cfec23772e03b23296d75b6f1fa47cebc` are documentation/process changes. The product implementation handoff recorded before this revision had already passed deterministic local/CI evidence. Hosted acceptance remains outstanding.
 
-- Latest merged baseline on `main` (`255ccf9635aecc50474a0a88049355ef4c3638fc`) has successful GitHub Actions CI evidence.
-- Existing repository verification includes web lint/typecheck/tests/build, no-secret and no-live-write guards, local Supabase/RLS checks, and Python runner Ruff/Mypy/Pytest.
-- All deterministic gates remain enforced on `main`. Future work must not weaken any existing gate.
+Issue #11 currently remains `blocked-owner` at the hosted configuration checkpoint. The new speed policy does not silently authorize hosted execution or secret handling.
 
-## Workflow-control readiness
+No Phase 3, Phase 4, Phase 6, or live-write task is authorized by this update.
 
-Repository controls confirmed live on `main`:
+## Active workflow policy
 
-- active ruleset `protect-main` targets the default branch;
-- `main` is protected against direct push, deletion, and force-push (`non_fast_forward`);
-- pull request is required before merge with `Required approvals = 0` (solo-owner repository constraint);
-- required GitHub Actions status check is strictly `verify` (old Actions `review-gate` was removed during cutover);
-- strict up-to-date branch policy is enabled (`strict_required_status_checks_policy = true`);
-- conversation resolution is enabled and enforced before merge;
-- bypass list is empty and current user cannot bypass;
-- all nine canonical workflow-state labels exist.
+The repository now uses risk-routed development instead of applying the heaviest workflow to every change.
 
-Workflow control status:
+Read:
 
-- **Agent Workflow Migration**: Completed under Scope Revision 4 (PR #6 merged at `f6dcaa9bd9e95fea69f63fdb868a385ac28aee7a`, Issue #7 closed with state `done`).
-- **Ruleset Cutover**: Completed. Owner removed the obsolete `review-gate` check from `protect-main`; `verify` is the sole enforced machine check.
-- **Manual Pilot**: Completed successfully end-to-end (PR #9 merged at `4edeb6e8e3f00fdf8915c00c03ff6268732bffae`, Issue #8 closed with state `done`).
-- **Unattended Automation Gate**: The development-agent workflow is no longer blocked specifically by the "no manual pilot yet" prerequisite. However, unattended/scheduled development automation is **not** automatically enabled and remains standing by until explicitly configured and approved by Owner for specific task scopes. Routine development continues via explicit task dispatch.
+1. `AGENTS.md`;
+2. `docs/DEVELOPMENT_SPEED_POLICY.md`;
+3. the active task plan.
+
+Execution modes:
+
+- **FAST** — low-risk/localized change: focused test + required CI;
+- **STANDARD** — ordinary feature/bug: short plan + focused/subsystem tests + one review if useful;
+- **STRICT** — migration/auth/session/live systems/privacy/identity/high-risk infrastructure: focused tests + runtime evidence + final CI + one fresh Terra review on the stable final head.
+
+Superpowers remains available as methodology, but its full sequence is no longer mandatory for every task.
+
+Full repository test suites must not be rerun after every small edit. Use the test ladder in `docs/DEVELOPMENT_SPEED_POLICY.md`.
+
+## Active Phase 2 plan
+
+Use:
+
+`docs/superpowers/plans/2026-09-06-phase2-fast-closure.md`
+
+This plan supersedes the earlier execution order in `2026-09-04-phase2-hosted-off-pc-closure.md` while preserving the same product/safety scope.
+
+Phase 2 is now closed through six packets:
+
+- **P2-A — Freeze local implementation**
+- **P2-B — Hosted environment checkpoint**
+- **P2-C — Hosted RPC + Storage proof**
+- **P2-D — Edge dispatch + PC-off proof**
+- **P2-E — Evidence reconciliation**
+- **P2-F — One final verification + Terra review**
+
+Finish one packet before opening another. Do not turn a packet failure into a phase-wide audit.
+
+## Phase 2 starting evidence
+
+Recorded implementation handoff before this process revision:
+
+- product implementation head: `3d61757cfec23772e03b23296d75b6f1fa47cebc`;
+- CI on that implementation head: PASS;
+- local handoff: 130 web tests PASS;
+- Python runner: 255 tests PASS;
+- local pgTAP: 101 assertions PASS;
+- lint/typecheck/build/security guards recorded PASS;
+- hosted RPC/Storage acceptance: not yet proven;
+- Edge dispatch/off-PC proof: not yet proven;
+- cleanup proof: not yet proven;
+- final fresh Terra exact-head review: not yet completed.
+
+Agents must not rerun the whole local inventory unless new code changes make that evidence materially stale or final current-head CI is required for merge.
+
+## Failure routing for Phase 2
+
+Before making a fix, classify the failure:
+
+### CONFIG
+
+Examples: missing secret/variable, wrong project, deployment mismatch.
+
+Action: correct provider configuration. Do not start a code-review loop.
+
+### CODE-IN-SCOPE
+
+The failure blocks P2-C/P2-D DONE or was caused by the branch.
+
+Action: add/reuse one focused regression test, patch the defect, run focused + affected subsystem tests, then rerun only the failed hosted packet.
+
+### UNRELATED
+
+The issue does not block the current packet and was not caused by the branch.
+
+Action: record separately. Do not fix under Issue #11.
+
+### SAFETY
+
+Could expose secrets/PII, affect real product jobs, weaken read-only behavior, or require CAPTCHA/OTP bypass.
+
+Action: stop and route `blocked-owner`/`blocked-external` as appropriate.
+
+## Verification/test policy
+
+### During implementation/debugging
+
+Run the smallest test that reproduces the issue.
+
+### Before retrying a hosted packet after a code fix
+
+Run affected subsystem tests plus relevant lint/type/static checks.
+
+### Stable final candidate
+
+Use required current-head `verify` CI as the primary full-repository deterministic gate. Run additional Supabase/hosted/runtime checks only when CI does not cover the required acceptance boundary.
+
+Do not manually duplicate identical full-suite verification solely to produce a second copy of PASS evidence.
+
+## Review policy
+
+Phase 2 remains high-risk, therefore Terra xHigh is still mandatory before merge.
+
+However:
+
+- no Terra review after each intermediate edit;
+- no fresh review for configuration-only changes;
+- first stabilize implementation and hosted evidence;
+- request Terra once on the final candidate head;
+- request another exact-head review only if a material code commit changes the reviewed head.
+
+Optional P2/P3 style findings do not automatically block Phase 2 unless they materially affect acceptance, correctness, safety, or maintainability.
+
+## Baseline repository controls
+
+Still required:
+
+- protected `main`;
+- PR before merge;
+- required status check `verify`;
+- strict up-to-date branch policy;
+- conversation resolution;
+- no bypass actors;
+- no force push/delete;
+- `Required approvals = 0` for the solo-owner repository;
+- Owner manual final merge.
+
+The workflow simplification does not weaken these controls.
 
 ## Product state summary
 
-The repository contains implementation/report slices from Spike 0 through Phase 5C. Many slices are intentionally synthetic/local and must not be treated as live production readiness.
-
 ### Phase 1 — Auth / RLS / CI
 
-- Local/synthetic implementation: PASS.
-- Hosted closure: BLOCKED.
-- Hosted Auth user/workspace membership and owner-controlled smoke remain external/owner prerequisites.
+- local/synthetic implementation: PASS;
+- hosted closure: BLOCKED.
 
 ### Phase 2 — runner / lease / heartbeat / retry / scheduled dispatch
 
-- Local/synthetic implementation: PASS.
-- Hosted/off-PC closure: BLOCKED.
-- Deployed migration/RPC verification, hosted Storage reuse/reset, live Teaching/LMS smoke and cloud dispatch with the PC off remain open.
-- CLI timeout/finalization/cleanup logic received additional hardening on 2026-09-03 and merged to `main`.
-
-### Pre-existing product cron scheduler
-
-`.github/workflows/cron-dispatch.yml` already schedules read-only product jobs (`sync_teaching` / `read_lms_pending`) three times daily. It predates the Agent Workflow Migration and is **not** Antigravity/Gemini development-agent automation.
-
-Observed state as of 2026-09-04:
-
-- all 42 recorded `cron-dispatch` runs completed with `failure`;
-- the first and latest inspected runs both returned `CRON_CONFIG_INVALID`;
-- GitHub Actions currently has no repository or environment secrets, so the
-  scheduler cannot satisfy its required configuration;
-- `browser-runner.yml` has no hosted run, and the CLI remains fail-closed with
-  `SITE_ADAPTER_NOT_CONFIGURED` before job claim;
-- the scheduler is designed to use configured secrets to dispatch read-only
-  product jobs, but those secrets are not currently configured;
-- Phase 2 hosted/off-PC closure remains BLOCKED;
-- this migration does not claim the scheduler is healthy, pilot-approved, or evidence that unattended development agents are safe.
-
-The Issue #11 plan selects a fail-closed, reversible default: temporarily disable
-product cron dispatch until hosted configuration passes and later Phase 3/4 site
-adapters are ready. Manual Phase 2 synthetic verification remains separate. Do
-not convert cron failures, skipped runs, or synthetic probes into a product PASS.
+- local/synthetic implementation: PASS;
+- hosted/off-PC closure: BLOCKED at Owner/provider configuration + hosted evidence;
+- product cron stays disabled by default;
+- current work is infrastructure closure only, not live Teaching/LMS readiness.
 
 ### Phase 3 — Teaching reader / reconciliation
 
-- Synthetic parser/reconciliation contract: PASS.
-- Live Teaching selectors/login/custom actions, owner-controlled live sample, cold/warm metrics and production Supabase reconciliation: BLOCKED.
+- synthetic contracts: PASS where already delivered;
+- live Teaching reader: BLOCKED/not authorized under Issue #11.
 
 ### Phase 4 — LMS reader / identity / manual mapping
 
-- Synthetic context/manual-mapping contracts: PASS for delivered slices.
-- Live LMS selectors, browser-state reuse, live smoke/timing and production persistence: BLOCKED.
-- Mapping must remain explicit/stable-ID based; row order is never identity.
+- synthetic contracts: PASS where already delivered;
+- live LMS reader/session reuse/stable-ID mapping: BLOCKED/not authorized under Issue #11.
 
-### Phase 5 / 5A / 5B / 5C
+### Later phases
 
-- Delivered UI/curriculum/review-input/autosave slices are synthetic/local only.
-- Phase 5C local in-memory autosave/conflict behavior has verification evidence, but durable persistence, reload recovery, live Teaching/LMS extraction, production reconciliation, review generation, Gemini production prompts, approval/export/delivery remain outside that synthetic PASS.
-
-## Spike 0 evidence boundary
-
-Current evidence index still contains BLOCKED live/operational gates including:
-
-- Teaching cold/warm metrics;
-- LMS cold/warm metrics;
-- pinned dependency/minute estimate;
-- guarded live runner contract;
-- owner-controlled read-only browser smoke as a full closure gate.
-
-Exact identity/no-mutation/privacy lifecycle evidence contains PASS items, but those PASS items do not implicitly close the blocked live gates.
+Do not start Phase 5 expansion/Phase 6 automatically. They require separate Owner-approved tasks after earlier hosted/live prerequisites.
 
 ## Safety state
 
 Still mandatory:
 
-- MVP 1 Teaching/LMS is read-only.
-- No LMS Save/Submit/comment write path.
-- No automatic Zalo send.
-- No CAPTCHA/OTP/anti-bot bypass.
-- No guessing class/session/student identity.
-- No student mapping by row order.
-- Sensitive identity/extraction stays deterministic.
-- Student names/PII are not sent to Gemini or Browser Use LLM.
-- No credential/cookie/token/PII in repo logs/evidence.
-- No secret in frontend.
-
-## Engineering workflow (post-migration)
-
-Target pipeline:
-
-Owner -> Sol High plan/spec -> GitHub issue control state -> controller transition -> Gemini 3.8 Flash implementation/test/fix -> deterministic CI -> Terra xHigh fresh adversarial review (when risk-routed) -> controller transition if needed -> Gemini fix -> final deterministic verification -> Controller declares merge-eligible -> Owner manual merge.
-
-Superpowers remains the shared methodology.
-
-`MAX_FIX_LOOPS = 2` means exactly two fix implementation re-entries are permitted for one unchanged `scope_revision`; the third attempted `needs-fix -> implementing` transition is blocked. The authoritative count lives in the linked GitHub issue Agent Control Block. Workers may not reset it; a reset requires a new `scope_revision` plus Owner-linked approval.
-
-No model may declare final `VERIFIED`.
-
-## Current blockers / owner decisions
-
-Workflow status:
-
-- Agent Workflow Migration (PR #6 / Issue #7) and Manual Pilot (PR #9 / Issue #8) are successfully completed and merged into `main`.
-- The repository workflow is fully established and operational under Scope Revision 4 (manual trusted merge gate).
-
-Product blockers / prerequisites:
-
-- Phase 1 hosted Auth/workspace closure remains BLOCKED.
-- Phase 2 hosted/off-PC closure remains BLOCKED (deployed migration/RPC, hosted Storage, cloud dispatch without PC).
-- Phase 3 live Teaching reader remains BLOCKED (live selectors, session handling, production reconciliation).
-- Phase 4 live LMS reader remains BLOCKED (live selectors, browser-state reuse, stable ID mapping).
-- Phase 5C durable persistence, reload recovery, and review generation remain unverified against live systems.
-
-Separate product/ops disposition in the Issue #11 plan:
-
-- temporarily disable the failing pre-existing `cron-dispatch` schedule by
-  default; later enablement requires hosted configuration PASS and Phase 3/4
-  site-adapter readiness.
-
-Product work that requires any of the following must use `blocked-owner` or `blocked-external` rather than guessing:
-
-- live credentials or re-authentication;
-- hosted deployment/secrets;
-- business rule not present in the V4 spec/ADR;
-- live Teaching/LMS selector behavior that differs from synthetic fixtures;
-- scope exception/waiver;
-- material architecture change;
-- permission to enable a live write path.
+- Teaching/LMS read-only for MVP 1;
+- no LMS Save/Submit/comment write path;
+- no automatic Zalo send;
+- no CAPTCHA/OTP/anti-bot bypass;
+- no guessing class/session/student identity;
+- no row-order mapping;
+- sensitive identity/extraction deterministic;
+- no student names/PII sent to Gemini or Browser Use LLM;
+- no credential/cookie/token/PII in repo logs/evidence;
+- no secret in frontend.
 
 ## Next sequence
 
-1. Complete local implementation and deterministic verification for Issue #11
-   while its Agent Control Block remains `implementing`.
-2. Implement and locally verify the approved Phase 2 hosted/off-PC plan without
-   live site access; route missing hosted configuration to the documented Owner
-   checkpoint.
-3. Complete hosted RPC/Storage, synthetic dispatch, and PC-off evidence; keep the
-   product cron disabled and preserve the live/synthetic boundary.
-4. Only after Phase 2 infrastructure closure, create separately approved tasks
-   for Phase 3 Teaching and Phase 4 LMS live readers.
-5. Proceed to later product phases, including Phase 6, only after earlier hosted
-   and live-readiness prerequisites are satisfied.
+1. **P2-B:** complete the isolated hosted configuration checkpoint. Do not change product code for missing configuration.
+2. **P2-C:** run hosted RPC/Storage probe once and close only its defined acceptance points.
+3. If P2-C exposes a real code defect, use focused regression + affected subsystem tests; rerun only P2-C.
+4. **P2-D:** perform isolated Edge synthetic dispatch + PC-off proof; keep product cron disabled.
+5. **P2-E:** reconcile Phase 2 evidence/status once after hosted packets complete.
+6. **P2-F:** on stable final head, run required CI once, obtain one fresh Terra xHigh review, resolve material blockers, then Controller prompts Owner for manual merge.
+7. Only after Phase 2 closure create separately approved Phase 3/4 tasks.
 
 ## Update rule
 
-Update this file when any of these changes materially:
+Update this file only when one of these materially changes:
 
-- baseline commit/CI health;
-- branch protection/workflow-control readiness;
+- approved current task/scope;
 - phase closure state;
-- approved current task;
-- live/synthetic boundary;
-- product cron scheduler health/Owner decision;
-- owner decision/blocker;
-- workflow state machine.
+- Owner/external blocker;
+- active workflow/test policy;
+- main baseline/ruleset;
+- hosted/live evidence boundary.
 
-Do not turn a historical/synthetic PASS into a live PASS by summary wording.
+Do not update it after every minor implementation edit, and do not turn historical/synthetic PASS into live PASS by summary wording.
