@@ -1,6 +1,6 @@
 ---
 name: mindx-plan
-description: Plans MindX Review Bot work from the V4 specification, current project state, safety rules, acceptance criteria, and risk routing. Use for requirements, architecture, task decomposition, or plan critique before implementation.
+description: Creates short risk-routed plans for MindX Review Bot work only when planning is useful.
 ---
 
 # MindX Plan
@@ -9,50 +9,40 @@ description: Plans MindX Review Bot work from the V4 specification, current proj
 
 1. `AGENTS.md`
 2. `docs/CURRENT_STATE.md`
-3. the linked product specification/ADR
-4. existing evidence/phase report only when needed to resolve current state
+3. `docs/DEVELOPMENT_SPEED_POLICY.md`
+4. relevant product spec/ADR only when the task depends on it
 
-## Purpose
+## When to plan
 
-Produce a bounded implementation plan. Do not implement product code while using this skill unless the task explicitly changes from planning to implementation.
+- **FAST:** normally do not create a separate plan. Define scope + DONE and implement.
+- **STANDARD:** use a short plan when the change spans several related files or behavior is not obvious.
+- **STRICT:** write a bounded plan when the change touches migrations/RLS/schema, auth/session/browser state, live systems, identity/mapping, privacy/PII, risky infrastructure, or material architecture/data integrity.
 
-## Method
+Do not use planning as a mandatory ceremony for localized work.
 
-Use Superpowers `brainstorming` and `writing-plans` principles.
+## Minimal plan format
 
-For every non-trivial task define:
+A useful plan should answer only what the worker needs:
 
-- problem/goal;
-- in-scope behavior;
-- explicitly out-of-scope behavior;
-- business rules already decided;
-- unresolved owner decisions;
-- architecture impact;
-- acceptance criteria;
-- test/verification strategy;
-- risk level: small, medium, high;
-- Terra review requirement;
-- rollback/recovery consideration when relevant.
+1. **Goal** — what outcome is required?
+2. **In scope / out of scope** — what must not expand?
+3. **DONE** — one observable completion condition or a small set of explicit closure packets.
+4. **Risk mode** — FAST / STANDARD / STRICT and why.
+5. **Verification** — smallest focused test; affected subsystem check; runtime/hosted proof only if required; final CI once on the stable candidate.
 
-## Safety checks
+Add rollback/recovery only when a failure could affect data, auth, real jobs, or deployment state.
 
-Before marking `ready-for-implementation`, confirm:
+## Rules
 
-- no live-write behavior is being introduced unless explicitly approved;
-- no student identity is inferred from row order;
-- no missing business rule is being guessed;
-- no PII/secret is requested for chat or repo evidence;
-- synthetic evidence is not being treated as live proof;
-- task does not silently start an unapproved phase.
+- Do not create a large task list when one small DONE condition is enough.
+- Do not require brainstorming/TDD/review artifacts by default.
+- Do not reopen already-passing areas without concrete evidence they block the current DONE condition.
+- Do not guess missing business rules, credentials, selectors, or identity mappings.
+- Keep synthetic/local evidence distinct from live/hosted proof.
+- Keep Teaching/LMS read-only unless Owner explicitly approves a different product scope.
 
 ## Output
 
-A plan should be written to the repository for medium/high-risk work and include small, independently verifiable steps.
+Prefer a short issue section or compact task document. Repository plan files are mainly for STRICT work or a multi-step closure that another agent must continue later.
 
-Recommended final status:
-
-- `ready-for-implementation` when complete;
-- `blocked-owner` when a business/scope decision is missing;
-- `blocked-external` when an external environment/site prerequisite prevents safe planning/verification.
-
-Do not output `VERIFIED`.
+Use `blocked-owner` / `blocked-external` only for a real unresolved dependency, not merely because the task lacks a formal planning artifact.
