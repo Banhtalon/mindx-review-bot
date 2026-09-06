@@ -1,117 +1,76 @@
 ---
 name: mindx-adversarial-review
-description: Fresh-context adversarial review for risky MindX Review Bot changes, attacking edge cases, regressions, identity, auth/session, data integrity, privacy, and live-write safety.
+description: Reviews stable final candidates for STRICT/high-risk MindX Review Bot changes, focusing on material correctness and safety findings.
 ---
 
 # MindX Adversarial Review
 
-## Independence rule
+## When to use
 
-Start from fresh context.
+Use this skill for the stable final candidate of a **STRICT/high-risk** change, including:
 
-Review package:
+- Teaching/LMS live behavior;
+- student identity or mapping;
+- Supabase/RLS/migrations/schema;
+- auth/session/browser state;
+- privacy/PII/model payload boundaries;
+- live-write safeguards;
+- risky deployment/infrastructure;
+- material architecture or data-integrity changes.
+
+Do not require this review for ordinary FAST work. Do not review every intermediate patch.
+
+## Read
 
 1. `AGENTS.md`
 2. `docs/CURRENT_STATE.md`
-3. linked GitHub issue Agent Control Block and current workflow-state label
-4. task specification and acceptance criteria
-5. PR diff
-6. deterministic test/CI evidence from the current PR head
-7. known limitations/blockers
-8. relevant `docs/evidence/index.json` entries when any live/hosted readiness claim is made
+3. current task scope + DONE condition
+4. stable candidate diff/head SHA
+5. current-head CI evidence
+6. runtime/hosted evidence required by the task
+7. relevant evidence index when a live/hosted readiness claim is made
 
-Do not use implementer chain-of-thought or self-review as evidence.
+Do not use implementer chain-of-thought as evidence.
 
-If task control state is missing, malformed, conflicting, or ambiguous, return `BLOCKED`.
+## Review focus
 
-## Mandatory use
+Review only dimensions material to the current scope:
 
-Use this skill for changes involving:
+- missing or incorrect acceptance behavior;
+- scope creep/regression caused by the diff;
+- authorization/RLS/data integrity;
+- retry/idempotency/race/timeout/cleanup when relevant;
+- auth/session/browser-state expiry and reuse when relevant;
+- student identity/mapping correctness;
+- secret/PII leakage;
+- accidental Save/Submit/live-write behavior;
+- mismatch between claimed live/hosted readiness and actual runtime evidence.
 
-- Teaching/LMS;
-- student identity or mapping;
-- Supabase/RLS/migrations;
-- auth/session/browser state;
-- privacy/PII/model payloads;
-- live-write safeguards;
-- high-risk data or architecture changes.
+Do not restart a repository-wide audit because an unrelated issue is noticed. Record unrelated findings separately.
 
-## Attack checklist
+When runtime behavior cannot be established from the diff, request the **smallest** missing deterministic/runtime proof instead of asking for a broad new test campaign.
 
-Try to break the change through relevant dimensions:
+## Severity and closure
 
-- boundary/invalid inputs;
-- retry/idempotency;
-- timeout/cancellation/cleanup;
-- race/concurrency/leases;
-- partial failure and recovery;
-- stale or expired authentication/session state;
-- browser-state reuse/reset;
-- wrong class/session/student identity;
-- ambiguous/manual mapping;
-- row-order identity leakage;
-- DB/RLS authorization and data integrity;
-- secret/PII leakage in logs/evidence/model payloads;
-- accidental Save/Submit/comment mutation;
-- hidden scope expansion;
-- rollback/regression against existing behavior;
-- mismatch between `docs/CURRENT_STATE.md` and claimed readiness;
-- invalid issue `state`, `scope_revision`, `fix_reentries`, or workflow label;
-- live/hosted claims unsupported by the evidence index.
+- **P0/P1:** blocking.
+- **P2:** blocking only when it materially affects acceptance, correctness, safety, data integrity, or maintainability of this task.
+- **P3/style/preference:** non-blocking; do not create a fix/review cycle by default.
 
-When a finding depends on runtime behavior that cannot be proven from the diff, request the smallest deterministic/runtime evidence needed instead of guessing.
+## Output
 
-## Fix-loop interpretation
+For each material finding provide:
 
-`MAX_FIX_LOOPS = 2` means exactly two fix implementation re-entries are allowed for one unchanged `scope_revision`.
+- severity;
+- affected requirement/invariant;
+- concrete failure scenario/evidence;
+- smallest required fix or proof.
 
-- `fix_reentries=0`: no fix re-entry has started yet.
-- atomic controller transition `needs-fix/0 -> implementing/1`: first fix re-entry is allowed.
-- atomic controller transition `needs-fix/1 -> implementing/2`: second fix re-entry is allowed.
-- if the task later returns to `needs-fix` while `fix_reentries=2`, a third implementation re-entry is forbidden and must route to `blocked-owner`.
-
-A task currently in `implementing` or `ready-for-review` with `fix_reentries=2` is not invalid merely because the second permitted re-entry has already been consumed.
-
-## Finding format
-
-For each material finding include:
-
-- severity: P0/P1/P2/P3;
-- affected requirement or invariant;
-- failure scenario/reproduction;
-- evidence;
-- expected behavior;
-- recommended regression test/fix.
-
-## Verdict
-
-Return exactly one overall recommendation:
+End with exactly one verdict:
 
 - `RECOMMEND_PASS`
 - `NEEDS_FIX`
 - `BLOCKED`
 
-`RECOMMEND_PASS` is not `VERIFIED`.
+Also report the exact reviewed head SHA. `RECOMMEND_PASS` is a review recommendation, not final machine verification.
 
-When providing the review result, Terra must include a machine-readable attestation block for the solo-owner manual trusted merge gate:
-
-```text
-<!-- TERRA_REVIEW_ATTESTATION_V1 -->
-reviewer_model: terra-xhigh
-control_issue: <linked control issue number>
-scope_revision: <current scope revision integer>
-pr_number: <PR number>
-head_sha: <exact 40-char current PR head SHA>
-verdict: RECOMMEND_PASS
-p0: 0
-p1: 0
-material_findings_resolved: true
-reviewed_at_utc: <ISO-8601 UTC timestamp>
-<!-- /TERRA_REVIEW_ATTESTATION_V1 -->
-```
-
-Alternatively, a ```terra-attestation code block with the same fields is accepted.
-
-If findings exist (`NEEDS_FIX`), set `verdict: NEEDS_FIX`, `p0: <count>`, `p1: <count>`, and `material_findings_resolved: false`. If blocked, set `verdict: BLOCKED`.
-
-The authoritative `fix_reentries` counter lives in the linked GitHub issue. Only a new attempted `needs-fix -> implementing` transition with current `fix_reentries >= 2` is forbidden; do not treat a valid second re-entry already at count `2` as an automatic blocker.
+No special attestation template or long process transcript is required.
