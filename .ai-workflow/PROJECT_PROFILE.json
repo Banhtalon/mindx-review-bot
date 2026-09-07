@@ -2,7 +2,7 @@
   "schema_version": "qq.workflow.project-profile.v9",
   "project": "Banhtalon/mindx-review-bot",
   "canonical_version": "9.0.0",
-  "template_release": "9.1.0",
+  "template_release": "9.1.1",
   "routing_mode": "MANUAL",
   "control_plane": {
     "authoritative_task_state": "github_issue",
@@ -10,11 +10,18 @@
     "manifest_digest_anchor_required": true
   },
   "owner_technical_review_required": false,
+  "controller_execution": {
+    "trusted_git_required_for_attempt_transactions": true,
+    "environment_gap_route": "technical_operator"
+  },
   "bootstrap": {
     "controller_prompt": ".ai-workflow/prompts/CONTROLLER_BOOTSTRAP.md",
     "implementer_prompt": ".ai-workflow/prompts/IMPLEMENTER_BOOTSTRAP.md",
+    "technical_operator_prompt": ".ai-workflow/prompts/TECHNICAL_OPERATOR_BOOTSTRAP.md",
     "implementer_handoff": ".ai-workflow/templates/IMPLEMENTER_HANDOFF.md",
-    "implementer_result": ".ai-workflow/templates/IMPLEMENTER_RESULT.md"
+    "implementer_result": ".ai-workflow/templates/IMPLEMENTER_RESULT.md",
+    "technical_operator_handoff": ".ai-workflow/templates/TECHNICAL_OPERATOR_HANDOFF.md",
+    "technical_operator_result": ".ai-workflow/templates/TECHNICAL_OPERATOR_RESULT.md"
   },
   "attempt_ladder": [
     "gemini-flash-attempt-1",
@@ -29,7 +36,7 @@
     "default_implementer": "gemini-flash",
     "final_escalation_implementer": "astra",
     "qualified_reviewer": "terra-xhigh",
-    "technical_operator": "qualified-human-or-authorized-operator"
+    "technical_operator": "chatgpt-work-or-qualified-human"
   },
   "required_project_guards": [
     "no-secret",
