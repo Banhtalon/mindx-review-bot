@@ -2,21 +2,40 @@
   "schema_version": "qq.workflow.project-profile.v9",
   "project": "Banhtalon/mindx-review-bot",
   "canonical_version": "9.0.0",
+  "template_release": "9.1.0",
   "routing_mode": "MANUAL",
   "control_plane": {
     "authoritative_task_state": "github_issue",
-    "current_issue": "https://github.com/Banhtalon/mindx-review-bot/issues/12",
+    "current_issue": "https://github.com/Banhtalon/mindx-review-bot/issues/11",
     "manifest_digest_anchor_required": true
   },
   "owner_technical_review_required": false,
-  "attempt_ladder": ["gemini-flash-attempt-1", "gemini-flash-attempt-2-clean-slate", "sol-senior-attempt-clean-slate", "astra-final-attempt-clean-slate", "technical-operator-stop"],
+  "bootstrap": {
+    "controller_prompt": ".ai-workflow/prompts/CONTROLLER_BOOTSTRAP.md",
+    "implementer_prompt": ".ai-workflow/prompts/IMPLEMENTER_BOOTSTRAP.md",
+    "implementer_handoff": ".ai-workflow/templates/IMPLEMENTER_HANDOFF.md",
+    "implementer_result": ".ai-workflow/templates/IMPLEMENTER_RESULT.md"
+  },
+  "attempt_ladder": [
+    "gemini-flash-attempt-1",
+    "gemini-flash-attempt-2-clean-slate",
+    "sol-senior-attempt-clean-slate",
+    "astra-final-attempt-clean-slate",
+    "technical-operator-stop"
+  ],
   "manual_bindings": {
-    "planner": "sol-high",
+    "controller": "chatgpt-sol",
+    "planner": "chatgpt-sol",
     "default_implementer": "gemini-flash",
     "final_escalation_implementer": "astra",
     "qualified_reviewer": "terra-xhigh",
     "technical_operator": "qualified-human-or-authorized-operator"
   },
-  "required_project_guards": ["no-secret", "no-live-write", "read-only-teaching-and-lms", "stable-id-student-mapping"],
+  "required_project_guards": [
+    "no-secret",
+    "no-live-write",
+    "read-only-teaching-and-lms",
+    "stable-id-student-mapping"
+  ],
   "evidence_tiers": ["LOCAL_HERMETIC", "CI", "HOSTED", "LIVE", "PRODUCTION"]
 }

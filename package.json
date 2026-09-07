@@ -18,6 +18,7 @@
     "verify:no-secrets": "node scripts/verify_no_secrets.mjs",
     "verify:no-live-write": "node scripts/verify_no_live_write.mjs",
     "workflow:test": "node --test test/workflow-v9.test.mjs",
+    "workflow:bootstrap-test": "node --test test/workflow-bootstrap-v9.1.test.mjs",
     "workflow:pilot": "node scripts/qq-ai-workflow/run-pilots.mjs",
     "workflow:freeze": "node scripts/qq-ai-workflow/freeze-manifest.mjs",
     "workflow:risk": "node scripts/qq-ai-workflow/inspect-risk.mjs",
