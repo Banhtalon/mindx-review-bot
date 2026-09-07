@@ -1,0 +1,143 @@
+{
+  "schema_version": "qq.workflow.verification-manifest.v9",
+  "task_id": "TASK-11",
+  "scope_revision": 1,
+  "base_sha": "cf07aeb680c9c3b0e06813d2e1a66ceea6f9b427",
+  "evidence_tier": "HOSTED",
+  "acceptance_criteria": [
+    {
+      "id": "P2-B",
+      "text": "Hosted Supabase migration history is aligned with the four committed migration versions using a supported migration-history workflow; a synthetic Auth actor/workspace exists; required provider configuration is private; no real jobs/browser state are affected; product cron remains disabled."
+    },
+    {
+      "id": "P2-C",
+      "text": "Hosted RPC/lease/heartbeat/retry boundaries and encrypted synthetic browser-state persist, separate-process reuse, reset, and exact cleanup pass."
+    },
+    {
+      "id": "P2-D",
+      "text": "One isolated synthetic Edge dispatch is accepted idempotently and completes in GitHub cloud execution with the Owner PC able to be off; the temporary dispatch target is restored and product cron stays disabled."
+    },
+    {
+      "id": "P2-E",
+      "text": "Evidence explicitly distinguishes LOCAL_HERMETIC, CI, HOSTED, and future LIVE readiness and contains no credential, token, cookie, JWT, browser state, or student PII."
+    },
+    {
+      "id": "P2-F",
+      "text": "Stable final candidate passes required current-head verify CI, fresh exact-head Qualified Review, Controller readiness, and has no unresolved safety or scope blocker."
+    },
+    {
+      "id": "SCOPE",
+      "text": "No Phase 3/4/6 expansion, no live Teaching/LMS write, no automatic Zalo send, no CAPTCHA/OTP bypass, no new schema/RLS redesign, and model routing remains manual."
+    }
+  ],
+  "gates": [
+    {
+      "id": "workflow-v9-unit",
+      "argv": [
+        "node",
+        "--test",
+        "test/workflow-v9.test.mjs"
+      ],
+      "timeout_seconds": 120,
+      "required": true
+    },
+    {
+      "id": "phase2-hosted-unit",
+      "argv": [
+        "uv",
+        "run",
+        "--project",
+        "apps/browser-runner",
+        "pytest",
+        "apps/browser-runner/tests/unit/test_hosted_probe.py",
+        "apps/browser-runner/tests/unit/test_supabase_client.py",
+        "apps/browser-runner/tests/unit/test_workflow_contract.py"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "phase2-web-contract",
+      "argv": [
+        "npx",
+        "vitest",
+        "run",
+        "test/cron-workflow.test.ts",
+        "test/ci-contract.test.ts"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "lint",
+      "argv": [
+        "npm",
+        "run",
+        "lint"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "typecheck",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "test",
+      "argv": [
+        "npm",
+        "run",
+        "test"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "build",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "verify:no-secrets",
+      "argv": [
+        "npm",
+        "run",
+        "verify:no-secrets"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "verify:no-live-write",
+      "argv": [
+        "npm",
+        "run",
+        "verify:no-live-write"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "diff-check",
+      "argv": [
+        "git",
+        "diff",
+        "--check",
+        "cf07aeb680c9c3b0e06813d2e1a66ceea6f9b427"
+      ],
+      "timeout_seconds": 60,
+      "required": true
+    }
+  ]
+}
