@@ -5,11 +5,17 @@
   "routing_mode": "MANUAL",
   "control_plane": {
     "authoritative_task_state": "github_issue",
-    "current_issue": "https://github.com/Banhtalon/mindx-review-bot/issues/12",
+    "current_issue": "https://github.com/Banhtalon/mindx-review-bot/issues/11",
     "manifest_digest_anchor_required": true
   },
   "owner_technical_review_required": false,
-  "attempt_ladder": ["gemini-flash-attempt-1", "gemini-flash-attempt-2-clean-slate", "sol-senior-attempt-clean-slate", "astra-final-attempt-clean-slate", "technical-operator-stop"],
+  "attempt_ladder": [
+    "gemini-flash-attempt-1",
+    "gemini-flash-attempt-2-clean-slate",
+    "sol-senior-attempt-clean-slate",
+    "astra-final-attempt-clean-slate",
+    "technical-operator-stop"
+  ],
   "manual_bindings": {
     "planner": "sol-high",
     "default_implementer": "gemini-flash",
@@ -17,6 +23,17 @@
     "qualified_reviewer": "terra-xhigh",
     "technical_operator": "qualified-human-or-authorized-operator"
   },
-  "required_project_guards": ["no-secret", "no-live-write", "read-only-teaching-and-lms", "stable-id-student-mapping"],
-  "evidence_tiers": ["LOCAL_HERMETIC", "CI", "HOSTED", "LIVE", "PRODUCTION"]
+  "required_project_guards": [
+    "no-secret",
+    "no-live-write",
+    "read-only-teaching-and-lms",
+    "stable-id-student-mapping"
+  ],
+  "evidence_tiers": [
+    "LOCAL_HERMETIC",
+    "CI",
+    "HOSTED",
+    "LIVE",
+    "PRODUCTION"
+  ]
 }
