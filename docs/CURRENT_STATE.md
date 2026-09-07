@@ -1,6 +1,6 @@
 # Current Project State
 
-Last workflow baseline on `main`: `255ccf9635aecc50474a0a88049355ef4c3638fc`. v9 is authorized by Issue #12 and is on final clean-slate attempt 4; it is not active on `main` until review and merge.
+Last workflow baseline on `main`: `255ccf9635aecc50474a0a88049355ef4c3638fc`. Issue #12 revision 1 exhausted attempt 4 with Qualified Review NEEDS_FIX. Owner authorized revision 2 to fix those findings; it starts from `519d4a1ae881c5a8a2960aa77ab2c01b6b54b57b` in a new worktree. v9 is not active on main until review and merge.
 
 This file is a routing/status summary for agents. It does not replace the V4 master specification. Live GitHub issue/ruleset/CI state is authoritative for rapidly changing workflow-control fields.
 
@@ -36,7 +36,7 @@ Repository controls confirmed live on `main`:
 Workflow control status:
 
 - **Revision-4 baseline**: Historical workflow completed through PR #6 and PR #9.
-- **v9 task**: Issue #12, scope revision 1, final clean-slate attempt 4 has local frozen-manifest PASS. Prior attempts stopped at recorded gates and were not reused.
+- **v9 task**: Issue #12, scope revision 2, attempt 1 hardens external authority, candidate binding, risk, attempt reservations, glob handling and bounded redaction. Revision 1 evidence remains historical.
 - **Verification**: Required `verify` CI remains unchanged; v9 adds frozen task gates and redacted evidence without weakening product checks.
 - **Routing**: `MANUAL`; no scheduled development router or automatic retry is enabled.
 
@@ -130,7 +130,7 @@ No model opinion can declare deterministic PASS or final DONE.
 Workflow status:
 
 - Revision-4 remains active on `main` until v9 is merged.
-- Issue #12 has local/hermetic PASS and still needs exact-head Qualified Review, PR CI, and Owner manual merge.
+- Issue #12 revision 2 must pass its newly frozen manifest, CI and fresh Qualified Review before readiness and Owner manual merge.
 - Automatic model routing is deliberately deferred to a separately approved future task.
 
 Product blockers / prerequisites:

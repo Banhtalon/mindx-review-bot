@@ -6,7 +6,7 @@ INTAKE
   -> READY
 
 READY
-  -> IMPLEMENTING
+  -> RESERVED -> IMPLEMENTING
   -> BLOCKED_OWNER | BLOCKED_EXTERNAL | ESCALATED_TECHNICAL
 
 IMPLEMENTING
@@ -41,6 +41,11 @@ BLOCKED_* / ESCALATED_TECHNICAL
 
 Only the Controller records transitions. An implementer or reviewer recommends
 a transition but does not mutate authoritative state.
+
+RESERVED consumes an attempt durably before Git worktree creation. A crash or
+failure leaves the reservation consumed and requires a Technical Operator
+disposition. Never automatically replay a worktree creation after ambiguity.
+See CONTROLLER_OPERATIONS.md for digest-pinned execution and recovery.
 
 ## Invariants
 

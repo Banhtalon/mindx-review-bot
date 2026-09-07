@@ -20,7 +20,8 @@ export default tseslint.config(
         clearTimeout: "readonly",
         console: "readonly",
         process: "readonly",
-        setTimeout: "readonly"
+        setTimeout: "readonly",
+        structuredClone: "readonly"
       }
     }
   },

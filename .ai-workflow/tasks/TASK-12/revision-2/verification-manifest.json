@@ -1,0 +1,131 @@
+{
+  "schema_version": "qq.workflow.verification-manifest.v9",
+  "task_id": "TASK-12",
+  "scope_revision": 2,
+  "base_sha": "519d4a1ae881c5a8a2960aa77ab2c01b6b54b57b",
+  "evidence_tier": "LOCAL_HERMETIC",
+  "acceptance_criteria": [
+    {
+      "id": "R2-1",
+      "text": "External Controller anchor rejects coordinated manifest and lock rewrite"
+    },
+    {
+      "id": "R2-2",
+      "text": "Verification binds exact clean Git HEAD before and after gates"
+    },
+    {
+      "id": "R2-3",
+      "text": "Risk derives complete Git diff and authoritative prior risk with control path coverage"
+    },
+    {
+      "id": "R2-4",
+      "text": "Controller ledger enforces unique monotonic clean attempts and durable reservation"
+    },
+    {
+      "id": "R2-5",
+      "text": "Root and nested protected glob regressions pass"
+    },
+    {
+      "id": "R2-6",
+      "text": "Output boundary is bounded and does not leak split or oversized secrets"
+    },
+    {
+      "id": "R2-7",
+      "text": "Three hermetic pilots, existing product gates and fresh independent review pass; routing remains manual"
+    }
+  ],
+  "gates": [
+    {
+      "id": "workflow-v9-unit",
+      "argv": [
+        "node",
+        "--test",
+        "test/workflow-v9.test.mjs"
+      ],
+      "timeout_seconds": 120,
+      "required": true
+    },
+    {
+      "id": "workflow-v9-pilots",
+      "argv": [
+        "node",
+        "scripts/qq-ai-workflow/run-pilots.mjs",
+        "--output",
+        ".ai-workflow/runtime/pilot-summary.json"
+      ],
+      "timeout_seconds": 120,
+      "required": true
+    },
+    {
+      "id": "lint",
+      "argv": [
+        "npm",
+        "run",
+        "lint"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "typecheck",
+      "argv": [
+        "npm",
+        "run",
+        "typecheck"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "test",
+      "argv": [
+        "npm",
+        "run",
+        "test"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "build",
+      "argv": [
+        "npm",
+        "run",
+        "build"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "verify:no-secrets",
+      "argv": [
+        "npm",
+        "run",
+        "verify:no-secrets"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "verify:no-live-write",
+      "argv": [
+        "npm",
+        "run",
+        "verify:no-live-write"
+      ],
+      "timeout_seconds": 600,
+      "required": true
+    },
+    {
+      "id": "diff-check",
+      "argv": [
+        "git",
+        "diff",
+        "--check",
+        "519d4a1ae881c5a8a2960aa77ab2c01b6b54b57b"
+      ],
+      "timeout_seconds": 60,
+      "required": true
+    }
+  ]
+}
