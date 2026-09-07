@@ -203,3 +203,18 @@ test("concurrent reservations cannot allocate the same next attempt", async () =
   ]);
   assert.equal(results.filter(r => r.status === "fulfilled").length, 1);
 });
+
+test("candidate attributes cannot hide dangerous text from risk", async () => {
+  const f = await fixture(rules, { ".gitattributes": "notes.md -diff\n",
+    "notes.md": "DROP TABLE students;" });
+  assert.equal(inspectCandidate(f.cwd, f.control).effective, "RED");
+});
+
+test("index hiding flags cannot hide changed disk bytes", async () => {
+  for (const flag of ["--assume-unchanged", "--skip-worktree"]) {
+    const f = await fixture(rules);
+    git(f.cwd, "update-index", flag, "notes.md");
+    await writeFile(path.join(f.cwd, "notes.md"), "hidden change");
+    await assert.rejects(verifyManifest(f.manifestPath, f), /hidden index|disk bytes/);
+  }
+});
