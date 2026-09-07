@@ -1,0 +1,1 @@
+{"task_id":"TASK-PILOT-ESCALATION","fixture":"supabase/migrations/999_drop_students.sql","fixture_diff":"DROP TABLE students;","declared_risk":"GREEN","prior_effective_risk":"YELLOW","complexity":"S","expected_effective_risk":"RED","expected_required_roles":["QUALIFIED_REVIEWER","TECHNICAL_OPERATOR"],"expected_action":"STOP_AND_ESCALATE","expected_verification_invoked":false}

@@ -1,0 +1,8 @@
+{
+  "schema_version": "qq.workflow.verification-lock.v9",
+  "task_id": "TASK-12",
+  "scope_revision": 2,
+  "base_sha": "519d4a1ae881c5a8a2960aa77ab2c01b6b54b57b",
+  "manifest_sha256": "sha256:9777b51691c98ea03e310074d5646fc5956b0ed08d19cd802fab1c397163f310",
+  "frozen_at": "2026-09-07T01:55:07.637Z"
+}

@@ -13,5 +13,17 @@ export default tseslint.config(
     ],
   },
   eslint.configs.recommended,
+  {
+    files: ["scripts/qq-ai-workflow/**/*.mjs", "test/workflow-v9.test.mjs"],
+    languageOptions: {
+      globals: {
+        clearTimeout: "readonly",
+        console: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+        structuredClone: "readonly"
+      }
+    }
+  },
   ...tseslint.configs.recommended,
 );

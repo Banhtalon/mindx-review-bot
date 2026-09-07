@@ -15,3 +15,4 @@ supabase/.temp/
 playwright-report/
 test-results/
 .worktrees/
+.ai-workflow/runtime/

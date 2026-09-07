@@ -1,0 +1,1 @@
+{"task_id":"TASK-PILOT-YELLOW","fixture":".github/workflows/ci.yml","declared_risk":"GREEN","complexity":"S","expected_effective_risk":"YELLOW","expected_required_role":"QUALIFIED_REVIEWER","expected_verification":"PASS"}

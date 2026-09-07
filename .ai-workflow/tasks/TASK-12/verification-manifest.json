@@ -1,0 +1,27 @@
+{
+  "schema_version": "qq.workflow.verification-manifest.v9",
+  "task_id": "TASK-12",
+  "scope_revision": 1,
+  "base_sha": "255ccf9635aecc50474a0a88049355ef4c3638fc",
+  "evidence_tier": "LOCAL_HERMETIC",
+  "acceptance_criteria": [
+    { "id": "AC1", "text": "Canonical v9 documents and basic scripts are present" },
+    { "id": "AC2", "text": "Risk and complexity are separate and risk is monotonic" },
+    { "id": "AC3", "text": "Frozen verification tampering fails closed" },
+    { "id": "AC4", "text": "GREEN, YELLOW, and RED escalation pilots pass" },
+    { "id": "AC5", "text": "Existing product verification and safety guards remain green" },
+    { "id": "AC6", "text": "Legacy workflow conflicts are replaced or explicitly superseded" },
+    { "id": "AC7", "text": "No automatic model routing is introduced" }
+  ],
+  "gates": [
+    { "id": "workflow-v9-unit", "argv": ["node", "--test", "test/workflow-v9.test.mjs"], "timeout_seconds": 60, "required": true },
+    { "id": "workflow-v9-pilots", "argv": ["node", "scripts/qq-ai-workflow/run-pilots.mjs", "--base-sha", "255ccf9635aecc50474a0a88049355ef4c3638fc", "--output", ".ai-workflow/runtime/pilot-summary.json"], "timeout_seconds": 60, "required": true },
+    { "id": "lint", "argv": ["npm", "run", "lint"], "timeout_seconds": 300, "required": true },
+    { "id": "typecheck", "argv": ["npm", "run", "typecheck"], "timeout_seconds": 300, "required": true },
+    { "id": "web-tests", "argv": ["npm", "run", "test"], "timeout_seconds": 600, "required": true },
+    { "id": "build", "argv": ["npm", "run", "build"], "timeout_seconds": 600, "required": true },
+    { "id": "no-secrets", "argv": ["npm", "run", "verify:no-secrets"], "timeout_seconds": 300, "required": true },
+    { "id": "no-live-write", "argv": ["npm", "run", "verify:no-live-write"], "timeout_seconds": 300, "required": true },
+    { "id": "diff-check", "argv": ["git", "diff", "--check", "255ccf9635aecc50474a0a88049355ef4c3638fc"], "timeout_seconds": 60, "required": true }
+  ]
+}
