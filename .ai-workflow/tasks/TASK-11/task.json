@@ -1,0 +1,74 @@
+{
+  "schema_version": "qq.workflow.task.v9",
+  "task_id": "TASK-11",
+  "title": "Phase 2 hosted/off-PC closure",
+  "scope_revision": 1,
+  "state": "WAITING_FOR_OWNER",
+  "base_sha": "cf07aeb680c9c3b0e06813d2e1a66ceea6f9b427",
+  "risk": {
+    "declared": "RED",
+    "prior_effective": "RED",
+    "effective": "RED",
+    "observations": [
+      "hosted Supabase migration-history alignment",
+      "synthetic Auth/workspace and provider secret configuration",
+      "cloud workflow and Edge dispatch controls",
+      "database/auth/deployment boundaries require Technical Operator"
+    ]
+  },
+  "complexity": {
+    "level": "L",
+    "drivers": [
+      "cross-provider hosted proof",
+      "clean v9 rebase from post-adoption main",
+      "PC-off cloud dispatch evidence"
+    ]
+  },
+  "scope": {
+    "in": [
+      "Phase 2 hosted migration/RPC verification",
+      "synthetic Auth actor/workspace setup",
+      "hosted encrypted browser-state persist/reuse/reset/cleanup",
+      "isolated Edge dispatch and PC-off GitHub execution proof",
+      "port only the existing Phase 2 closure implementation needed from the historical branch onto a v9-controlled clean attempt",
+      "Phase 2 evidence reconciliation and final verification"
+    ],
+    "out": [
+      "Phase 3 live Teaching reader",
+      "Phase 4 live LMS reader",
+      "Phase 5/6 expansion",
+      "LMS Save/Submit/comment writes",
+      "automatic Zalo send",
+      "CAPTCHA/OTP/anti-bot bypass",
+      "new schema/RLS redesign",
+      "automatic model routing",
+      "Owner merge"
+    ]
+  },
+  "owner_acceptance": [
+    "Hosted Phase 2 infrastructure can complete cloud work while the Owner PC is off.",
+    "Teaching/LMS remain read-only and product cron remains disabled.",
+    "No secret, browser state, or student PII appears in repository evidence or chat."
+  ],
+  "attempt": {
+    "number": 0,
+    "max": 4
+  },
+  "assignments": {
+    "controller": "manual external Controller",
+    "planner": "sol-high",
+    "implementer": "unassigned until P2-B external checkpoint clears",
+    "qualified_reviewer": "terra-xhigh on the stable final candidate",
+    "technical_operator": "required for RED migration/auth/provider operations"
+  },
+  "verification_manifest": ".ai-workflow/tasks/TASK-11/verification-manifest.json",
+  "owner_summary": "v9 is active on main. TASK-11 is frozen at the post-v9 base, but no implementation attempt is reserved yet. Hosted P2-B still has migration-history drift and no synthetic Auth actor/workspace.",
+  "owner_action": "Use the supported Supabase migration-history repair workflow and Auth Admin/provider UI privately; do not paste any secret. After P2-B is aligned, the Controller may reserve attempt 1.",
+  "current_limit": "P2-B external/provider checkpoint only; hosted RPC/Storage probe and PC-off dispatch have not run.",
+  "evidence": [
+    "Issue #11 hosted checkpoint comments",
+    "Supabase remote migration list rechecked 2026-09-07",
+    "Supabase synthetic-state counts rechecked 2026-09-07",
+    "historical branch codex/issue-11-phase2-hosted-closure is source material only, not an active v9 attempt"
+  ]
+}

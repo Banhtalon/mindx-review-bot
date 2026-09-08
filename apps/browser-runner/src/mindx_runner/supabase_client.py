@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal, Protocol, cast
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 from uuid import UUID
 
@@ -42,6 +42,7 @@ SAFE_ERROR_CODES = frozenset(
         "SITE_ADAPTER_NOT_CONFIGURED",
         "RUNNER_FAILED",
         "RUNNER_TIMEOUT",
+        "HOSTED_PROBE_CANCELLED",
     }
 )
 JobType = Literal["sync_teaching", "read_lms_pending"]
@@ -97,6 +98,27 @@ class ClaimedRun:
     attempt: int
 
 
+@dataclass(frozen=True, slots=True)
+class BrowserStateRecord:
+    version_id: str
+    workspace_id: str
+    site: str
+    object_path: str
+    key_version: int
+    state_hash: str
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
+class EnqueuedProbeJob:
+    job_id: str
+    workspace_id: str
+    job_type: JobType
+    status: str
+    idempotency_key: str
+    created: bool
+
+
 def _uuid(value: str, field_name: str) -> str:
     try:
         parsed = UUID(value)
@@ -107,6 +129,31 @@ def _uuid(value: str, field_name: str) -> str:
 
 def _runner_id(value: str) -> str:
     if re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,63}", value) is None:
+        raise SupabaseClientError(RUNNER_RESULT_INVALID)
+    return value
+
+
+def _site(value: str) -> str:
+    if value not in ALLOWED_STATE_SITES:
+        raise SupabaseClientError(RUNNER_RESULT_INVALID)
+    return value
+
+
+def _state_hash(value: object) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) != 64
+        or any(char not in "0123456789abcdef" for char in value.lower())
+    ):
+        raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+    return value.lower()
+
+
+def _probe_key(value: str) -> str:
+    if re.fullmatch(
+        r"phase2-probe:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        value,
+    ) is None:
         raise SupabaseClientError(RUNNER_RESULT_INVALID)
     return value
 
@@ -187,6 +234,7 @@ class SupabaseRunnerClient:
         *,
         transport: HttpTransport = _default_transport,
         bucket: str = "browser-state",
+        authorization_token: str | None = None,
     ) -> None:
         parsed = urlparse(base_url)
         if (
@@ -199,6 +247,7 @@ class SupabaseRunnerClient:
             raise SupabaseClientError(RUNNER_RESULT_INVALID)
         self.base_url = base_url.rstrip("/")
         self._secret_key = secret_key
+        self._authorization_token = authorization_token or secret_key
         self._transport = transport
         self.bucket = bucket
         self.object_store = SupabaseStorageObjectStore(self)
@@ -216,7 +265,7 @@ class SupabaseRunnerClient:
     ) -> HttpResponse:
         headers = {
             "Accept": "application/json",
-            "Authorization": f"Bearer {self._secret_key}",
+            "Authorization": f"Bearer {self._authorization_token}",
             "apikey": self._secret_key,
         }
         if content_type is not None:
@@ -260,6 +309,8 @@ class SupabaseRunnerClient:
             or job_type not in {"sync_teaching", "read_lms_pending"}
             or not isinstance(payload, dict)
             or not isinstance(row.get("attempt"), int)
+            or isinstance(row.get("attempt"), bool)
+            or not 1 <= cast(int, row["attempt"]) <= 3
         ):
             raise SupabaseClientError(SUPABASE_UNAVAILABLE)
         return ClaimedRun(
@@ -271,6 +322,100 @@ class SupabaseRunnerClient:
             payload=cast(dict[str, object], payload),
             attempt=row["attempt"],
         )
+
+    def enqueue_probe_job(
+        self,
+        workspace_id: str,
+        requested_by: str,
+        probe_id: str,
+    ) -> EnqueuedProbeJob:
+        workspace = _uuid(workspace_id, "workspace_id")
+        actor = _uuid(requested_by, "requested_by")
+        probe = _uuid(probe_id, "probe_id")
+        idempotency_key = _probe_key(f"phase2-probe:{probe}")
+        raw = self._rpc(
+            "enqueue_automation_job",
+            {
+                "target_workspace_id": workspace,
+                "target_type": "read_lms_pending",
+                "target_idempotency_key": idempotency_key,
+                "target_payload": {},
+                "target_requested_by": actor,
+            },
+        )
+        if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        row = cast(dict[str, Any], raw[0])
+        if (
+            row.get("workspace_id") != workspace
+            or row.get("job_type") != "read_lms_pending"
+            or row.get("status") not in {"queued", "dispatching", "dispatched"}
+            or row.get("idempotency_key") != idempotency_key
+            or row.get("payload_json") != {}
+            or not isinstance(row.get("created"), bool)
+        ):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        return EnqueuedProbeJob(
+            job_id=_uuid(str(row.get("job_id")), "job_id"),
+            workspace_id=workspace,
+            job_type="read_lms_pending",
+            status=cast(str, row["status"]),
+            idempotency_key=idempotency_key,
+            created=cast(bool, row["created"]),
+        )
+
+    def verify_authenticated_identity(self) -> str:
+        response = self._request("GET", "/auth/v1/user", None)
+        self._require_success(response)
+        raw = _json_value(response.body)
+        if not isinstance(raw, dict):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        return _uuid(str(raw.get("id")), "user_id")
+
+    def claim_job_dispatch(self, job_id: str) -> bool:
+        target_job_id = _uuid(job_id, "job_id")
+        raw = self._rpc("claim_automation_job_dispatch", {"target_job_id": target_job_id})
+        if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        claimed = raw[0].get("claimed")
+        status = raw[0].get("status")
+        if not isinstance(claimed, bool) or status not in {
+            "queued",
+            "dispatching",
+            "dispatched",
+            "dispatch_failed",
+        }:
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        return claimed
+
+    def finish_job_dispatch(self, job_id: str) -> None:
+        target_job_id = _uuid(job_id, "job_id")
+        raw = self._rpc(
+            "finish_automation_job_dispatch",
+            {"target_job_id": target_job_id, "target_status": "dispatched"},
+        )
+        if (
+            not isinstance(raw, list)
+            or len(raw) != 1
+            or not isinstance(raw[0], dict)
+            or raw[0].get("status") != "dispatched"
+        ):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+
+    def expire_probe_lease(self, job_id: str) -> None:
+        target_job_id = _uuid(job_id, "job_id")
+        response = self._request(
+            "PATCH",
+            f"/rest/v1/automation_jobs?id=eq.{target_job_id}",
+            _json_body(
+                {
+                    "heartbeat_at": "2000-01-01T00:00:00Z",
+                    "lease_expires_at": "2000-01-01T00:00:00Z",
+                }
+            ),
+            content_type="application/json",
+        )
+        self._require_success(response)
 
     def finish_job_run(
         self,
@@ -374,3 +519,61 @@ class SupabaseRunnerClient:
             raise SupabaseClientError(SUPABASE_UNAVAILABLE)
         _object_path(path, self.bucket)
         return path
+
+    def get_active_browser_state(
+        self,
+        workspace_id: str,
+        site: str,
+    ) -> BrowserStateRecord | None:
+        workspace = _uuid(workspace_id, "workspace_id")
+        target_site = _site(site)
+        query = urlencode(
+            {
+                "select": "id,workspace_id,site,object_path,key_version,state_hash,status",
+                "workspace_id": f"eq.{workspace}",
+                "site": f"eq.{target_site}",
+                "status": "eq.active",
+                "limit": "2",
+            }
+        )
+        response = self._request("GET", f"/rest/v1/browser_state_versions?{query}", None)
+        self._require_success(response)
+        raw = _json_value(response.body)
+        if raw == []:
+            return None
+        if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        row = cast(dict[str, Any], raw[0])
+        if (
+            row.get("workspace_id") != workspace
+            or row.get("site") != target_site
+            or row.get("status") != "active"
+            or not isinstance(row.get("object_path"), str)
+            or not isinstance(row.get("key_version"), int)
+            or isinstance(row.get("key_version"), bool)
+            or cast(int, row["key_version"]) < 1
+        ):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        version_id = _uuid(str(row.get("id")), "version_id")
+        object_path = cast(str, row["object_path"])
+        _object_path(object_path, self.bucket)
+        return BrowserStateRecord(
+            version_id=version_id,
+            workspace_id=workspace,
+            site=target_site,
+            object_path=object_path,
+            key_version=cast(int, row["key_version"]),
+            state_hash=_state_hash(row.get("state_hash")),
+            status="active",
+        )
+
+    def delete_probe_rows(self, version_id: str, idempotency_key: str) -> None:
+        version = _uuid(version_id, "version_id")
+        probe_key = _probe_key(idempotency_key)
+        for path in (
+            f"/rest/v1/browser_state_versions?id=eq.{version}",
+            "/rest/v1/automation_jobs?"
+            + urlencode({"idempotency_key": f"eq.{probe_key}"}),
+        ):
+            response = self._request("DELETE", path, None)
+            self._require_success(response)

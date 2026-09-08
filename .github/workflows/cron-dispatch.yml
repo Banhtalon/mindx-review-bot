@@ -7,6 +7,11 @@ on:
     - cron: "37 16 * * *"
   workflow_dispatch:
     inputs:
+      dispatch_enabled:
+        description: Explicitly enable this manual dispatch
+        required: true
+        type: boolean
+        default: false
       job_type:
         description: Read-only job type
         required: true
@@ -32,6 +37,7 @@ jobs:
 
       - name: Dispatch read-only job
         env:
+          CRON_DISPATCH_ENABLED: ${{ github.event_name == 'workflow_dispatch' && (inputs.dispatch_enabled && 'true' || 'false') || vars.CRON_DISPATCH_ENABLED }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
           CRON_WORKSPACE_ID: ${{ secrets.CRON_WORKSPACE_ID }}
