@@ -33,3 +33,12 @@ Functions or browser E2E scripts yet.
 - Log metadata uses a fail-closed allowlist.
 - `MVP_LMS_WRITE_ENABLED` is rejected when enabled.
 - No credentials, cookies, real student data or live screenshots belong in the repo.
+
+## Workflow file handoffs
+
+QQ AI Workflow template release 9.1.2 uses downloadable files for Controller
+handoffs and results, so the Owner does not copy long packets between tools.
+Read `.ai-workflow/HANDOFF_FILES.md` for the exact filenames and short GitHub
+Issue checkpoint convention. This does not change the active TASK-11 authority,
+frozen manifest, external Controller snapshot, MANUAL routing, or project
+safety boundaries.
