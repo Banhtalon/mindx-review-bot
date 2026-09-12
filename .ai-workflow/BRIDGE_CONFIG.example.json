@@ -45,5 +45,12 @@
     ],
     "model": "REPLACE_WITH_PROBED_ASTRA_MODEL",
     "effort": "xhigh"
+  },
+  "github": {
+    "repository": "Banhtalon/mindx-review-bot",
+    "remote": "origin",
+    "base_branch": "main",
+    "auto_push_ready": true,
+    "auto_open_pr": true
   }
 }
