@@ -1,0 +1,57 @@
+name: Adopt QQ Workflow v10
+
+on:
+  push:
+    branches:
+      - codex/adopt-v10-local-auto
+
+permissions:
+  contents: write
+
+jobs:
+  adopt:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout mindx-review-bot
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Checkout pinned QQ Workflow v10
+        uses: actions/checkout@v4
+        with:
+          repository: Banhtalon/qq-ai-workflow
+          ref: e0c1944268bb328f992b6716cff72a64bc72a936
+          path: .v10-template
+          fetch-depth: 1
+
+      - name: Verify pinned template before adoption
+        working-directory: .v10-template
+        run: |
+          npm test
+          npm run workflow:check
+          npm run pilot
+
+      - name: Apply v10 adoption overlay
+        run: node .v10-adopt/apply.mjs
+
+      - name: Verify host integration
+        run: npm run workflow:v10-check
+
+      - name: Diff sanity
+        run: git diff --check
+
+      - name: Commit adopted workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: adopt QQ Workflow v10 local-auto bridge"
+          git push origin HEAD:codex/adopt-v10-local-auto
