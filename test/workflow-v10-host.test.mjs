@@ -25,7 +25,11 @@ describe('mindx v10 host wrapper',()=>{
     await file(dir,'src/auth/session.ts','export const session=1;\n');
     await file(dir,'apps/browser-runner/runner.py','VALUE = 1\n');
     await file(dir,'apps/browser-runner/tests/test_runner.py','VALUE = 1\n');
-    run('git',['init'],dir);run('git',['add','.'],dir);
+    run('git',['init'],dir);
+    run('git',['config','user.name','QQ test'],dir);
+    run('git',['config','user.email','qq-test@example.invalid'],dir);
+    run('git',['add','.'],dir);
+    run('git',['commit','-m','fixture'],dir);
 
     const output=run(process.execPath,['scripts/qq-setup.mjs'],dir);
     expect(output).toContain('SETUP_CREATED');
