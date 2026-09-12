@@ -21,7 +21,7 @@ export default tseslint.config(
   },
   eslint.configs.recommended,
   {
-    files: ["scripts/check-workflow-v10.mjs", "scripts/qq-auto.mjs"],
+    files: ["scripts/check-workflow-v10.mjs", "scripts/qq-auto.mjs", "scripts/qq-setup.mjs"],
     languageOptions: {
       globals: {
         Buffer: "readonly",
