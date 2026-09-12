@@ -23,6 +23,7 @@
     "workflow:route": "node scripts/workflow.mjs route",
     "workflow:verify": "node scripts/workflow.mjs verify",
     "workflow:owner-status": "node scripts/workflow.mjs status",
+    "qq:setup": "node scripts/qq-setup.mjs",
     "qq:doctor": "node scripts/qq-auto.mjs doctor",
     "qq:pilot": "node scripts/qq-auto.mjs pilot",
     "qq:quota-drill": "node scripts/qq-auto.mjs quota-drill",
