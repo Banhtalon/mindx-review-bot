@@ -39,6 +39,9 @@ jobs:
           npm run workflow:check
           npm run pilot
 
+      - name: Patch bootstrap for repository token boundary
+        run: node .v10-adopt/prepatch.mjs
+
       - name: Apply v10 adoption overlay
         run: node .v10-adopt/apply.mjs
 
