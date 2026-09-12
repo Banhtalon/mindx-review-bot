@@ -1,5 +1,5 @@
 import path from 'node:path';
-import {access,copyFile,mkdir,readFile,writeFile} from 'node:fs/promises';
+import {access,copyFile,mkdir,writeFile} from 'node:fs/promises';
 import {execFileSync} from 'node:child_process';
 import {readJson,freeze} from './lib/workflow.mjs';
 import {inspect,runBridge,quotaDrill,activate} from './lib/bridge.mjs';
