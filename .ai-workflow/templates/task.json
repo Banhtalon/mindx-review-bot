@@ -1,0 +1,38 @@
+{
+  "schema_version": "qq.workflow.task.v10",
+  "task_id": "TASK-EXAMPLE",
+  "revision": 1,
+  "base_sha": "REPLACE_WITH_FULL_BASE_SHA",
+  "goal": "Describe one feature",
+  "acceptance_criteria": [
+    "Replace with observable expected behavior"
+  ],
+  "gates": [
+    {
+      "id": "relevant-tests",
+      "argv": [
+        "node",
+        "--test",
+        "test/feature.test.mjs"
+      ],
+      "timeout_seconds": 120
+    }
+  ],
+  "user_visible": true,
+  "risk": "LOW",
+  "complexity": "SIMPLE",
+  "execution": {
+    "policy": "GEMINI_FIRST_V1",
+    "prepared": false,
+    "local_synthetic": false,
+    "rationale": "Lead records the inspected scope, approach and risk checks before freezing",
+    "design_sessions": [],
+    "browser_required": true
+  },
+  "candidate_head": null,
+  "contract_sha256": null,
+  "implementer_sessions": [],
+  "repair_rounds": 0,
+  "senior_passes": 0,
+  "owner_acceptance": null
+}

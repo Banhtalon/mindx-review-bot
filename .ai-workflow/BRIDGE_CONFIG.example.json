@@ -1,0 +1,56 @@
+{
+  "schema_version": "qq.bridge.v1",
+  "billing": "SUBSCRIPTION_ONLY",
+  "mode": "ASSISTED",
+  "timeout_seconds": 600,
+  "write_paths": [
+    "src/App.tsx"
+  ],
+  "gate_paths": [
+    "scripts/verify_no_secrets.mjs",
+    "scripts/verify_no_live_write.mjs"
+  ],
+  "review_context_paths": [
+    ".ai-workflow/MINDX_PROJECT_RULES.md",
+    "docs/CURRENT_STATE.md"
+  ],
+  "worker": {
+    "provider": "google",
+    "cli": "gemini",
+    "command": [
+      "gemini"
+    ],
+    "model": "flash"
+  },
+  "reviewer": {
+    "provider": "openai",
+    "command": [
+      "codex"
+    ],
+    "model": "REPLACE_WITH_PROBED_TERRA_MODEL",
+    "effort": "xhigh"
+  },
+  "senior": {
+    "provider": "openai",
+    "command": [
+      "codex"
+    ],
+    "model": "REPLACE_WITH_PROBED_ASTRA_MODEL",
+    "effort": "high"
+  },
+  "elevated_reviewer": {
+    "provider": "openai",
+    "command": [
+      "codex"
+    ],
+    "model": "REPLACE_WITH_PROBED_ASTRA_MODEL",
+    "effort": "xhigh"
+  },
+  "github": {
+    "repository": "Banhtalon/mindx-review-bot",
+    "remote": "origin",
+    "base_branch": "main",
+    "auto_push_ready": true,
+    "auto_open_pr": true
+  }
+}

@@ -1,18 +1,4 @@
-# Implementer Bootstrap Prompt
+# Implementer task entry
 
-Read `.ai-workflow/BOOTSTRAP.md` and take role `IMPLEMENTER` for the current
-Controller-authorized attempt.
-
-Then read the canonical v9 spec, actor registry, project profile, authoritative
-task state, and the Controller-issued `IMPLEMENTER_HANDOFF` file. Work only on
-the assigned branch/worktree and exact in-scope items.
-
-Implement the requested change, add/update appropriate tests, run the requested
-focused/affected checks, commit the candidate, and return a downloadable
-`TASK-<id>-implementer-result.md` following the bounded `IMPLEMENTER_RESULT`
-template.
-
-Do not reserve attempts, change task state/scope/risk, edit the frozen manifest
-or lock to make work pass, broaden scope, merge, or declare completion. If the
-handoff is missing/invalid or a stop condition is hit, return `BLOCKED` to the
-Controller with a concise sanitized reason.
+Đọc [quy tắc workflow v10](../V10_CANONICAL_SPEC.md) cùng task packet hiện tại.
+Prompt này không bổ sung quy tắc workflow.
