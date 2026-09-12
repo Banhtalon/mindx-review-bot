@@ -10,20 +10,29 @@ export default tseslint.config(
       "coverage/**",
       "**/.venv/**",
       "supabase/.temp/**",
+      // Pinned QQ Workflow v10 core is validated byte-for-byte against the
+      // template source and by workflow:v10-check. Do not rewrite it to fit
+      // this app's browser-oriented ESLint policy.
+      "scripts/bridge.mjs",
+      "scripts/fast-lane.mjs",
+      "scripts/workflow.mjs",
+      "scripts/lib/**/*.mjs",
     ],
   },
   eslint.configs.recommended,
   {
-    files: ["scripts/qq-ai-workflow/**/*.mjs", "test/workflow-v9.test.mjs"],
+    files: ["scripts/check-workflow-v10.mjs", "scripts/qq-auto.mjs"],
     languageOptions: {
       globals: {
+        Buffer: "readonly",
         clearTimeout: "readonly",
         console: "readonly",
         process: "readonly",
         setTimeout: "readonly",
-        structuredClone: "readonly"
-      }
-    }
+        structuredClone: "readonly",
+        URL: "readonly",
+      },
+    },
   },
   ...tseslint.configs.recommended,
 );
