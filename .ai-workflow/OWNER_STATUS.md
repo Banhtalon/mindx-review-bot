@@ -1,32 +1,14 @@
-# Owner Status Contract
+# Owner status
 
-Every Owner update must fit this structure and avoid code/test jargon unless
-the Owner asks for detail.
+Trạng thái và bằng chứng gốc nằm tại [V10 canonical spec](V10_CANONICAL_SPEC.md#state-and-evidence).
+Báo cáo cho Owner nên ngắn: đã làm gì, đã kiểm tra gì, còn vướng gì, cách dùng thử và quyết định cần có.
 
-```text
-STATUS: WAITING_FOR_OWNER | READY_FOR_OWNER_TEST | DONE | BLOCKED
+## Ví dụ trạng thái chờ
 
-Bạn yêu cầu:
-<one or two plain-language sentences>
+`WAITING_QUOTA` (hết hạn mức): “Cầu nối đã dừng sau lượt reviewer vì hết hạn mức. Bản đang giữ ở commit `abc123`; chưa chạy lại thao tác có kết quả chưa rõ. Khi hạn mức trở lại, Lead sẽ kiểm tra checkpoint rồi tiếp tục.”
 
-Hệ thống đã xác nhận:
-<observable behavior and safety boundary>
+`BLOCKED_TECHNICAL` (vướng kỹ thuật): “Đã dùng hết số lượt sửa trong task này nhưng kiểm thử `npm test` còn lỗi X. Bản và bằng chứng vẫn giữ ở commit `abc123`. Cần Owner làm rõ phạm vi hoặc hướng kỹ thuật. Task vẫn là `BLOCKED_TECHNICAL`; tạo revision không dùng để đặt lại số lượt sửa.”
 
-Bạn cần làm:
-<NONE, try named behavior, or perform an account-only action in official UI>
+`READY_FOR_OWNER`: nêu 3–5 bước dùng thử, build/head đang được kiểm tra và hành vi mong đợi.
 
-Không cần bạn làm:
-<technical duties explicitly kept away from Owner>
-
-Giới hạn hiện tại:
-<local/CI/hosted/live distinction and any remaining blocker>
-```
-
-Rules:
-
-- never ask Owner to inspect code, SQL, CI, security controls, or logs;
-- never ask Owner to send a secret, token, password, cookie, JWT, or browser
-  state;
-- state exactly what the Owner can observe and what remains unproven;
-- route technical actions to the Technical Operator;
-- `DONE` is allowed only after deterministic and required Owner acceptance.
+`DONE`: ghi nhận nghiệm thu; việc merge được xử lý riêng theo [V10 canonical spec](V10_CANONICAL_SPEC.md).
