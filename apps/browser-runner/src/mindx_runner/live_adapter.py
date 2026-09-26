@@ -53,9 +53,9 @@ def _read_url(job_type: str, payload: Mapping[str, object], login_paths: Collect
     key = "teaching_url" if job_type == "sync_teaching" else "lms_url"
     url = next(
         (
-            candidate_url
+            _read_string(payload, candidate)
             for candidate in (key, "read_url", "page_url", "target_url", "url")
-            if (candidate_url := _read_string(payload, candidate)) is not None
+            if candidate in payload
         ),
         None,
     )
