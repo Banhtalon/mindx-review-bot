@@ -2,6 +2,8 @@
 
 import inspect
 from collections.abc import Collection, Mapping, Sequence
+from dataclasses import dataclass
+from typing import Final
 from urllib.parse import urlparse
 
 from .cli import RunnerError
@@ -138,15 +140,74 @@ async def _page_html(page: object) -> str:
     return value
 
 
+_ALLOWED_CONTEXT_FIELDS: Final[frozenset[str]] = frozenset(
+    {"class_code", "session_number", "source_session_id"}
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _ExpectedContext:
+    class_code: str | None = None
+    session_number: int | None = None
+    source_session_id: str | None = None
+
+
+def _validate_context(job_type: str, payload: Mapping[str, object]) -> _ExpectedContext:
+    direct_class = _read_string(payload, "expected_class_code")
+    if direct_class is not None:
+        direct_class = direct_class.upper()
+    direct_session = _expected_int(payload, "expected_session_number")
+    direct_source = _read_string(payload, "expected_source_session_id")
+
+    raw_context = payload.get("expected_context")
+    if job_type != "sync_teaching":
+        if raw_context is not None:
+            raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+        return _ExpectedContext(
+            class_code=direct_class,
+            session_number=direct_session,
+            source_session_id=direct_source,
+        )
+
+    if raw_context is None:
+        return _ExpectedContext(
+            class_code=direct_class,
+            session_number=direct_session,
+            source_session_id=direct_source,
+        )
+
+    if not isinstance(raw_context, Mapping):
+        raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+
+    for key in raw_context:
+        if not isinstance(key, str) or key not in _ALLOWED_CONTEXT_FIELDS:
+            raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+
+    context_class = _read_string(raw_context, "class_code")
+    if context_class is not None:
+        context_class = context_class.upper()
+    context_session = _expected_int(raw_context, "session_number")
+    context_source = _read_string(raw_context, "source_session_id")
+
+    return _ExpectedContext(
+        class_code=direct_class if direct_class is not None else context_class,
+        session_number=direct_session if direct_session is not None else context_session,
+        source_session_id=direct_source if direct_source is not None else context_source,
+    )
+
+
 def _check_teaching_context(
-    payload: Mapping[str, object],
+    context_or_payload: _ExpectedContext | Mapping[str, object],
     batch: TeachingBatchExtract,
 ) -> int:
-    expected_class = _read_string(payload, "expected_class_code")
-    if expected_class is not None:
-        expected_class = expected_class.upper()
-    expected_session = _expected_int(payload, "expected_session_number")
-    expected_source = _read_string(payload, "expected_source_session_id")
+    context = (
+        context_or_payload
+        if isinstance(context_or_payload, _ExpectedContext)
+        else _validate_context("sync_teaching", context_or_payload)
+    )
+    expected_class = context.class_code
+    expected_session = context.session_number
+    expected_source = context.source_session_id
     sessions = getattr(batch, "sessions", ())
     class_matches = [
         session for session in sessions
@@ -182,12 +243,18 @@ def _check_teaching_context(
     return len(sessions)
 
 
-def _check_lms_context(payload: Mapping[str, object], page: LmsPageExtract) -> int:
-    expected_class = _read_string(payload, "expected_class_code")
-    if expected_class is not None:
-        expected_class = expected_class.upper()
-    expected_session = _expected_int(payload, "expected_session_number")
-    expected_source = _read_string(payload, "expected_source_session_id")
+def _check_lms_context(
+    context_or_payload: _ExpectedContext | Mapping[str, object],
+    page: LmsPageExtract,
+) -> int:
+    context = (
+        context_or_payload
+        if isinstance(context_or_payload, _ExpectedContext)
+        else _validate_context("read_lms_pending", context_or_payload)
+    )
+    expected_class = context.class_code
+    expected_session = context.session_number
+    expected_source = context.source_session_id
     if expected_class is not None and page.class_code != expected_class:
         raise RunnerError("CLASS_IDENTITY_MISMATCH")
     if expected_session is not None and page.session_number != expected_session:
@@ -217,6 +284,7 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
         configure(login_paths)
     url = _read_url(job_type, payload, login_paths)
     codes = _allowed_class_codes(payload)
+    context = _validate_context(job_type, payload)
     open_page = getattr(browser, "open", None)
     if not callable(open_page):
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
@@ -236,9 +304,9 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
     try:
         if job_type == "sync_teaching":
             batch = parse_teaching_schedule(html, allowed_class_codes=codes)
-            return _check_teaching_context(payload, batch)
+            return _check_teaching_context(context, batch)
         parsed = parse_lms_page(html, allowed_class_codes=codes)
-        return _check_lms_context(payload, parsed)
+        return _check_lms_context(context, parsed)
     except RunnerError:
         raise
     except (TeachingParserError, LmsParserError) as error:
