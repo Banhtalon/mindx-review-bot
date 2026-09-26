@@ -21,9 +21,9 @@ def _payload_mapping(payload: Mapping[str, object]) -> Mapping[str, object]:
 
 
 def _read_string(payload: Mapping[str, object], key: str) -> str | None:
-    value = payload.get(key)
-    if value is None:
+    if key not in payload:
         return None
+    value = payload[key]
     if not isinstance(value, str) or not value.strip():
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
     return value.strip()
@@ -115,9 +115,9 @@ def _allowed_class_codes(payload: Mapping[str, object]) -> tuple[str, ...]:
 
 
 def _expected_int(payload: Mapping[str, object], key: str) -> int | None:
-    value = payload.get(key)
-    if value is None:
+    if key not in payload:
         return None
+    value = payload[key]
     if type(value) is not int or value < 1:
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
     return value
@@ -179,7 +179,7 @@ def _validate_context(job_type: str, payload: Mapping[str, object]) -> _Expected
     direct_source = _read_string(payload, "expected_source_session_id")
 
     if job_type != "sync_teaching":
-        if "expected_context" in payload:
+        if "expected_context" in payload or "context" in payload:
             raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
         return _ExpectedContext(
             class_code=direct_class,
@@ -187,14 +187,19 @@ def _validate_context(job_type: str, payload: Mapping[str, object]) -> _Expected
             source_session_id=direct_source,
         )
 
-    if "expected_context" not in payload:
+    has_expected = "expected_context" in payload
+    has_context = "context" in payload
+    if has_expected and has_context:
+        raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+
+    if not has_expected and not has_context:
         return _ExpectedContext(
             class_code=direct_class,
             session_number=direct_session,
             source_session_id=direct_source,
         )
 
-    raw_context = payload["expected_context"]
+    raw_context = payload["expected_context" if has_expected else "context"]
     if not isinstance(raw_context, Mapping):
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
 
