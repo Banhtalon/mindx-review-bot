@@ -31,7 +31,7 @@
     "scripts/lib/bridge.mjs": "1342ab8fc45e1ddd88000fda26ff74c5cf0139e5",
     "scripts/lib/documentation.mjs": "38888f35256acc561301b5f7f1c5841585bb6834",
     "scripts/lib/fast-lane.mjs": "866e26a895d0c752f61e6afecae06a6edbc9366f",
-    "scripts/lib/redact.mjs": "93b2dc2be4ed2f09cb940ef978852fe3826d407c",
+    "scripts/lib/redact.mjs": "79bad54d10369e2b95582f488d14a7d89ec5265d",
     "scripts/lib/workflow.mjs": "e061b015ede7a37fcb35e0c0cf7f0ad22dda61b7"
   }
 }
