@@ -146,6 +146,7 @@ def _check_teaching_context(
     if expected_class is not None:
         expected_class = expected_class.upper()
     expected_session = _expected_int(payload, "expected_session_number")
+    expected_source = _read_string(payload, "expected_source_session_id")
     sessions = getattr(batch, "sessions", ())
     class_matches = [
         session for session in sessions
@@ -159,7 +160,22 @@ def _check_teaching_context(
     ]
     if expected_session is not None and not matches:
         raise RunnerError("SESSION_IDENTITY_MISMATCH")
-    if expected_class is not None or expected_session is not None:
+    if expected_source is not None:
+        source_matches = [
+            session for session in sessions
+            if session.source_session_id == expected_source
+        ]
+        if len(source_matches) != 1:
+            raise RunnerError("SESSION_IDENTITY_MISMATCH")
+        matches = [
+            session for session in matches
+            if session.source_session_id == expected_source
+        ]
+    if (
+        expected_class is not None
+        or expected_session is not None
+        or expected_source is not None
+    ):
         if len(matches) != 1:
             raise RunnerError("SESSION_IDENTITY_MISMATCH")
         return 1
