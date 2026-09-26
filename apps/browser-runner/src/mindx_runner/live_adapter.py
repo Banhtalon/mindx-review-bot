@@ -74,6 +74,8 @@ def _read_url(job_type: str, payload: Mapping[str, object], login_paths: Collect
         or parsed.username is not None
         or parsed.password is not None
         or port not in {None, 443}
+        or bool(parsed.fragment)
+        or "#" in url
     ):
         raise RunnerError("DOMAIN_BLOCKED")
     allowed_urls = payload.get("allowed_urls")
