@@ -21,9 +21,9 @@ def _payload_mapping(payload: Mapping[str, object]) -> Mapping[str, object]:
 
 
 def _read_string(payload: Mapping[str, object], key: str) -> str | None:
-    if key not in payload:
+    value = payload.get(key)
+    if value is None:
         return None
-    value = payload[key]
     if not isinstance(value, str) or not value.strip():
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
     return value.strip()
@@ -115,9 +115,9 @@ def _allowed_class_codes(payload: Mapping[str, object]) -> tuple[str, ...]:
 
 
 def _expected_int(payload: Mapping[str, object], key: str) -> int | None:
-    if key not in payload:
+    value = payload.get(key)
+    if value is None:
         return None
-    value = payload[key]
     if type(value) is not int or value < 1:
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
     return value
@@ -143,6 +143,24 @@ async def _page_html(page: object) -> str:
 _ALLOWED_CONTEXT_FIELDS: Final[frozenset[str]] = frozenset(
     {"class_code", "session_number", "source_session_id"}
 )
+
+
+def _context_string(context: Mapping[str, object], key: str) -> str | None:
+    if key not in context:
+        return None
+    value = context[key]
+    if not isinstance(value, str) or not value.strip():
+        raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+    return value.strip()
+
+
+def _context_int(context: Mapping[str, object], key: str) -> int | None:
+    if key not in context:
+        return None
+    value = context[key]
+    if type(value) is not int or value < 1:
+        raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+    return value
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,11 +202,11 @@ def _validate_context(job_type: str, payload: Mapping[str, object]) -> _Expected
         if not isinstance(key, str) or key not in _ALLOWED_CONTEXT_FIELDS:
             raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
 
-    context_class = _read_string(raw_context, "class_code")
+    context_class = _context_string(raw_context, "class_code")
     if context_class is not None:
         context_class = context_class.upper()
-    context_session = _expected_int(raw_context, "session_number")
-    context_source = _read_string(raw_context, "source_session_id")
+    context_session = _context_int(raw_context, "session_number")
+    context_source = _context_string(raw_context, "source_session_id")
 
     return _ExpectedContext(
         class_code=direct_class if direct_class is not None else context_class,
