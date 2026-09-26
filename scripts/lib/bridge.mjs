@@ -72,6 +72,11 @@ export async function loadReviewSource(packetDir,r){
 async function boundReadiness(t,e,r,config,packetDir){
   return readiness(t,e,r,{reviewerBinding:config[executionRoute(t).reviewer],sourceSnapshot:await loadReviewSource(packetDir,r),sourceConfigHash:configHash(config)});
 }
+async function snapshotPilotTask(taskPath,packetDir,t){
+  if(!t?.candidate_head)return;
+  await atomicJson(path.join(packetDir,'task.json'),t);
+  await atomicJson(path.join(packetDir,'task.json.lock.json'),await readJson(taskPath+'.lock.json'));
+}
 async function bridgeHash(){return hash(await Promise.all(['bridge.mjs','bridge-adapters.mjs','bridge-process.mjs','workflow.mjs','redact.mjs'].map(f=>readFile(new URL(f,import.meta.url),'utf8'))));}
 export async function acquire(cwd) {
   // Common Git directory makes the writer lock apply across linked worktrees.
@@ -110,7 +115,15 @@ async function acceptedPilot(config,pilotDir,{requirePilotCheckout=true}={}) {
   required(s.repair_rounds>=1,'live reviewer-to-worker repair required');
   const calls=s.history.filter(h=>['worker','reviewer'].includes(h.phase)&&!h.status&&h.session_id);
   required(new Set(calls.map(c=>c.provider)).size===2,'both real subscription providers required');
-  const t=await readJson(s.task_path);await assertContract(s.task_path,t);
+  // Keep the accepted pilot immutable when the Lead prepares the next task.
+  // The activation receipt is reusable; it must not be tied to a mutable
+  // `.workflow-local/task.json` path.
+  const snapshotPath=path.join(pilotDir,'task.json');
+  const taskPath=await readFile(snapshotPath,'utf8').then(()=>snapshotPath).catch(error=>{
+    if(error.code==='ENOENT')return s.task_path;
+    throw error;
+  });
+  const t=await readJson(taskPath);await assertContract(taskPath,t);
   required(t.candidate_head===s.head&&t.contract_sha256===s.contract_sha256,'pilot task does not match checkpoint');
   if(requirePilotCheckout)cleanHead(s.cwd,s.head);
   const ready=await boundReadiness(t,await readJson(path.join(pilotDir,'evidence.json')),await readJson(path.join(pilotDir,'review.json')),config,pilotDir);
@@ -352,7 +365,11 @@ export async function runBridge({cwd,taskPath,config,packetDir,pilot=false,resum
         await atomicJson(path.join(packetDir,'review.json'),review);
         state.feedback=review;
         const ready=await boundReadiness(t,await readJson(path.join(packetDir,'evidence.json')),review,config,packetDir);
-        if(['DONE','READY_FOR_OWNER'].includes(ready.status)){state.unresolved_review=null;state.status=ready.status;state.in_flight=null;await save();return state;}
+        if(['DONE','READY_FOR_OWNER'].includes(ready.status)){
+          state.unresolved_review=null;state.status=ready.status;state.in_flight=null;
+          if(pilot)await snapshotPilotTask(taskPath,packetDir,t);
+          await save();return state;
+        }
         if(ready.status==='WAITING_CAPABILITY'){if(ready.reason==='current local browser evidence needed')state.unresolved_review=null;state.status=ready.status;state.in_flight=null;state.error=ready.reason;await save();return state;}
         state.phase='repair';
       }
