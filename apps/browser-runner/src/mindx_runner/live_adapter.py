@@ -21,9 +21,9 @@ def _payload_mapping(payload: Mapping[str, object]) -> Mapping[str, object]:
 
 
 def _read_string(payload: Mapping[str, object], key: str) -> str | None:
-    if key not in payload:
+    value = payload.get(key)
+    if value is None:
         return None
-    value = payload[key]
     if not isinstance(value, str) or not value.strip():
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
     return value.strip()
@@ -53,9 +53,9 @@ def _read_url(job_type: str, payload: Mapping[str, object], login_paths: Collect
     key = "teaching_url" if job_type == "sync_teaching" else "lms_url"
     url = next(
         (
-            _read_string(payload, candidate)
+            candidate_url
             for candidate in (key, "read_url", "page_url", "target_url", "url")
-            if candidate in payload
+            if (candidate_url := _read_string(payload, candidate)) is not None
         ),
         None,
     )
@@ -115,9 +115,9 @@ def _allowed_class_codes(payload: Mapping[str, object]) -> tuple[str, ...]:
 
 
 def _expected_int(payload: Mapping[str, object], key: str) -> int | None:
-    if key not in payload:
+    value = payload.get(key)
+    if value is None:
         return None
-    value = payload[key]
     if type(value) is not int or value < 1:
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
     return value
