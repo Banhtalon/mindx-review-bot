@@ -1,10 +1,8 @@
 name: cron-dispatch
 
 on:
-  schedule:
-    - cron: "33 22 * * *"
-    - cron: "07 15 * * *"
-    - cron: "37 16 * * *"
+  # Automatic dispatch stays disabled until hosted persistence and the
+  # read-only Teaching/LMS pilot have passed their Owner acceptance gates.
   workflow_dispatch:
     inputs:
       job_type:
@@ -35,5 +33,5 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           CRON_DISPATCH_SECRET: ${{ secrets.CRON_DISPATCH_SECRET }}
           CRON_WORKSPACE_ID: ${{ secrets.CRON_WORKSPACE_ID }}
-          JOB_TYPE: ${{ inputs.job_type || (github.event.schedule == '33 22 * * *' && 'sync_teaching') || 'read_lms_pending' }}
+          JOB_TYPE: ${{ inputs.job_type }}
         run: node scripts/cron_dispatch.mjs

@@ -1,7 +1,10 @@
 import argparse
 import asyncio
+import importlib
+import inspect
 import json
 import os
+import re
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
@@ -9,8 +12,9 @@ from dataclasses import dataclass
 from typing import Any, Final, Protocol
 
 from .browser_driver import ReadonlyBrowserSession, SessionFactory
+from .browser_state import BrowserStateCipher, BrowserStateError, EncryptedStateEnvelope
 from .live_runner import LiveRunConfig, load_live_config, safe_error_code
-from .supabase_client import ClaimedRun, SupabaseRunnerClient
+from .supabase_client import MAX_RECORDS_READ, ClaimedRun, SupabaseRunnerClient
 
 
 class RunnerError(RuntimeError):
@@ -51,6 +55,7 @@ class RunnerClient(Protocol):
 Adapter = Callable[
     [LiveRunConfig, ClaimedRun, ReadonlyBrowserSession], Awaitable[int]
 ]
+SITE_ADAPTER_ENV: Final[str] = "MINDX_SITE_ADAPTER"
 ClientFactory = Callable[[LiveRunConfig], RunnerClient]
 HEARTBEAT_INTERVAL_SECONDS: Final[float] = 30.0
 RUN_TIMEOUT_SECONDS: Final[float] = 12 * 60
@@ -61,6 +66,43 @@ CLEANUP_TIMEOUT_SECONDS: Final[float] = 1.0
 
 def _default_client_factory(config: LiveRunConfig) -> RunnerClient:
     return SupabaseRunnerClient(config.supabase_url, config.supabase_secret_key)
+
+
+def load_configured_adapter(environment: Mapping[str, str]) -> Adapter:
+    """Load the explicitly configured async, read-only site adapter.
+
+    The runner deliberately has no implicit live adapter. Deployments must
+    name a callable as ``module:attribute`` in ``MINDX_SITE_ADAPTER``. Any
+    missing, malformed or unusable configuration maps to the same safe error
+    so import details never reach logs or the job result.
+    """
+
+    spec = environment.get(SITE_ADAPTER_ENV, "").strip()
+    if not spec or spec.count(":") != 1:
+        raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+    module_name, attribute_name = (part.strip() for part in spec.split(":", 1))
+    identifier = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+    if (
+        not module_name
+        or not attribute_name
+        or not module_name.startswith("mindx_runner.")
+        or any(not identifier.fullmatch(part) for part in module_name.split("."))
+        or not identifier.fullmatch(attribute_name)
+    ):
+        raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+
+    try:
+        module = importlib.import_module(module_name)
+        candidate = getattr(module, attribute_name)
+    except Exception as error:
+        raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED") from error
+
+    is_async_callable = inspect.iscoroutinefunction(candidate) or (
+        callable(candidate) and inspect.iscoroutinefunction(candidate.__call__)
+    )
+    if not callable(candidate) or not is_async_callable:
+        raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+    return candidate
 
 
 async def _await_with_deadline[ResultT](
@@ -285,6 +327,66 @@ async def _start_browser_with_bound(
         raise
 
 
+def _claimed_login_paths(claimed: ClaimedRun) -> tuple[str, ...]:
+    raw = claimed.payload.get("login_paths", ())
+    if raw is None:
+        return ()
+    if isinstance(raw, str | bytes) or not isinstance(raw, Sequence):
+        raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+    paths = tuple(raw)
+    if any(
+        not isinstance(path, str)
+        or not path.startswith("/")
+        or "?" in path
+        or "#" in path
+        for path in paths
+    ):
+        raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
+    return tuple(dict.fromkeys(paths))
+
+
+def _decode_browser_storage_state(
+    encrypted: bytes | None,
+    config: LiveRunConfig,
+    site: str,
+) -> dict[str, object]:
+    if encrypted is None:
+        raise RunnerError("STORAGE_STATE_DECRYPT_FAILED")
+    try:
+        envelope = EncryptedStateEnvelope.from_bytes(encrypted)
+        plaintext = BrowserStateCipher(
+            config.browser_state_key,
+            envelope.key_version,
+        ).decrypt(envelope, site=site)
+        state = json.loads(plaintext.decode("utf-8"))
+    except (
+        BrowserStateError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        TypeError,
+        ValueError,
+    ) as error:
+        raise RunnerError("STORAGE_STATE_DECRYPT_FAILED") from error
+    if not isinstance(state, dict):
+        raise RunnerError("STORAGE_STATE_DECRYPT_FAILED")
+    return state
+
+
+async def _load_browser_storage_state(
+    client: RunnerClient,
+    config: LiveRunConfig,
+    claimed: ClaimedRun,
+) -> dict[str, object] | None:
+    loader = getattr(client, "load_active_browser_state", None)
+    if not callable(loader):
+        # Unit fakes and local synthetic runs have no hosted state store. The
+        # real Supabase client implements the loader and therefore fails closed.
+        return None
+    site = "teaching" if config.job_type == "sync_teaching" else "lms"
+    encrypted = await asyncio.to_thread(loader, claimed.workspace_id, site)
+    return _decode_browser_storage_state(encrypted, config, site)
+
+
 async def run_job(
     job_id: str,
     environment: Mapping[str, str],
@@ -335,14 +437,21 @@ async def run_job(
         )
         raise RunnerError("JOB_TYPE_MISMATCH")
 
-    browser = (
-        ReadonlyBrowserSession()
-        if session_factory is None
-        else ReadonlyBrowserSession(session_factory=session_factory)
-    )
+    browser: ReadonlyBrowserSession | None = None
     browser_started = False
     started_at = 0.0
     try:
+        storage_state = await _load_browser_storage_state(client, config, claimed)
+        login_paths = _claimed_login_paths(claimed)
+        browser = (
+            ReadonlyBrowserSession(storage_state=storage_state, login_paths=login_paths)
+            if session_factory is None
+            else ReadonlyBrowserSession(
+                storage_state=storage_state,
+                session_factory=session_factory,
+                login_paths=login_paths,
+            )
+        )
         await _start_browser_with_bound(
             browser,
             work_deadline=work_deadline,
@@ -361,7 +470,11 @@ async def run_job(
             cancellation_deadline=cancellation_deadline,
         )
         duration_ms = max(0, int((time.monotonic() - started_at) * 1000))
-        if isinstance(records_read, bool) or records_read < 0:
+        if (
+            type(records_read) is not int
+            or records_read < 0
+            or records_read > MAX_RECORDS_READ
+        ):
             raise RunnerError("RUNNER_RESULT_INVALID")
         terminal_call_started = True
         await _finish_run(
@@ -378,7 +491,7 @@ async def run_job(
     except Exception as error:
         error_code = safe_error_code(error)
         duration_ms = max(0, int((time.monotonic() - started_at) * 1000)) if started_at else 0
-        if browser_started and not terminal_call_started:
+        if (browser is None or browser_started) and not terminal_call_started:
             terminal_call_started = True
             await _finish_run_best_effort(
                 client,
@@ -391,11 +504,12 @@ async def run_job(
             )
         raise
     finally:
-        await _close_browser_with_bound(
-            browser,
-            wall_deadline=wall_deadline,
-            cleanup_budget=cleanup_budget,
-        )
+        if browser is not None:
+            await _close_browser_with_bound(
+                browser,
+                wall_deadline=wall_deadline,
+                cleanup_budget=cleanup_budget,
+            )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -413,6 +527,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "preflight":
             config = load_live_config(environment)
+            # A successful preflight must prove that the read-only site adapter
+            # can actually be imported.  Otherwise the workflow would report
+            # a green preflight and fail later, after a job had been claimed.
+            load_configured_adapter(environment)
             print(
                 json.dumps(
                     {
@@ -423,7 +541,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 )
             )
             return 0
-        asyncio.run(run_job(args.job_id, environment, adapter=None))
+        # Validate the run environment and resolve the adapter before any job
+        # claim or browser startup. Missing or invalid adapter configuration is
+        # therefore still fail-closed.
+        run_environment = {**environment, "JOB_ID": args.job_id}
+        load_live_config(run_environment)
+        adapter = load_configured_adapter(environment)
+        asyncio.run(run_job(args.job_id, environment, adapter=adapter))
     except Exception as error:
         print(json.dumps({"status": "failed", "error_code": safe_error_code(error)}))
         return 1

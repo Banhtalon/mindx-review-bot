@@ -21,6 +21,12 @@ def test_live_workflow_pins_third_party_actions_to_full_commit_shas() -> None:
 
 
 def test_live_workflow_scopes_credentials_by_job_type() -> None:
+    teaching_preflight = WORKFLOW.split("name: Preflight Teaching", 1)[1].split(
+        "name: Preflight LMS", 1
+    )[0]
+    lms_preflight = WORKFLOW.split("name: Preflight LMS", 1)[1].split(
+        "name: Install Chromium", 1
+    )[0]
     teaching_block = WORKFLOW.split("name: Execute Teaching", 1)[1].split(
         "name: Execute LMS", 1
     )[0]
@@ -42,6 +48,24 @@ def test_live_workflow_scopes_credentials_by_job_type() -> None:
     }
     assert "MVP_LMS_WRITE_ENABLED: false" in teaching_block
     assert "MVP_LMS_WRITE_ENABLED: false" in lms_block
+    assert "MINDX_SITE_ADAPTER: ${{ vars.MINDX_SITE_ADAPTER }}" in teaching_block
+    assert "MINDX_SITE_ADAPTER: ${{ vars.MINDX_SITE_ADAPTER }}" in lms_block
+    assert set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", teaching_preflight)) == {
+        "SUPABASE_URL",
+        "SUPABASE_SECRET_KEY",
+        "TEACHING_USERNAME",
+        "TEACHING_PASSWORD",
+        "BROWSER_STATE_ENCRYPTION_KEY",
+    }
+    assert set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", lms_preflight)) == {
+        "SUPABASE_URL",
+        "SUPABASE_SECRET_KEY",
+        "LMS_USERNAME",
+        "LMS_PASSWORD",
+        "BROWSER_STATE_ENCRYPTION_KEY",
+    }
+    assert "MINDX_SITE_ADAPTER: ${{ vars.MINDX_SITE_ADAPTER }}" in teaching_preflight
+    assert "MINDX_SITE_ADAPTER: ${{ vars.MINDX_SITE_ADAPTER }}" in lms_preflight
     assert "if: inputs.job_type == 'sync_teaching'" in teaching_block
     assert "if: inputs.job_type == 'read_lms_pending'" in lms_block
 
@@ -55,4 +79,5 @@ def test_live_workflow_does_not_upload_artifacts_or_enable_browser_recording() -
 
 def test_live_workflow_uses_locked_project_and_safe_runner_command() -> None:
     assert "uv sync --locked --project apps/browser-runner" in WORKFLOW
+    assert WORKFLOW.index("name: Install Chromium") > WORKFLOW.index("name: Preflight LMS")
     assert 'uv run --project apps/browser-runner mindx-runner run "$JOB_ID"' in WORKFLOW

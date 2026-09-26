@@ -350,6 +350,53 @@ def test_reconcile_quarantines_conflicting_source_identity() -> None:
     assert store.records[0].source_session_id == "teach-sess-001"
 
 
+def test_reconcile_quarantines_stable_source_id_from_another_class() -> None:
+    store = TeachingReconciliationStore()
+    store.reconcile(batch(session(source_session_id="shared-source")))
+
+    result = store.reconcile(
+        batch(
+            session(
+                class_code="SYN-PYTHON-02",
+                source_session_id="shared-source",
+            )
+        )
+    )[0]
+
+    assert result.action == "quarantined"
+    assert result.reason_code == "TEACHING_CONTEXT_MISMATCH"
+    assert store.records[0].class_code == "SYN-ROBOTICS-01"
+
+
+def test_reconcile_quarantines_verified_id_from_another_session_tuple() -> None:
+    record = TeachingSessionRecord(
+        internal_id="session-verified",
+        verified_internal_id="session-verified",
+        class_code="SYN-ROBOTICS-01",
+        source_session_id=None,
+        session_number=3,
+        session_type="regular",
+        scheduled_date=date(2026, 8, 17),
+        start_time=time(9, 0),
+        end_time=time(10, 30),
+        source_page_hash="b" * 64,
+    )
+    store = TeachingReconciliationStore([record])
+
+    result = store.reconcile(
+        batch(
+            session(
+                verified_internal_id="session-verified",
+                session_number=4,
+            )
+        )
+    )[0]
+
+    assert result.action == "quarantined"
+    assert result.reason_code == "TEACHING_CONTEXT_MISMATCH"
+    assert store.records[0].session_number == 3
+
+
 def test_reconcile_attaches_late_source_identity_to_one_unidentified_record() -> None:
     store = TeachingReconciliationStore()
     store.reconcile(batch(session(source_session_id=None)))

@@ -1,11 +1,11 @@
 # Owner guide — mindx-review-bot v10
 
 After the one-time local activation, each prepared task is started or safely resumed with one command: `npm run qq:auto`.
-The bridge then runs the configured Gemini worker, deterministic gates, independent reviewer and bounded repair/senior escalation until it reaches READY_FOR_OWNER, WAITING_QUOTA, WAITING_CAPABILITY or BLOCKED_TECHNICAL.
+The bridge then runs the configured Google worker (Antigravity CLI), deterministic gates, independent reviewer and bounded repair/senior escalation until it reaches READY_FOR_OWNER, WAITING_QUOTA, WAITING_CAPABILITY or BLOCKED_TECHNICAL.
 
 When the candidate is technically ready, the wrapper pushes its feature branch to the guarded `Banhtalon/mindx-review-bot` GitHub target and creates or reuses a PR. It never merges; final merge stays an explicit Owner action.
 
-One-time local setup uses Node 20+, Git, GitHub CLI, Gemini CLI logged in with the Google account, Codex CLI logged in with ChatGPT, and GitHub CLI logged in with GitHub. Run `npm run qq:setup` to create the ignored local bridge config and a stable exact-file write allowlist. Replace only the OpenAI model placeholders with model IDs verified on this account. Gemini CLI uses the `flash` alias; the doctor packet records the actually observed model.
+One-time local setup uses Node 20+, Git, GitHub CLI, Antigravity CLI (`agy`) logged in with the Google account, Codex CLI logged in with ChatGPT, and GitHub CLI logged in with GitHub. Run `npm run qq:setup` to create the ignored local bridge config and a stable exact-file write allowlist. Keep the Antigravity model on a value returned by `agy models`; replace only the OpenAI model placeholders with model IDs verified on this account.
 
 Run `npm run qq:doctor` before any pilot. With a Lead-prepared frozen pilot task, run `npm run qq:pilot`, then `npm run qq:quota-drill`, then `npm run qq:activate`. Activation changes only the ignored local config to LOCAL_AUTO; it does not change GitHub code.
 

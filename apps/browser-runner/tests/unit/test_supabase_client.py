@@ -7,6 +7,7 @@ import pytest
 from mindx_runner.supabase_client import (
     ClaimedRun,
     HttpResponse,
+    ReviewInputSnapshot,
     SupabaseClientError,
     SupabaseRunnerClient,
 )
@@ -16,6 +17,8 @@ SECRET = "server-secret"
 JOB_ID = "00000000-0000-4000-8000-000000000001"
 RUN_ID = "00000000-0000-4000-8000-000000000002"
 WORKSPACE_ID = "00000000-0000-4000-8000-000000000003"
+SESSION_ID = "00000000-0000-4000-8000-000000000004"
+STUDENT_ID = "00000000-0000-4000-8000-000000000005"
 RUNNER_ID = "runner-test-01"
 OBJECT_PATH = f"browser-state/{WORKSPACE_ID}/lms/{RUN_ID}.json"
 
@@ -177,6 +180,119 @@ def test_finish_rejects_unknown_error_code_before_network_call() -> None:
     assert transport.requests == []
 
 
+@pytest.mark.parametrize(
+    ("records_read", "duration_ms"),
+    [(1.5, 0), ("3", 0), (2_147_483_648, 0), (0, 1.5), (0, "3")],
+)
+def test_finish_rejects_non_integer_or_out_of_range_metrics(
+    records_read: object,
+    duration_ms: object,
+) -> None:
+    transport = FakeTransport([])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    with pytest.raises(SupabaseClientError) as error:
+        client.finish_job_run(
+            RUN_ID,
+            RUNNER_ID,
+            "succeeded",
+            records_read=records_read,  # type: ignore[arg-type]
+            error_code=None,
+            duration_ms=duration_ms,  # type: ignore[arg-type]
+        )
+
+    assert error.value.code == "RUNNER_RESULT_INVALID"
+    assert transport.requests == []
+
+
+def test_update_review_input_maps_updated_rpc_snapshot() -> None:
+    transport = FakeTransport(
+        [
+            response(
+                [
+                    {
+                        "status": "updated",
+                        "workspace_id": WORKSPACE_ID,
+                        "session_id": SESSION_ID,
+                        "student_id": STUDENT_ID,
+                        "attendance": "present",
+                        "learning_level": "developing",
+                        "note_draft": "Good progress",
+                        "revision": 3,
+                    }
+                ]
+            )
+        ]
+    )
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    snapshot = client.update_review_input(
+        WORKSPACE_ID,
+        SESSION_ID,
+        STUDENT_ID,
+        attendance="present",
+        learning_level="developing",
+        note_draft="Good progress",
+        expected_revision=2,
+    )
+
+    assert snapshot == ReviewInputSnapshot(
+        workspace_id=WORKSPACE_ID,
+        session_id=SESSION_ID,
+        student_id=STUDENT_ID,
+        attendance="present",
+        learning_level="developing",
+        note_draft="Good progress",
+        revision=3,
+    )
+    _, url, _, body = transport.requests[0]
+    assert url == f"{BASE_URL}/rest/v1/rpc/update_review_input_if_revision_matches"
+    assert json.loads(body or b"") == {
+        "target_workspace_id": WORKSPACE_ID,
+        "target_session_id": SESSION_ID,
+        "target_student_id": STUDENT_ID,
+        "target_attendance": "present",
+        "target_learning_level": "developing",
+        "target_note_draft": "Good progress",
+        "target_expected_revision": 2,
+    }
+
+
+def test_update_review_input_maps_stale_revision_to_conflict() -> None:
+    transport = FakeTransport(
+        [
+            response(
+                [
+                    {
+                        "status": "conflict",
+                        "workspace_id": WORKSPACE_ID,
+                        "session_id": SESSION_ID,
+                        "student_id": STUDENT_ID,
+                        "attendance": "absent",
+                        "learning_level": "strong",
+                        "note_draft": "Newer draft",
+                        "revision": 4,
+                    }
+                ]
+            )
+        ]
+    )
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    with pytest.raises(SupabaseClientError) as error:
+        client.update_review_input(
+            WORKSPACE_ID,
+            SESSION_ID,
+            STUDENT_ID,
+            attendance="present",
+            learning_level="developing",
+            note_draft="Stale draft",
+            expected_revision=2,
+        )
+
+    assert error.value.code == "REVIEW_INPUT_REVISION_CONFLICT"
+
+
 def test_storage_object_store_uses_private_bucket_rest_endpoints() -> None:
     transport = FakeTransport(
         [
@@ -221,4 +337,54 @@ def test_storage_object_store_rejects_unscoped_state_path() -> None:
         store.get("browser-state/other-folder/state.json")
 
     assert error.value.code == "STORAGE_PATH_INVALID"
+    assert transport.requests == []
+
+
+def test_load_active_browser_state_returns_encrypted_object_bytes() -> None:
+    encrypted = b'{"ciphertext":"redacted"}'
+    transport = FakeTransport(
+        [
+            response([{"object_path": OBJECT_PATH}]),
+            HttpResponse(status=200, body=encrypted),
+        ]
+    )
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    assert client.load_active_browser_state(WORKSPACE_ID, "lms") == encrypted
+    assert transport.requests[0][0] == "GET"
+    assert (
+        transport.requests[0][1]
+        == f"{BASE_URL}/rest/v1/browser_state_versions?workspace_id=eq.{WORKSPACE_ID}"
+        f"&site=eq.lms&status=eq.active&select=object_path&limit=1"
+    )
+    assert transport.requests[1][0] == "GET"
+
+
+def test_load_active_browser_state_returns_none_without_active_version() -> None:
+    transport = FakeTransport([response([])])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    assert client.load_active_browser_state(WORKSPACE_ID, "teaching") is None
+
+
+def test_load_active_browser_state_rejects_cross_workspace_metadata() -> None:
+    other_path = f"browser-state/{RUN_ID}/lms/{RUN_ID}.json"
+    transport = FakeTransport([response([{"object_path": other_path}])])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    with pytest.raises(SupabaseClientError) as error:
+        client.load_active_browser_state(WORKSPACE_ID, "lms")
+
+    assert error.value.code == "STORAGE_PATH_INVALID"
+    assert len(transport.requests) == 1
+
+
+def test_load_active_browser_state_rejects_unknown_site_before_network_call() -> None:
+    transport = FakeTransport([])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    with pytest.raises(SupabaseClientError) as error:
+        client.load_active_browser_state(WORKSPACE_ID, "other")
+
+    assert error.value.code == "RUNNER_RESULT_INVALID"
     assert transport.requests == []

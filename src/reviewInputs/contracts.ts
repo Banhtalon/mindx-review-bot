@@ -2,6 +2,8 @@ export type AttendanceStatus = "present" | "absent" | "unknown";
 
 export type LearningLevel = "strong" | "developing" | "needs_support" | "unknown";
 
+export const REVIEW_NOTE_MAX_LENGTH = 10_000 as const;
+
 export type SyntheticLearner = {
   readonly rowKey: string;
   readonly displayName: string;

@@ -46,3 +46,22 @@ def test_arbitrary_domain_is_rejected() -> None:
         assert str(error) == "Domain is not allowlisted"
     else:
         raise AssertionError("expected arbitrary domain to be rejected")
+
+
+def test_non_default_ports_and_userinfo_are_rejected() -> None:
+    for url in (
+        "https://lms.mindx.edu.vn:8443/class",
+        "https://teacher:password@lms.mindx.edu.vn/class",
+        "https://lms.mindx.edu.vn:not-a-port/class",
+    ):
+        try:
+            assert_allowed_url(url)
+        except RuntimeError as error:
+            assert str(error) == "Domain is not allowlisted"
+        else:
+            raise AssertionError("expected unsafe origin to be rejected")
+
+
+def test_synthetic_localhost_may_use_a_development_port() -> None:
+    assert_allowed_url("http://localhost:5173/fixture", mode="synthetic")
+    assert_allowed_url("http://127.0.0.1:3000/fixture", mode="synthetic")

@@ -1,1 +1,1 @@
-"""Synthetic-only runner package for Spike 0."""
+"""Read-only browser runner with an explicitly configured site adapter."""

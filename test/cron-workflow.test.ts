@@ -95,15 +95,15 @@ describe("scheduled read-only dispatch contract", () => {
     });
   });
 
-  it("pins the three UTC schedules and read-only workflow permissions", () => {
+  it("keeps automatic schedules disabled while preserving manual read-only dispatch", () => {
     const workflow = readFileSync(
       new URL("../.github/workflows/cron-dispatch.yml", import.meta.url),
       "utf8",
     );
 
-    expect(workflow).toContain('cron: "33 22 * * *"');
-    expect(workflow).toContain('cron: "07 15 * * *"');
-    expect(workflow).toContain('cron: "37 16 * * *"');
+    expect(workflow).not.toContain("schedule:");
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("description: Read-only job type");
     expect(workflow).toMatch(/permissions:[\s\S]*contents:\s*read/);
     expect(workflow).toContain("cancel-in-progress: false");
     expect(workflow).toContain("CRON_DISPATCH_SECRET");

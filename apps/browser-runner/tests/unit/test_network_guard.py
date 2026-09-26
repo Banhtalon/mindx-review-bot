@@ -59,6 +59,21 @@ def test_non_allowlisted_origin_is_blocked(url: str) -> None:
     assert decision.code == "DOMAIN_BLOCKED"
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://lms.mindx.edu.vn:8443/classes/abc",
+        "https://teacher:password@lms.mindx.edu.vn/classes/abc",
+        "https://lms.mindx.edu.vn:not-a-port/classes/abc",
+    ],
+)
+def test_unsafe_production_origins_are_blocked(url: str) -> None:
+    decision = classify_request("GET", url)
+
+    assert decision.allowed is False
+    assert decision.code == "DOMAIN_BLOCKED"
+
+
 @pytest.mark.parametrize("path", ["/save", "/submit", "/comments/create", "/review/update"])
 def test_comment_like_paths_are_blocked_even_when_read_method_is_used(path: str) -> None:
     decision = classify_request("GET", f"https://lms.mindx.edu.vn{path}")
@@ -121,6 +136,28 @@ def test_mutation_like_paths_are_blocked_case_insensitively(path: str) -> None:
 
     assert decision.allowed is False
     assert decision.code == "LMS_MUTATION_BLOCKED"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "action=save",
+        "operation=submit",
+        "payload=%7B%22comment%22%3A%22must-not-write%22%7D",
+    ],
+)
+def test_mutation_like_query_parameters_are_blocked(query: str) -> None:
+    decision = classify_request("GET", f"https://lms.mindx.edu.vn/classes/abc?{query}")
+
+    assert decision.allowed is False
+    assert decision.code == "LMS_MUTATION_BLOCKED"
+
+
+def test_non_mutating_query_parameters_remain_allowed() -> None:
+    decision = classify_request("GET", "https://lms.mindx.edu.vn/classes/abc?session=3&view=roster")
+
+    assert decision.allowed is True
+    assert decision.code == "ALLOWED_READ"
 
 
 @pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE"])

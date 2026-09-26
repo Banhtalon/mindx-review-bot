@@ -1,8 +1,19 @@
-# MindX Review Bot — Spike 0
+# MindX Review Bot
 
-Spike 0 is a synthetic-only foundation for the V4 MVP. It proves the local
-identity, privacy and read-only guardrails without connecting to Teaching/LMS
-or writing to either site.
+The current product slice is deliberately read-only. It proves the identity,
+privacy and workflow guardrails with synthetic data, keeps review drafts in the
+current browser, and exports CSV/Markdown without writing to Teaching or LMS.
+Live Teaching/LMS adapters remain disabled until an Owner-controlled account
+pilot supplies a configured `MINDX_SITE_ADAPTER`.
+When Supabase authentication is configured, the shell intentionally shows a
+blocked hosted state until the durable review store and live read-only sources
+have been verified; it never presents the synthetic fixture as real data.
+
+`MINDX_SITE_ADAPTER` is a non-secret GitHub repository variable containing an
+async adapter path in the form `mindx_runner.<module>:<callable>`. The module
+must be present in the runner image and must implement the approved read-only
+Teaching/LMS contract before a live pilot is allowed. If it is missing or
+invalid, the runner stops before claiming a job or opening a browser.
 
 ## Checks
 
@@ -36,9 +47,7 @@ Functions or browser E2E scripts yet.
 
 ## Workflow file handoffs
 
-QQ AI Workflow template release 9.1.2 uses downloadable files for Controller
-handoffs and results, so the Owner does not copy long packets between tools.
-Read `.ai-workflow/HANDOFF_FILES.md` for the exact filenames and short GitHub
-Issue checkpoint convention. This does not change the active TASK-11 authority,
-frozen manifest, external Controller snapshot, MANUAL routing, or project
-safety boundaries.
+QQ AI Workflow v10 uses local task packets, bounded repair and independent
+review so the Owner does not need to inspect code, CI, SQL or logs. Read the
+`.ai-workflow` documents for the exact handoff and activation rules. Final
+product acceptance and production merge remain explicit Owner actions.

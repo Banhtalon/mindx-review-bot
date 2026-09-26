@@ -220,6 +220,33 @@ async def test_readonly_browser_starts_with_safe_options_and_opens_allowlisted_u
 
 
 @pytest.mark.asyncio
+async def test_readonly_browser_accepts_explicit_login_paths_before_start() -> None:
+    session = FakeSession({})
+    browser = ReadonlyBrowserSession(session_factory=lambda **_: session)
+
+    browser.configure_login_paths(("/auth/login",))
+    await browser.open("https://teachingmindx.top/schedule")
+    fetch_send = session.cdp_client.send.Fetch
+    callback = session.cdp_client.register.Fetch.callback
+
+    await callback(
+        {
+            "requestId": "login-1",
+            "request": {
+                "url": "https://teachingmindx.top/auth/login",
+                "method": "POST",
+                "postData": "username=owner",
+                "headers": {"Content-Type": "application/x-www-form-urlencoded"},
+            },
+        },
+        "session-1",
+    )
+
+    assert fetch_send.continued == [({"requestId": "login-1"}, "session-1")]
+    await browser.close()
+
+
+@pytest.mark.asyncio
 async def test_readonly_browser_rejects_unsafe_url_before_creating_page() -> None:
     created: list[FakeSession] = []
 

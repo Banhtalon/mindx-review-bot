@@ -14,6 +14,8 @@ SUPABASE_UNAVAILABLE: Final[str] = "SUPABASE_UNAVAILABLE"
 RUNNER_RESULT_INVALID: Final[str] = "RUNNER_RESULT_INVALID"
 STORAGE_PATH_INVALID: Final[str] = "STORAGE_PATH_INVALID"
 ALLOWED_RUN_STATUSES = frozenset({"succeeded", "partial", "failed", "cancelled"})
+MAX_RECORDS_READ: Final[int] = 2_147_483_647
+MAX_REVIEW_REVISION: Final[int] = 9_223_372_036_854_775_807
 SAFE_ERROR_CODES = frozenset(
     {
         "AUTH_EXPIRED",
@@ -21,7 +23,18 @@ SAFE_ERROR_CODES = frozenset(
         "CAPTCHA_DETECTED",
         "DOMAIN_BLOCKED",
         "TEACHING_SELECTOR_CHANGED",
+        "TEACHING_LOGIN_REQUIRED",
+        "TEACHING_DATA_INVALID",
+        "TEACHING_UNKNOWN_CLASS_CODE",
+        "TEACHING_DUPLICATE_SOURCE_ID",
+        "TEACHING_CLASS_CATALOG_UNAVAILABLE",
         "LMS_SELECTOR_CHANGED",
+        "LMS_LOGIN_REQUIRED",
+        "LMS_DATA_INVALID",
+        "LMS_UNKNOWN_CLASS_CODE",
+        "LMS_DUPLICATE_STUDENT_ID",
+        "LMS_DUPLICATE_DISCRIMINATOR",
+        "LMS_CLASS_CATALOG_UNAVAILABLE",
         "CLASS_IDENTITY_MISMATCH",
         "SESSION_IDENTITY_MISMATCH",
         "STUDENT_MAPPING_UNRESOLVABLE",
@@ -40,11 +53,15 @@ SAFE_ERROR_CODES = frozenset(
         "QUOTA_GUARD_BLOCKED",
         "RUNNER_RESULT_INVALID",
         "SITE_ADAPTER_NOT_CONFIGURED",
+        "PAGE_CONTENT_UNAVAILABLE",
+        "LOGIN_PATHS_INVALID",
         "RUNNER_FAILED",
         "RUNNER_TIMEOUT",
     }
 )
 JobType = Literal["sync_teaching", "read_lms_pending"]
+ReviewAttendance = Literal["present", "absent", "unknown"]
+ReviewLearningLevel = Literal["strong", "developing", "needs_support", "unknown"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,12 +114,57 @@ class ClaimedRun:
     attempt: int
 
 
+@dataclass(frozen=True, slots=True)
+class ReviewInputSnapshot:
+    workspace_id: str
+    session_id: str
+    student_id: str
+    attendance: ReviewAttendance
+    learning_level: ReviewLearningLevel
+    note_draft: str
+    revision: int
+
+
 def _uuid(value: str, field_name: str) -> str:
     try:
         parsed = UUID(value)
     except (AttributeError, TypeError, ValueError) as error:
         raise SupabaseClientError(f"{RUNNER_RESULT_INVALID}:{field_name}") from error
     return str(parsed)
+
+
+def _review_snapshot(row: Mapping[str, object]) -> ReviewInputSnapshot:
+    workspace_id = row.get("workspace_id")
+    session_id = row.get("session_id")
+    student_id = row.get("student_id")
+    attendance = row.get("attendance")
+    learning_level = row.get("learning_level")
+    note_draft = row.get("note_draft")
+    revision = row.get("revision")
+    if (
+        not isinstance(workspace_id, str)
+        or not isinstance(session_id, str)
+        or not isinstance(student_id, str)
+        or not isinstance(attendance, str)
+        or attendance not in {"present", "absent", "unknown"}
+        or not isinstance(learning_level, str)
+        or learning_level not in {"strong", "developing", "needs_support", "unknown"}
+        or not isinstance(note_draft, str)
+        or len(note_draft) > 10_000
+        or type(revision) is not int
+        or revision < 1
+        or revision > MAX_REVIEW_REVISION
+    ):
+        raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+    return ReviewInputSnapshot(
+        workspace_id=_uuid(workspace_id, "workspace_id"),
+        session_id=_uuid(session_id, "session_id"),
+        student_id=_uuid(student_id, "student_id"),
+        attendance=cast(ReviewAttendance, attendance),
+        learning_level=cast(ReviewLearningLevel, learning_level),
+        note_draft=note_draft,
+        revision=revision,
+    )
 
 
 def _runner_id(value: str) -> str:
@@ -286,9 +348,10 @@ class SupabaseRunnerClient:
         target_runner_id = _runner_id(runner_id)
         if (
             status not in ALLOWED_RUN_STATUSES
-            or isinstance(records_read, bool)
+            or type(records_read) is not int
             or records_read < 0
-            or isinstance(duration_ms, bool)
+            or records_read > MAX_RECORDS_READ
+            or type(duration_ms) is not int
             or duration_ms < 0
             or duration_ms > 86400000
             or error_code is not None
@@ -324,6 +387,85 @@ class SupabaseRunnerClient:
         row = cast(dict[str, Any], raw[0])
         if row.get("job_id") != target_job_id or row.get("runner_id") != target_runner_id:
             raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+
+    def update_review_input(
+        self,
+        workspace_id: str,
+        session_id: str,
+        student_id: str,
+        *,
+        attendance: ReviewAttendance,
+        learning_level: ReviewLearningLevel,
+        note_draft: str,
+        expected_revision: int,
+    ) -> ReviewInputSnapshot:
+        target_workspace_id = _uuid(workspace_id, "workspace_id")
+        target_session_id = _uuid(session_id, "session_id")
+        target_student_id = _uuid(student_id, "student_id")
+        if (
+            attendance not in {"present", "absent", "unknown"}
+            or learning_level not in {"strong", "developing", "needs_support", "unknown"}
+            or not isinstance(note_draft, str)
+            or len(note_draft) > 10_000
+            or type(expected_revision) is not int
+            or expected_revision < 1
+            or expected_revision > MAX_REVIEW_REVISION
+        ):
+            raise SupabaseClientError(RUNNER_RESULT_INVALID)
+        raw = self._rpc(
+            "update_review_input_if_revision_matches",
+            {
+                "target_workspace_id": target_workspace_id,
+                "target_session_id": target_session_id,
+                "target_student_id": target_student_id,
+                "target_attendance": attendance,
+                "target_learning_level": learning_level,
+                "target_note_draft": note_draft,
+                "target_expected_revision": expected_revision,
+            },
+        )
+        if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        row = cast(dict[str, object], raw[0])
+        status = row.get("status")
+        if status == "conflict":
+            raise SupabaseClientError("REVIEW_INPUT_REVISION_CONFLICT")
+        if status == "missing":
+            raise SupabaseClientError("REVIEW_INPUT_NOT_FOUND")
+        if status != "updated":
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        return _review_snapshot(row)
+
+    def load_active_browser_state(self, workspace_id: str, site: str) -> bytes | None:
+        """Return the encrypted active state object for one workspace/site."""
+        workspace = _uuid(workspace_id, "workspace_id")
+        if site not in ALLOWED_STATE_SITES:
+            raise SupabaseClientError(RUNNER_RESULT_INVALID)
+        response = self._request(
+            "GET",
+            "/rest/v1/browser_state_versions"
+            f"?workspace_id=eq.{quote(workspace, safe='')}"
+            f"&site=eq.{quote(site, safe='')}"
+            "&status=eq.active&select=object_path&limit=1",
+            None,
+        )
+        self._require_success(response)
+        raw = _json_value(response.body)
+        if raw == []:
+            return None
+        if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        object_path = raw[0].get("object_path")
+        if not isinstance(object_path, str):
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        _object_path(object_path, self.bucket)
+        expected_prefix = f"{self.bucket}/{workspace}/{site}/"
+        if not object_path.startswith(expected_prefix):
+            raise SupabaseClientError(STORAGE_PATH_INVALID)
+        try:
+            return self.object_store.get(object_path)
+        except KeyError as error:
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE) from error
 
     def activate_browser_state_version(
         self,

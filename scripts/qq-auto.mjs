@@ -1,5 +1,6 @@
 import path from 'node:path';
 import {access,copyFile,mkdir,writeFile} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {readJson,freeze} from './lib/workflow.mjs';
 import {inspect,runBridge,quotaDrill,activate} from './lib/bridge.mjs';
@@ -8,7 +9,12 @@ const root=process.cwd(),local=path.join(root,'.workflow-local');
 const configPath=path.join(local,'bridge-config.json'),taskPath=path.join(local,'task.json');
 const exists=p=>access(p).then(()=>true).catch(()=>false);
 const git=(...a)=>execFileSync('git',a,{cwd:root,encoding:'utf8'}).trim();
-const gh=(...a)=>execFileSync('gh',a,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+const ghCommand=process.platform==='win32' ? [
+  process.env.ProgramFiles&&path.join(process.env.ProgramFiles,'GitHub CLI','gh.exe'),
+  process.env.LOCALAPPDATA&&path.join(process.env.LOCALAPPDATA,'Programs','GitHub CLI','gh.exe'),
+  'gh'
+].find(p=>p&& (p==='gh'||existsSync(p))) : 'gh';
+const gh=(...a)=>execFileSync(ghCommand,a,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
 const loadConfig=()=>readJson(configPath);
 
 async function ensureTask(){
