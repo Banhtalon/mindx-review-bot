@@ -57,16 +57,31 @@ def test_load_live_config_rejects_unsafe_values(name: str, value: str) -> None:
     assert value not in str(error.value)
 
 
-def test_load_live_config_rejects_missing_required_secret() -> None:
+def test_load_live_config_allows_browser_state_only_without_login_secrets() -> None:
     environment = {
-        key: value for key, value in BASE_ENV.items() if key != "TEACHING_PASSWORD"
+        key: value
+        for key, value in BASE_ENV.items()
+        if key not in {"TEACHING_USERNAME", "TEACHING_PASSWORD"}
     }
 
-    with pytest.raises(LiveConfigError) as error:
-        load_live_config(environment)
+    config = load_live_config(environment)
 
-    assert error.value.code == "LIVE_CONFIG_INVALID"
-    assert "TEACHING_PASSWORD" in str(error.value)
+    assert config.teaching_username == ""
+    assert config.teaching_password == ""
+
+
+def test_load_live_config_allows_lms_browser_state_only_without_login_secrets() -> None:
+    environment = {
+        key: value
+        for key, value in BASE_ENV.items()
+        if key not in {"TEACHING_USERNAME", "TEACHING_PASSWORD", "LMS_USERNAME", "LMS_PASSWORD"}
+    }
+    environment["JOB_TYPE"] = "read_lms_pending"
+
+    config = load_live_config(environment)
+
+    assert config.lms_username == ""
+    assert config.lms_password == ""
 
 
 def test_validate_job_id_accepts_uuid_and_rejects_other_values() -> None:
