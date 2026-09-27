@@ -164,7 +164,12 @@ select ok(
     join pg_namespace as namespace on namespace.oid = procedure.pronamespace
     where namespace.nspname = 'public'
       and procedure.proname = 'update_review_input_if_revision_matches'
-       and procedure.proargnames[1:7] = array[
+      and (
+        select array_agg(procedure.proargnames[s.idx] order by s.idx)
+        from generate_subscripts(procedure.proargnames, 1) as s(idx)
+        where coalesce(procedure.proargmodes[s.idx], 'i'::"char")
+          in ('i'::"char", 'b'::"char")
+      ) = array[
         'target_workspace_id',
         'target_session_id',
         'target_student_id',
