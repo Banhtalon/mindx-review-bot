@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import pytest
 
+from mindx_runner.browser_state import BrowserStateCipher
 from mindx_runner.supabase_client import (
     ClaimedRun,
     HttpResponse,
@@ -21,6 +22,8 @@ SESSION_ID = "00000000-0000-4000-8000-000000000004"
 STUDENT_ID = "00000000-0000-4000-8000-000000000005"
 RUNNER_ID = "runner-test-01"
 OBJECT_PATH = f"browser-state/{WORKSPACE_ID}/lms/{RUN_ID}.json"
+TEACHING_OBJECT_PATH = f"browser-state/{WORKSPACE_ID}/teaching/{RUN_ID}.json"
+TEACHING_STATE = b'{"cookies":[],"origins":[{"origin":"https://teachingmindx.top","localStorage":[]}]}'
 
 
 @dataclass
@@ -316,6 +319,100 @@ def test_storage_object_store_uses_private_bucket_rest_endpoints() -> None:
     assert json.loads(transport.requests[2][3] or b"") == {
         "prefixes": [f"{WORKSPACE_ID}/lms/{RUN_ID}.json"]
     }
+
+
+def test_persist_browser_state_encrypts_before_upload_and_activates_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("mindx_runner.supabase_client.uuid4", lambda: RUN_ID)
+    transport = FakeTransport(
+        [
+            response({"Key": f"{WORKSPACE_ID}/teaching/{RUN_ID}.json"}),
+            response(
+                [
+                    {
+                        "version_id": RUN_ID,
+                        "object_path": TEACHING_OBJECT_PATH,
+                        "status": "active",
+                    }
+                ]
+            ),
+        ]
+    )
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    version = client.persist_browser_state(
+        WORKSPACE_ID,
+        "teaching",
+        TEACHING_STATE,
+        BrowserStateCipher(b"k" * 32, key_version=3),
+    )
+
+    assert version.workspace_id == WORKSPACE_ID
+    assert version.site == "teaching"
+    assert version.key_version == 3
+    assert version.object_path.startswith(f"browser-state/{WORKSPACE_ID}/teaching/")
+    assert version.object_path.endswith(".json")
+    uploaded = transport.requests[0][3]
+    assert uploaded is not None
+    assert b"teachingmindx.top" not in uploaded
+    assert b"cookies" not in uploaded
+    activation = json.loads(transport.requests[1][3] or b"")
+    assert activation["target_workspace_id"] == WORKSPACE_ID
+    assert activation["target_site"] == "teaching"
+    assert activation["target_version_id"] == version.version_id
+    assert activation["target_object_path"] == version.object_path
+
+
+def test_activate_browser_state_rejects_mismatched_metadata() -> None:
+    transport = FakeTransport(
+        [
+            response(
+                [
+                    {
+                        "version_id": RUN_ID,
+                        "object_path": OBJECT_PATH,
+                        "status": "active",
+                    }
+                ]
+            )
+        ]
+    )
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    with pytest.raises(SupabaseClientError) as error:
+        client.activate_browser_state_version(
+            WORKSPACE_ID,
+            "teaching",
+            RUN_ID,
+            TEACHING_OBJECT_PATH,
+            1,
+            "a" * 64,
+        )
+
+    assert error.value.code == "SUPABASE_UNAVAILABLE"
+
+
+def test_persist_browser_state_keeps_object_if_activation_outcome_is_unknown() -> None:
+    transport = FakeTransport(
+        [
+            response({"Key": f"{WORKSPACE_ID}/teaching/{RUN_ID}.json"}),
+            HttpResponse(status=500, body=b"redacted"),
+        ]
+    )
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    with pytest.raises(SupabaseClientError) as error:
+        client.persist_browser_state(
+            WORKSPACE_ID,
+            "teaching",
+            TEACHING_STATE,
+            BrowserStateCipher(b"k" * 32, key_version=1),
+        )
+
+    assert error.value.code == "SUPABASE_UNAVAILABLE"
+    assert len(transport.requests) == 2
+    assert transport.requests[0][0] == "POST"
 
 
 def test_storage_object_store_rejects_path_traversal() -> None:

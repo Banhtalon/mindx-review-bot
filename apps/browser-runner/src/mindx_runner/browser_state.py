@@ -2,16 +2,25 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import os
 from dataclasses import dataclass, replace
 from typing import Final, Literal, NoReturn, Protocol
+from urllib.parse import urlparse
 from uuid import UUID, uuid4
 
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 STORAGE_STATE_DECRYPT_FAILED: Final[str] = "STORAGE_STATE_DECRYPT_FAILED"
+STORAGE_STATE_INVALID: Final[str] = "STORAGE_STATE_INVALID"
 ALLOWED_STATE_SITES: Final[frozenset[str]] = frozenset({"teaching", "lms"})
+ALLOWED_STATE_ORIGINS: Final[dict[str, str]] = {
+    "teaching": "https://teachingmindx.top",
+    "lms": "https://lms.mindx.edu.vn",
+}
+MAX_STORAGE_STATE_BYTES: Final[int] = 2 * 1024 * 1024
+MAX_STORAGE_STATE_STRING_BYTES: Final[int] = 256 * 1024
 AES256_KEY_BYTES: Final[int] = 32
 GCM_NONCE_BYTES: Final[int] = 12
 GCM_TAG_BYTES: Final[int] = 16
@@ -24,13 +33,157 @@ class BrowserStateError(RuntimeError):
         super().__init__(code)
 
 
-def _fail() -> NoReturn:
-    raise BrowserStateError()
+def _fail(code: str = STORAGE_STATE_DECRYPT_FAILED) -> NoReturn:
+    raise BrowserStateError(code)
 
 
 def _validate_site(site: str) -> None:
-    if site not in ALLOWED_STATE_SITES:
+    if not isinstance(site, str) or site not in ALLOWED_STATE_SITES:
         _fail()
+
+
+def _invalid_state() -> NoReturn:
+    _fail(STORAGE_STATE_INVALID)
+
+
+def _bounded_string(value: object) -> str:
+    if not isinstance(value, str):
+        _invalid_state()
+    try:
+        if len(value.encode("utf-8")) > MAX_STORAGE_STATE_STRING_BYTES:
+            _invalid_state()
+    except UnicodeEncodeError:
+        _invalid_state()
+    return value
+
+
+def _validate_storage_origin(value: object, expected_origin: str) -> None:
+    origin = _bounded_string(value)
+    parsed = urlparse(origin)
+    expected = urlparse(expected_origin)
+    try:
+        port = parsed.port
+        hostname = parsed.hostname
+    except ValueError:
+        _invalid_state()
+    if (
+        parsed.scheme != "https"
+        or hostname != expected.hostname
+        or port is not None
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.params
+        or parsed.query
+        or parsed.fragment
+    ):
+        _invalid_state()
+
+
+def _validate_cookie(cookie: object, expected_origin: str) -> None:
+    if not isinstance(cookie, dict):
+        _invalid_state()
+    allowed_keys = {
+        "name",
+        "value",
+        "url",
+        "domain",
+        "path",
+        "expires",
+        "httpOnly",
+        "secure",
+        "sameSite",
+        "sameParty",
+        "partitionKey",
+    }
+    if set(cookie) - allowed_keys:
+        _invalid_state()
+    _bounded_string(cookie.get("name"))
+    _bounded_string(cookie.get("value"))
+    url = cookie.get("url")
+    domain = cookie.get("domain")
+    if (url is None) == (domain is None):
+        _invalid_state()
+    expected_host = urlparse(expected_origin).hostname
+    if url is not None:
+        _validate_storage_origin(url, expected_origin)
+    else:
+        cookie_domain = _bounded_string(domain)
+        if cookie_domain.lstrip(".").lower() != expected_host:
+            _invalid_state()
+    path = cookie.get("path", "/")
+    if not isinstance(path, str) or not path.startswith("/"):
+        _invalid_state()
+    expires = cookie.get("expires", -1)
+    if isinstance(expires, bool) or not isinstance(expires, int | float):
+        _invalid_state()
+    if isinstance(expires, float) and not math.isfinite(expires):
+        _invalid_state()
+    for key in ("httpOnly", "secure", "sameParty"):
+        if key in cookie and not isinstance(cookie[key], bool):
+            _invalid_state()
+    same_site = cookie.get("sameSite")
+    if same_site is not None and (
+        not isinstance(same_site, str) or same_site not in {"Strict", "Lax", "None"}
+    ):
+        _invalid_state()
+    if "partitionKey" in cookie:
+        _bounded_string(cookie["partitionKey"])
+
+
+def validate_storage_state(raw: bytes | str, *, site: str) -> bytes:
+    """Validate and canonicalize a local Playwright storage-state export.
+
+    Only the selected MindX origin is accepted. The returned bytes contain no
+    additional fields and are suitable for encryption; validation errors carry
+    only a safe error code and never include cookie or local-storage values.
+    """
+    _validate_site(site)
+    if isinstance(raw, str):
+        try:
+            raw_bytes = raw.encode("utf-8")
+        except UnicodeEncodeError:
+            _invalid_state()
+    elif isinstance(raw, bytes):
+        raw_bytes = raw
+    else:
+        _invalid_state()
+    if not raw_bytes or len(raw_bytes) > MAX_STORAGE_STATE_BYTES:
+        _invalid_state()
+    try:
+        payload = json.loads(raw_bytes.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        _invalid_state()
+    if not isinstance(payload, dict) or set(payload) != {"cookies", "origins"}:
+        _invalid_state()
+    cookies = payload["cookies"]
+    origins = payload["origins"]
+    if not isinstance(cookies, list) or not isinstance(origins, list):
+        _invalid_state()
+    expected_origin = ALLOWED_STATE_ORIGINS[site]
+    for cookie in cookies:
+        _validate_cookie(cookie, expected_origin)
+    for origin_entry in origins:
+        if not isinstance(origin_entry, dict) or set(origin_entry) != {"origin", "localStorage"}:
+            _invalid_state()
+        _validate_storage_origin(origin_entry["origin"], expected_origin)
+        local_storage = origin_entry["localStorage"]
+        if not isinstance(local_storage, list):
+            _invalid_state()
+        for item in local_storage:
+            if not isinstance(item, dict) or set(item) != {"name", "value"}:
+                _invalid_state()
+            _bounded_string(item["name"])
+            _bounded_string(item["value"])
+    try:
+        return json.dumps(
+            payload,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    except (TypeError, UnicodeEncodeError, ValueError):
+        _invalid_state()
 
 
 def _validate_key_version(key_version: int) -> None:

@@ -5,16 +5,19 @@ import pytest
 from mindx_runner.browser_state import (
     ALLOWED_STATE_SITES,
     STORAGE_STATE_DECRYPT_FAILED,
+    STORAGE_STATE_INVALID,
     BrowserStateCipher,
     BrowserStateError,
     BrowserStateLifecycle,
     EncryptedStateEnvelope,
     InMemoryObjectStore,
+    validate_storage_state,
 )
 
 KEY = b"k" * 32
 STATE = b'{"synthetic":true}'
 WORKSPACE_ID = "11111111-1111-4111-8111-111111111111"
+LIVE_STATE = b'{"cookies":[{"name":"sid","value":"redacted","domain":".teachingmindx.top","path":"/","httpOnly":true,"secure":true,"sameSite":"Lax"}],"origins":[{"origin":"https://teachingmindx.top","localStorage":[{"name":"theme","value":"dark"}]}]}'
 
 
 def test_encrypt_decrypt_round_trip_serializes_only_the_envelope() -> None:
@@ -27,6 +30,40 @@ def test_encrypt_decrypt_round_trip_serializes_only_the_envelope() -> None:
     assert cipher.decrypt(decoded, site="lms") == STATE
     assert decoded.key_version == 7
     assert STATE not in serialized
+
+
+def test_storage_state_validation_canonicalizes_selected_origin_without_logging_values() -> None:
+    canonical = validate_storage_state(LIVE_STATE, site="teaching")
+
+    assert b'"sid"' in canonical
+    assert canonical.startswith(b'{"cookies":')
+    assert b"https://teachingmindx.top" in canonical
+
+
+@pytest.mark.parametrize(
+    ("site", "replacement"),
+    [
+        ("teaching", "https://evil.example"),
+        ("lms", "https://teachingmindx.top"),
+    ],
+)
+def test_storage_state_validation_rejects_unapproved_origin(site: str, replacement: str) -> None:
+    raw = LIVE_STATE.replace(b"https://teachingmindx.top", replacement.encode("ascii"))
+
+    with pytest.raises(BrowserStateError) as error:
+        validate_storage_state(raw, site=site)
+
+    assert error.value.code == STORAGE_STATE_INVALID
+
+
+def test_storage_state_validation_rejects_unknown_cookie_domain_without_plaintext_error() -> None:
+    raw = LIVE_STATE.replace(b".teachingmindx.top", b".evil.example")
+
+    with pytest.raises(BrowserStateError) as error:
+        validate_storage_state(raw, site="teaching")
+
+    assert error.value.code == STORAGE_STATE_INVALID
+    assert "evil.example" not in str(error.value)
 
 
 def test_each_encryption_uses_a_fresh_nonce() -> None:

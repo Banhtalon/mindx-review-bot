@@ -6,9 +6,15 @@ from typing import Any, Final, Literal, Protocol, cast
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from .browser_state import ALLOWED_STATE_SITES, ObjectStore
+from .browser_state import (
+    ALLOWED_STATE_SITES,
+    BrowserStateCipher,
+    BrowserStateVersion,
+    ObjectStore,
+    validate_storage_state,
+)
 
 SUPABASE_UNAVAILABLE: Final[str] = "SUPABASE_UNAVAILABLE"
 RUNNER_RESULT_INVALID: Final[str] = "RUNNER_RESULT_INVALID"
@@ -48,6 +54,7 @@ SAFE_ERROR_CODES = frozenset(
         "LIVE_CONFIG_INVALID",
         "SUPABASE_UNAVAILABLE",
         "STORAGE_STATE_DECRYPT_FAILED",
+        "STORAGE_STATE_INVALID",
         "STORAGE_PATH_INVALID",
         "BROWSER_NETWORK_GUARD_UNAVAILABLE",
         "QUOTA_GUARD_BLOCKED",
@@ -496,8 +503,59 @@ class SupabaseRunnerClient:
                 "target_state_hash": state_hash,
             },
         )
-        if not isinstance(raw, list) or len(raw) != 1:
+        if (
+            not isinstance(raw, list)
+            or len(raw) != 1
+            or not isinstance(raw[0], dict)
+            or raw[0].get("version_id") != version
+            or raw[0].get("object_path") != object_path
+            or raw[0].get("status") != "active"
+        ):
             raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+
+    def persist_browser_state(
+        self,
+        workspace_id: str,
+        site: str,
+        storage_state: bytes | str,
+        cipher: BrowserStateCipher,
+    ) -> BrowserStateVersion:
+        """Validate, encrypt, upload and activate one owner-provided state.
+
+        The current database RPC atomically revokes the previous active state
+        and inserts this version. It has no expected-revision argument, so the
+        caller must use this owner-controlled bootstrap one site at a time.
+        """
+        workspace = _uuid(workspace_id, "workspace_id")
+        if site not in ALLOWED_STATE_SITES:
+            raise SupabaseClientError(RUNNER_RESULT_INVALID)
+        canonical_state = validate_storage_state(storage_state, site=site)
+        envelope = cipher.encrypt(canonical_state, site=site)
+        version_id = str(uuid4())
+        object_path = f"{self.bucket}/{workspace}/{site}/{version_id}.json"
+        envelope_bytes = envelope.to_bytes()
+        self.object_store.put(object_path, envelope_bytes)
+        # Keep the object if activation returns an error: a network failure can
+        # happen after the database committed, and deleting then would leave
+        # active metadata pointing at a missing state. Orphaned ciphertext is
+        # safe to clean up later with an explicit reconciliation job.
+        self.activate_browser_state_version(
+            workspace,
+            site,
+            version_id,
+            object_path,
+            envelope.key_version,
+            envelope.state_hash,
+        )
+        return BrowserStateVersion(
+            version_id=version_id,
+            workspace_id=workspace,
+            site=site,
+            object_path=object_path,
+            key_version=envelope.key_version,
+            state_hash=envelope.state_hash,
+            status="active",
+        )
 
     def reset_browser_state(self, workspace_id: str, site: str) -> str | None:
         workspace = _uuid(workspace_id, "workspace_id")
