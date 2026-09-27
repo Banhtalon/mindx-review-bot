@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import pytest
 
@@ -83,6 +84,10 @@ LMS_HTML = """
 </main>
 """
 
+LIVE_TEACHING_HTML = (
+    Path(__file__).parents[1] / "fixtures" / "teaching" / "live-week.html"
+).read_text(encoding="utf-8")
+
 
 @pytest.mark.asyncio
 async def test_teaching_adapter_reads_html_and_configures_explicit_login_paths() -> None:
@@ -105,6 +110,27 @@ async def test_teaching_adapter_reads_html_and_configures_explicit_login_paths()
     assert count == 1
     assert browser.opened == ["https://teachingmindx.top/schedule"]
     assert browser.configured_login_paths == ("/login",)
+
+
+@pytest.mark.asyncio
+async def test_teaching_adapter_reads_owner_selected_live_schedule() -> None:
+    browser = FakeBrowser(FakePage(LIVE_TEACHING_HTML))
+
+    count = await readonly_site_adapter(
+        CONFIG,
+        claimed(
+            {
+                "teaching_url": "https://teachingmindx.top/",
+                "allowed_class_codes": ["VT-CSI02"],
+                "expected_class_code": "VT-CSI02",
+                "expected_session_number": 6,
+            }
+        ),
+        browser,
+    )
+
+    assert count == 1
+    assert browser.opened == ["https://teachingmindx.top/"]
 
 
 @pytest.mark.asyncio

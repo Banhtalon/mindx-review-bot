@@ -1,7 +1,8 @@
 import hashlib
 import re
 from collections.abc import Collection
-from datetime import date, time
+from dataclasses import dataclass, field
+from datetime import date, datetime, time
 from html.parser import HTMLParser
 
 from pydantic import ValidationError
@@ -9,6 +10,11 @@ from pydantic import ValidationError
 from .teaching_models import TeachingBatchExtract, TeachingSessionExtract
 
 DEFAULT_SYNTHETIC_CLASS_CODES = frozenset({"SYN-ROBOTICS-01", "SYN-JS-02"})
+_LIVE_DATE_PATTERN = re.compile(r"\b(?P<day>\d{2})/(?P<month>\d{2})/(?P<year>\d{4})\b")
+_LIVE_TIME_PATTERN = re.compile(
+    r"(?P<start>\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*"
+    r"(?P<end>\d{1,2}:\d{2}(?::\d{2})?)"
+)
 
 
 class TeachingParserError(RuntimeError):
@@ -108,6 +114,202 @@ class _TeachingSessionParser(HTMLParser):
         self.incomplete_session = self._active is not None
 
 
+@dataclass(slots=True)
+class _LiveNode:
+    tag: str
+    attrs: dict[str, str]
+    children: list["_LiveNode | str"] = field(default_factory=list)
+
+
+class _LiveTeachingDomParser(HTMLParser):
+    """Build the small DOM slice needed by Teaching's live schedule table."""
+
+    _VOID_TAGS = frozenset(
+        {
+            "area",
+            "base",
+            "br",
+            "col",
+            "embed",
+            "hr",
+            "img",
+            "input",
+            "link",
+            "meta",
+            "param",
+            "source",
+            "track",
+            "wbr",
+        }
+    )
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.root = _LiveNode("root", {})
+        self._stack = [self.root]
+        self.malformed = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        node = _LiveNode(tag.lower(), {key: value or "" for key, value in attrs})
+        self._stack[-1].children.append(node)
+        if node.tag not in self._VOID_TAGS:
+            self._stack.append(node)
+
+    def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        self.handle_starttag(tag, attrs)
+        if self._stack[-1].tag == tag.lower():
+            self._stack.pop()
+
+    def handle_data(self, data: str) -> None:
+        self._stack[-1].children.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        normalized_tag = tag.lower()
+        if len(self._stack) == 1 or self._stack[-1].tag != normalized_tag:
+            self.malformed = True
+            return
+        self._stack.pop()
+
+    def close(self) -> None:
+        super().close()
+        self.malformed = self.malformed or len(self._stack) != 1
+
+
+def _live_text(node: _LiveNode) -> str:
+    return "".join(
+        child if isinstance(child, str) else _live_text(child) for child in node.children
+    )
+
+
+def _live_descendants(node: _LiveNode, tag: str | None = None) -> list[_LiveNode]:
+    matches: list[_LiveNode] = []
+    for child in node.children:
+        if not isinstance(child, _LiveNode):
+            continue
+        if tag is None or child.tag == tag:
+            matches.append(child)
+        matches.extend(_live_descendants(child, tag))
+    return matches
+
+
+def _live_direct_cells(row: _LiveNode) -> list[_LiveNode]:
+    return [
+        child
+        for child in row.children
+        if isinstance(child, _LiveNode) and child.tag in {"th", "td"}
+    ]
+
+
+def _live_has_class(node: _LiveNode, class_name: str) -> bool:
+    return class_name in node.attrs.get("class", "").split()
+
+
+def _live_clock(value: str) -> time:
+    try:
+        format_string = "%H:%M:%S" if value.count(":") == 2 else "%H:%M"
+        return datetime.strptime(value, format_string).time()
+    except ValueError as error:
+        raise TeachingParserError("TEACHING_DATA_INVALID") from error
+
+
+def _live_schedule_records(html: str) -> tuple[list[dict[str, str | None]], bool]:
+    parser = _LiveTeachingDomParser()
+    parser.feed(html)
+    parser.close()
+    if parser.malformed:
+        raise TeachingParserError("TEACHING_DATA_INVALID")
+
+    for table in _live_descendants(parser.root, "table"):
+        rows = _live_descendants(table, "tr")
+        if not rows:
+            continue
+        header_cells = _live_direct_cells(rows[0])
+        if len(header_cells) < 2:
+            continue
+        if any(
+            cell.attrs.get("colspan", "1") != "1"
+            or cell.attrs.get("rowspan", "1") != "1"
+            for cell in header_cells
+        ):
+            raise TeachingParserError("TEACHING_DATA_INVALID")
+        dates: list[date | None] = []
+        for cell in header_cells:
+            match = _LIVE_DATE_PATTERN.search(_live_text(cell))
+            if match is None:
+                dates.append(None)
+                continue
+            try:
+                dates.append(datetime.strptime(match.group(0), "%d/%m/%Y").date())
+            except ValueError as error:
+                raise TeachingParserError("TEACHING_DATA_INVALID") from error
+        if sum(value is not None for value in dates) < 1:
+            continue
+
+        records: list[dict[str, str | None]] = []
+        for row in rows[1:]:
+            cells = _live_direct_cells(row)
+            if not cells:
+                continue
+            row_time_matches = list(_LIVE_TIME_PATTERN.finditer(_live_text(cells[0])))
+            if len(row_time_matches) != 1:
+                if any(_live_has_class(node, "regular-class") for node in _live_descendants(row)):
+                    raise TeachingParserError("TEACHING_DATA_INVALID")
+                continue
+            time_match = row_time_matches[0]
+            row_start = _live_clock(time_match.group("start"))
+            row_end = _live_clock(time_match.group("end"))
+            if len(cells) != len(header_cells) or any(
+                cell.attrs.get("colspan", "1") != "1"
+                or cell.attrs.get("rowspan", "1") != "1"
+                for cell in cells
+            ):
+                if any(_live_has_class(node, "regular-class") for node in _live_descendants(row)):
+                    raise TeachingParserError("TEACHING_DATA_INVALID")
+                continue
+            for index, cell in enumerate(cells[1:], start=1):
+                scheduled_date = dates[index] if index < len(dates) else None
+                if scheduled_date is None:
+                    if _live_descendants(cell):
+                        raise TeachingParserError("TEACHING_DATA_INVALID")
+                    continue
+                for session_node in _live_descendants(cell):
+                    if not _live_has_class(session_node, "regular-class"):
+                        continue
+                    code_nodes = [
+                        node
+                        for node in _live_descendants(session_node)
+                        if _live_has_class(node, "class-code")
+                    ]
+                    if len(code_nodes) != 1:
+                        raise TeachingParserError("TEACHING_DATA_INVALID")
+                    attributes = session_node.attrs
+                    inner_times = list(_LIVE_TIME_PATTERN.finditer(_live_text(session_node)))
+                    if len(inner_times) > 1 or (
+                        inner_times
+                        and (
+                            _live_clock(inner_times[0].group("start")) != row_start
+                            or _live_clock(inner_times[0].group("end")) != row_end
+                        )
+                    ):
+                        raise TeachingParserError("TEACHING_DATA_INVALID")
+                    records.append(
+                        {
+                            "class-code": _live_text(code_nodes[0]).strip(),
+                            "source-session-id": attributes.get("data-source-session-id") or None,
+                            "session-number": attributes.get("data-session-number") or None,
+                            "session-type": "regular",
+                            "scheduled-date": scheduled_date.isoformat(),
+                            "start-time": row_start.isoformat(),
+                            "end-time": row_end.isoformat(),
+                            "block": attributes.get("data-block") or None,
+                            "special-event": attributes.get("data-special-event") or None,
+                            "teacher-name": None,
+                        }
+                    )
+        return records, True
+    return [], False
+
+
 def _required(record: dict[str, str | None], name: str) -> str:
     value = record.get(name)
     if value is None or not value.strip():
@@ -134,7 +336,17 @@ def parse_teaching_schedule(
 
     if parser.login_marker or parser.page_state == "login":
         raise TeachingParserError("TEACHING_LOGIN_REQUIRED")
-    if parser.incomplete_session or not parser.schedule_marker:
+    if parser.incomplete_session:
+        raise TeachingParserError("TEACHING_DATA_INVALID")
+    if parser.schedule_marker:
+        records = parser.records
+        live_schedule = False
+    else:
+        try:
+            records, live_schedule = _live_schedule_records(html)
+        except RecursionError as error:
+            raise TeachingParserError("TEACHING_DATA_INVALID") from error
+    if not parser.schedule_marker and not live_schedule:
         raise TeachingParserError("TEACHING_DATA_INVALID")
     allowed_codes = {code.strip().upper() for code in allowed_class_codes}
     if not allowed_codes:
@@ -142,8 +354,9 @@ def parse_teaching_schedule(
 
     sessions: list[TeachingSessionExtract] = []
     source_ids: set[str] = set()
+    semantic_ids: set[tuple[str, date, int | None, time, time]] = set()
     try:
-        for record in parser.records:
+        for record in records:
             session = TeachingSessionExtract(
                 class_code=_required(record, "class-code"),
                 source_session_id=record.get("source-session-id"),
@@ -163,6 +376,16 @@ def parse_teaching_schedule(
                 raise TeachingParserError("TEACHING_DUPLICATE_SOURCE_ID")
             if source_id is not None:
                 source_ids.add(source_id)
+            semantic_id = (
+                session.class_code,
+                session.scheduled_date,
+                session.session_number,
+                session.start_time,
+                session.end_time,
+            )
+            if semantic_id in semantic_ids:
+                raise TeachingParserError("TEACHING_DUPLICATE_SOURCE_ID")
+            semantic_ids.add(semantic_id)
             sessions.append(session)
     except TeachingParserError:
         raise

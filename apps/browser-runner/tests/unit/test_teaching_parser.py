@@ -29,6 +29,105 @@ def test_parser_extracts_normal_week_into_validated_records() -> None:
     assert batch.warnings == []
 
 
+def test_parser_extracts_owner_selected_live_schedule_contract() -> None:
+    batch = parse_teaching_schedule(
+        read_fixture("live-week.html"), allowed_class_codes={"VT-CSI02"}
+    )
+
+    assert len(batch.sessions) == 1
+    session = batch.sessions[0]
+    assert session.class_code == "VT-CSI02"
+    assert session.source_session_id is None
+    assert session.session_number == 6
+    assert session.session_type == "regular"
+    assert session.scheduled_date == date(2026, 9, 27)
+    assert session.start_time == time(8, 0)
+    assert session.end_time == time(10, 0)
+    assert session.block == "Coding"
+
+
+def test_parser_rejects_invalid_live_header_date() -> None:
+    html = read_fixture("live-week.html").replace("27/09/2026", "31/02/2026", 1)
+
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+
+def test_parser_rejects_live_row_width_mismatch() -> None:
+    html = read_fixture("live-week.html").replace(
+        "        <td></td>\n        <td>\n",
+        "        <td>\n",
+        1,
+    )
+
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+
+def test_parser_rejects_live_merged_date_header() -> None:
+    html = read_fixture("live-week.html").replace(
+        '<th>Chủ Nhật 27/09/2026 Hôm nay</th>',
+        '<th colspan="2">Chủ Nhật 27/09/2026 Hôm nay</th>',
+        1,
+    )
+
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+
+def test_parser_rejects_excessively_nested_live_markup() -> None:
+    html = "<div>" * 1100 + read_fixture("live-week.html") + "</div>" * 1100
+
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+
+def test_parser_rejects_live_inner_time_mismatch() -> None:
+    html = read_fixture("live-week.html").replace(
+        "08:00:00 - 10:00:00", "09:00:00 - 10:00:00", 1
+    )
+
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+
+def test_parser_normalizes_live_single_digit_hour() -> None:
+    html = read_fixture("live-week.html").replace(
+        "08:00 - 10:00", "8:00 - 10:00", 1
+    ).replace("08:00:00 - 10:00:00", "8:00:00 - 10:00:00", 1)
+
+    batch = parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+    assert batch.sessions[0].start_time == time(8, 0)
+
+
+def test_parser_rejects_multiple_live_time_ranges_in_a_row() -> None:
+    html = read_fixture("live-week.html").replace(
+        "08:00 - 10:00", "08:00 - 10:00 / 09:00 - 11:00", 1
+    )
+
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+
+def test_parser_rejects_duplicate_live_semantic_sessions() -> None:
+    duplicate = """
+          <div class="regular-class" data-block="Coding" data-session-number="6"
+            data-special-event="" id="regular-class-duplicate">
+            <span>B. 6</span>
+            <span class="class-code">VT-CSI02</span>
+          </div>
+"""
+    html = read_fixture("live-week.html").replace(
+        "          </div>\n        </td>",
+        "          </div>\n" + duplicate + "        </td>",
+        1,
+    )
+
+    with pytest.raises(TeachingParserError, match="TEACHING_DUPLICATE_SOURCE_ID"):
+        parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+
 def test_parser_reports_a_real_empty_week_without_error() -> None:
     batch = parse_teaching_schedule(read_fixture("empty-week.html"))
 
