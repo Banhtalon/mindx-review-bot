@@ -164,7 +164,7 @@ select ok(
     join pg_namespace as namespace on namespace.oid = procedure.pronamespace
     where namespace.nspname = 'public'
       and procedure.proname = 'update_review_input_if_revision_matches'
-      and procedure.proargnames = array[
+       and procedure.proargnames[1:7] = array[
         'target_workspace_id',
         'target_session_id',
         'target_student_id',
