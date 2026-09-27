@@ -118,6 +118,10 @@ def test_load_live_config_requires_runner_id() -> None:
         "https://user:password@example.supabase.co",
         "https://example.supabase.co?query=1",
         "https://example.supabase.co#fragment",
+        "https://[",
+        "https://.supabase.co",
+        "https://-foo.supabase.co",
+        "https://foo-.supabase.co",
     ],
 )
 def test_load_live_config_rejects_non_origin_supabase_url(value: str) -> None:

@@ -8,6 +8,9 @@ from uuid import UUID
 
 LIVE_CONFIG_INVALID: Final[str] = "LIVE_CONFIG_INVALID"
 RUNNER_FAILED: Final[str] = "RUNNER_FAILED"
+_SUPABASE_HOST_PATTERN = re.compile(
+    r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.supabase\.co$"
+)
 SAFE_ERROR_CODES: Final[frozenset[str]] = frozenset(
     {
         LIVE_CONFIG_INVALID,
@@ -131,14 +134,17 @@ def _decode_key(value: str) -> bytes:
 
 
 def _validate_supabase_url(value: str) -> str:
-    parsed = urlparse(value)
-    if parsed.scheme != "https" or parsed.hostname is None:
-        _fail("SUPABASE_URL")
-    if not parsed.hostname.endswith(".supabase.co") or parsed.hostname.count(".") != 2:
-        _fail("SUPABASE_URL")
     try:
+        parsed = urlparse(value)
+        hostname = parsed.hostname
         port = parsed.port
-    except ValueError:
+    except (TypeError, ValueError):
+        _fail("SUPABASE_URL")
+    if (
+        parsed.scheme != "https"
+        or hostname is None
+        or _SUPABASE_HOST_PATTERN.fullmatch(hostname.lower()) is None
+    ):
         _fail("SUPABASE_URL")
     if (
         parsed.username is not None
