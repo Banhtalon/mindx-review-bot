@@ -32,9 +32,10 @@ create table public.review_inputs (
   learning_level text not null default 'unknown'
     check (learning_level in ('strong', 'developing', 'needs_support', 'unknown')),
   note_draft text not null default '' check (char_length(note_draft) <= 10000),
-  revision bigint not null default 1 check (revision > 0),
+  revision bigint not null default 1,
   updated_at timestamptz not null default now(),
   primary key (session_id, student_id),
+  constraint review_inputs_revision_check check (revision > 0),
   foreign key (workspace_id, session_id)
     references public.review_sessions(workspace_id, id) on delete cascade,
   foreign key (workspace_id, student_id)
