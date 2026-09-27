@@ -59,9 +59,9 @@ def _bounded_string(value: object) -> str:
 
 def _validate_storage_origin(value: object, expected_origin: str) -> None:
     origin = _bounded_string(value)
-    parsed = urlparse(origin)
-    expected = urlparse(expected_origin)
     try:
+        parsed = urlparse(origin)
+        expected = urlparse(expected_origin)
         port = parsed.port
         hostname = parsed.hostname
     except ValueError:

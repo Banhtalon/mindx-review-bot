@@ -66,6 +66,15 @@ def test_storage_state_validation_rejects_unknown_cookie_domain_without_plaintex
     assert "evil.example" not in str(error.value)
 
 
+def test_storage_state_validation_rejects_malformed_origin_with_safe_code() -> None:
+    raw = LIVE_STATE.replace(b"https://teachingmindx.top", b"https://[")
+
+    with pytest.raises(BrowserStateError) as error:
+        validate_storage_state(raw, site="teaching")
+
+    assert error.value.code == STORAGE_STATE_INVALID
+
+
 def test_each_encryption_uses_a_fresh_nonce() -> None:
     cipher = BrowserStateCipher(KEY, key_version=1)
 
