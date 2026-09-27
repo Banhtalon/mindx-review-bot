@@ -33,6 +33,99 @@ ENVIRONMENT = {
 }
 
 
+def test_bootstrap_browser_state_reads_local_file_and_never_prints_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    state = (
+        b'{"cookies":[{"name":"sid","value":"secret-cookie",'
+        b'"domain":".teachingmindx.top","path":"/"}],"origins":[]}'
+    )
+    state_path = tmp_path / "state.json"
+    state_path.write_bytes(state)
+    observed: dict[str, object] = {}
+
+    class FakeSupabase:
+        def __init__(self, url: str, secret: str) -> None:
+            observed["url"] = url
+            observed["secret"] = secret
+
+        def persist_browser_state(
+            self,
+            workspace_id: str,
+            site: str,
+            storage_state: bytes,
+            cipher: BrowserStateCipher,
+        ) -> Any:
+            observed["workspace_id"] = workspace_id
+            observed["site"] = site
+            observed["storage_state"] = storage_state
+            observed["key_version"] = cipher.key_version
+            return type("Version", (), {"site": site})()
+
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "server-secret")
+    monkeypatch.setenv("BROWSER_STATE_ENCRYPTION_KEY", ENVIRONMENT["BROWSER_STATE_ENCRYPTION_KEY"])
+    monkeypatch.setattr("mindx_runner.cli.SupabaseRunnerClient", FakeSupabase)
+
+    assert main(
+        [
+            "bootstrap-browser-state",
+            "--site",
+            "teaching",
+            "--workspace-id",
+            WORKSPACE_ID,
+            "--state-path",
+            str(state_path),
+            "--key-version",
+            "4",
+        ]
+    ) == 0
+
+    output = capsys.readouterr().out
+    assert "browser_state_uploaded" in output
+    assert "secret-cookie" not in output
+    assert observed["workspace_id"] == WORKSPACE_ID
+    assert observed["site"] == "teaching"
+    assert observed["storage_state"] == state
+    assert observed["key_version"] == 4
+
+
+def test_bootstrap_browser_state_rejects_noncanonical_supabase_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Any,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_bytes(b'{"cookies":[],"origins":[]}')
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co/path")
+    monkeypatch.setenv("SUPABASE_SECRET_KEY", "server-secret")
+    monkeypatch.setenv("BROWSER_STATE_ENCRYPTION_KEY", ENVIRONMENT["BROWSER_STATE_ENCRYPTION_KEY"])
+
+    class UnexpectedClient:
+        def __init__(self, *_: object) -> None:
+            pytest.fail("Supabase client must not receive an unsafe URL")
+
+    monkeypatch.setattr("mindx_runner.cli.SupabaseRunnerClient", UnexpectedClient)
+
+    assert main(
+        [
+            "bootstrap-browser-state",
+            "--site",
+            "teaching",
+            "--workspace-id",
+            WORKSPACE_ID,
+            "--state-path",
+            str(state_path),
+        ]
+    ) == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "failed",
+        "error_code": "LIVE_CONFIG_INVALID",
+    }
+
+
 @dataclass
 class FakeClient:
     finished: list[tuple[str, str, int, str | None, int]]
@@ -313,7 +406,7 @@ async def test_run_job_decrypts_active_browser_state_before_starting_session() -
             assert workspace_id == WORKSPACE_ID
             assert site == "teaching"
             envelope = BrowserStateCipher(bytes(range(32)), key_version=4).encrypt(
-                b'{"cookies":[]}', site="teaching"
+                b'{"cookies":[],"origins":[]}', site="teaching"
             )
             return envelope.to_bytes()
 
@@ -333,7 +426,39 @@ async def test_run_job_decrypts_active_browser_state_before_starting_session() -
     )
 
     assert summary.status == "succeeded"
-    assert created_options["storage_state"] == {"cookies": []}
+    assert created_options["storage_state"] == {"cookies": [], "origins": []}
+
+
+@pytest.mark.asyncio
+async def test_run_job_rejects_active_state_for_an_unapproved_origin() -> None:
+    class EvilStateClient(FakeClient):
+        def load_active_browser_state(self, workspace_id: str, site: str) -> bytes:
+            envelope = BrowserStateCipher(bytes(range(32)), key_version=4).encrypt(
+                b'{"cookies":[],"origins":[{"origin":"https://evil.example","localStorage":[]}]}',
+                site="teaching",
+            )
+            return envelope.to_bytes()
+
+    client = EvilStateClient([])
+    session_created = False
+
+    def session_factory(**_: object) -> FakeSession:
+        nonlocal session_created
+        session_created = True
+        return FakeSession({})
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=session_factory,
+            adapter=lambda *_: asyncio.sleep(0, result=0),
+        )
+
+    assert error.value.code == "STORAGE_STATE_INVALID"
+    assert client.finished[0][:4] == (RUN_ID, "failed", 0, "STORAGE_STATE_INVALID")
+    assert session_created is False
 
 
 @pytest.mark.asyncio

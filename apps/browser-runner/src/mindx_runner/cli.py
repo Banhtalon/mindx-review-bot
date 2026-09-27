@@ -9,11 +9,24 @@ import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Final, Protocol, cast
 
 from .browser_driver import ReadonlyBrowserSession, SessionFactory
-from .browser_state import BrowserStateCipher, BrowserStateError, EncryptedStateEnvelope
-from .live_runner import LiveRunConfig, load_live_config, safe_error_code
+from .browser_state import (
+    ALLOWED_STATE_SITES,
+    BrowserStateCipher,
+    BrowserStateError,
+    EncryptedStateEnvelope,
+    validate_storage_state,
+)
+from .live_runner import (
+    LiveRunConfig,
+    _decode_key,
+    _validate_supabase_url,
+    load_live_config,
+    safe_error_code,
+)
 from .supabase_client import MAX_RECORDS_READ, ClaimedRun, SupabaseRunnerClient
 
 
@@ -358,14 +371,11 @@ def _decode_browser_storage_state(
             config.browser_state_key,
             envelope.key_version,
         ).decrypt(envelope, site=site)
-        state = json.loads(plaintext.decode("utf-8"))
-    except (
-        BrowserStateError,
-        UnicodeDecodeError,
-        json.JSONDecodeError,
-        TypeError,
-        ValueError,
-    ) as error:
+        canonical = validate_storage_state(plaintext, site=site)
+        state = json.loads(canonical.decode("utf-8"))
+    except BrowserStateError as error:
+        raise RunnerError(error.code) from error
+    except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError) as error:
         raise RunnerError("STORAGE_STATE_DECRYPT_FAILED") from error
     if not isinstance(state, dict):
         raise RunnerError("STORAGE_STATE_DECRYPT_FAILED")
@@ -518,7 +528,39 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("preflight")
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("job_id")
+    bootstrap_parser = subparsers.add_parser(
+        "bootstrap-browser-state",
+        help="upload one validated, encrypted Playwright storage-state export",
+    )
+    bootstrap_parser.add_argument("--site", choices=sorted(ALLOWED_STATE_SITES), required=True)
+    bootstrap_parser.add_argument("--workspace-id", required=True)
+    bootstrap_parser.add_argument("--state-path", required=True)
+    bootstrap_parser.add_argument("--key-version", type=int, default=1)
     return parser
+
+
+def _bootstrap_browser_state(args: argparse.Namespace, environment: Mapping[str, str]) -> None:
+    required = {name: environment.get(name, "") for name in (
+        "SUPABASE_URL",
+        "SUPABASE_SECRET_KEY",
+        "BROWSER_STATE_ENCRYPTION_KEY",
+    )}
+    if any(not value for value in required.values()):
+        raise RunnerError("LIVE_CONFIG_INVALID")
+    if args.key_version < 1:
+        raise RunnerError("LIVE_CONFIG_INVALID")
+    try:
+        raw_state = Path(args.state_path).read_bytes()
+    except (OSError, ValueError) as error:
+        raise BrowserStateError("STORAGE_STATE_INVALID") from error
+    cipher = BrowserStateCipher(
+        _decode_key(required["BROWSER_STATE_ENCRYPTION_KEY"]),
+        args.key_version,
+    )
+    supabase_url = _validate_supabase_url(required["SUPABASE_URL"])
+    client = SupabaseRunnerClient(supabase_url, required["SUPABASE_SECRET_KEY"])
+    version = client.persist_browser_state(args.workspace_id, args.site, raw_state, cipher)
+    print(json.dumps({"status": "browser_state_uploaded", "site": version.site}))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -540,6 +582,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     }
                 )
             )
+            return 0
+        if args.command == "bootstrap-browser-state":
+            _bootstrap_browser_state(args, environment)
             return 0
         # Validate the run environment and resolve the adapter before any job
         # claim or browser startup. Missing or invalid adapter configuration is
