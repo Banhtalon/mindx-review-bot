@@ -35,15 +35,11 @@ def test_live_workflow_scopes_credentials_by_job_type() -> None:
     assert set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", teaching_block)) == {
         "SUPABASE_URL",
         "SUPABASE_SECRET_KEY",
-        "TEACHING_USERNAME",
-        "TEACHING_PASSWORD",
         "BROWSER_STATE_ENCRYPTION_KEY",
     }
     assert set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", lms_block)) == {
         "SUPABASE_URL",
         "SUPABASE_SECRET_KEY",
-        "LMS_USERNAME",
-        "LMS_PASSWORD",
         "BROWSER_STATE_ENCRYPTION_KEY",
     }
     assert "MVP_LMS_WRITE_ENABLED: false" in teaching_block
@@ -53,15 +49,11 @@ def test_live_workflow_scopes_credentials_by_job_type() -> None:
     assert set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", teaching_preflight)) == {
         "SUPABASE_URL",
         "SUPABASE_SECRET_KEY",
-        "TEACHING_USERNAME",
-        "TEACHING_PASSWORD",
         "BROWSER_STATE_ENCRYPTION_KEY",
     }
     assert set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", lms_preflight)) == {
         "SUPABASE_URL",
         "SUPABASE_SECRET_KEY",
-        "LMS_USERNAME",
-        "LMS_PASSWORD",
         "BROWSER_STATE_ENCRYPTION_KEY",
     }
     assert "MINDX_SITE_ADAPTER: ${{ vars.MINDX_SITE_ADAPTER }}" in teaching_preflight

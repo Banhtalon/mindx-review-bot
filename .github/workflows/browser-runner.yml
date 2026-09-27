@@ -52,8 +52,6 @@ jobs:
           MVP_LMS_WRITE_ENABLED: false
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          TEACHING_USERNAME: ${{ secrets.TEACHING_USERNAME }}
-          TEACHING_PASSWORD: ${{ secrets.TEACHING_PASSWORD }}
           BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
         run: uv run --project apps/browser-runner mindx-runner preflight
 
@@ -68,8 +66,6 @@ jobs:
           MVP_LMS_WRITE_ENABLED: false
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          LMS_USERNAME: ${{ secrets.LMS_USERNAME }}
-          LMS_PASSWORD: ${{ secrets.LMS_PASSWORD }}
           BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
         run: uv run --project apps/browser-runner mindx-runner preflight
 
@@ -87,8 +83,6 @@ jobs:
           MVP_LMS_WRITE_ENABLED: false
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          TEACHING_USERNAME: ${{ secrets.TEACHING_USERNAME }}
-          TEACHING_PASSWORD: ${{ secrets.TEACHING_PASSWORD }}
           BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
         run: uv run --project apps/browser-runner mindx-runner run "$JOB_ID"
 
@@ -103,7 +97,5 @@ jobs:
           MVP_LMS_WRITE_ENABLED: false
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-          LMS_USERNAME: ${{ secrets.LMS_USERNAME }}
-          LMS_PASSWORD: ${{ secrets.LMS_PASSWORD }}
           BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
         run: uv run --project apps/browser-runner mindx-runner run "$JOB_ID"

@@ -92,6 +92,11 @@ def _required(environment: Mapping[str, str], name: str) -> str:
     return value
 
 
+def _optional(environment: Mapping[str, str], name: str) -> str:
+    """Read a legacy login field without making it a hosted-runner prerequisite."""
+    return environment.get(name, "")
+
+
 def _flag(environment: Mapping[str, str], name: str, expected: str) -> None:
     if _required(environment, name).lower() != expected:
         _fail(name)
@@ -162,22 +167,22 @@ def load_live_config(environment: Mapping[str, str]) -> LiveRunConfig:
         **{"supabase_secret_key": _required(environment, "SUPABASE_SECRET_KEY")},
         browser_state_key=_decode_key(_required(environment, "BROWSER_STATE_ENCRYPTION_KEY")),
         teaching_username=(
-            _required(environment, "TEACHING_USERNAME")
+            _optional(environment, "TEACHING_USERNAME")
             if job_type == "sync_teaching"
             else ""
         ),
         teaching_password=(
-            _required(environment, "TEACHING_PASSWORD")
+            _optional(environment, "TEACHING_PASSWORD")
             if job_type == "sync_teaching"
             else ""
         ),
         lms_username=(
-            _required(environment, "LMS_USERNAME")
+            _optional(environment, "LMS_USERNAME")
             if job_type == "read_lms_pending"
             else ""
         ),
         lms_password=(
-            _required(environment, "LMS_PASSWORD")
+            _optional(environment, "LMS_PASSWORD")
             if job_type == "read_lms_pending"
             else ""
         ),
