@@ -214,6 +214,11 @@ class TeachingReconciliationStore:
                 if record.source_session_id == observation.source_session_id
             ]
             if source_matches:
+                if any(
+                    not self._context_matches(record, observation)
+                    for record in source_matches
+                ):
+                    raise _ReconcileQuarantine("TEACHING_CONTEXT_MISMATCH")
                 if observation.verified_internal_id is not None and not any(
                     record.internal_id == observation.verified_internal_id
                     or record.verified_internal_id == observation.verified_internal_id
@@ -230,6 +235,11 @@ class TeachingReconciliationStore:
                 or record.verified_internal_id == observation.verified_internal_id
             ]
             if internal_matches:
+                if any(
+                    not self._context_matches(record, observation)
+                    for record in internal_matches
+                ):
+                    raise _ReconcileQuarantine("TEACHING_CONTEXT_MISMATCH")
                 if observation.source_session_id is not None and any(
                     record.source_session_id not in {None, observation.source_session_id}
                     for record in internal_matches
@@ -253,6 +263,16 @@ class TeachingReconciliationStore:
         if observation.session_number is None or observation.session_type is None:
             return []
         return self._find_tuple_candidates(observation)
+
+    @staticmethod
+    def _context_matches(
+        record: TeachingSessionRecord, observation: TeachingSessionExtract
+    ) -> bool:
+        return (
+            record.class_code == observation.class_code
+            and record.session_number == observation.session_number
+            and record.session_type == observation.session_type
+        )
 
     def _find_tuple_candidates(
         self, observation: TeachingSessionExtract

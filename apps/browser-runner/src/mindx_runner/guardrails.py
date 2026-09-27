@@ -15,7 +15,7 @@ def assert_lms_read_only(write_enabled: bool) -> None:
         raise RuntimeError("LMS read-only guard violated")
 
 
-def assert_allowed_url(url: str, mode: str = "production") -> None:
+def is_allowed_url(url: str, mode: str = "production") -> bool:
     parsed = urlparse(url)
     allowed_hosts = ALLOWED_PRODUCTION_HOSTS
     valid_protocol = parsed.scheme == "https"
@@ -23,5 +23,25 @@ def assert_allowed_url(url: str, mode: str = "production") -> None:
         allowed_hosts = ALLOWED_PRODUCTION_HOSTS | ALLOWED_SYNTHETIC_HOSTS
         valid_protocol = parsed.scheme in {"http", "https"}
 
-    if not valid_protocol or parsed.hostname not in allowed_hosts:
+    try:
+        port = parsed.port
+    except ValueError:
+        return False
+
+    port_allowed = (
+        parsed.hostname in ALLOWED_SYNTHETIC_HOSTS
+        if mode == "synthetic"
+        else port in {None, 443}
+    )
+    return (
+        valid_protocol
+        and parsed.hostname in allowed_hosts
+        and parsed.username is None
+        and parsed.password is None
+        and port_allowed
+    )
+
+
+def assert_allowed_url(url: str, mode: str = "production") -> None:
+    if not is_allowed_url(url, mode):
         raise RuntimeError("Domain is not allowlisted")

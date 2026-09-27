@@ -4,16 +4,16 @@
 
 GitHub stores code, feature branches, PRs, CI and meaningful milestones. `.workflow-local/` stores mutable task/config/run/checkpoint packets and is ignored by Git. Subscription CLIs run on the Owner laptop; no API-key fallback is allowed.
 
-Normal loop: Gemini Flash worker -> deterministic gates -> fresh Codex reviewer -> bounded repair. Two initial repair rounds are allowed, then at most one senior pass. The bridge stops for Owner, quota/capability, browser evidence, or a technical blocker.
+Normal loop: Antigravity CLI (Google/Gemini worker) -> deterministic gates -> fresh Codex reviewer -> bounded repair. Two initial repair rounds are allowed, then at most one senior pass. The bridge stops for Owner, quota/capability, browser evidence, or a technical blocker.
 
 When a normal run reaches `READY_FOR_OWNER` or `DONE`, the host wrapper pushes the current feature branch to the guarded `Banhtalon/mindx-review-bot` target and creates or reuses a PR. It never merges the PR.
 
 ## One-time activation
 
-1. Install Node 20+, Git, GitHub CLI (`gh`), Gemini CLI and Codex CLI on Windows.
-2. Sign Gemini CLI in with the Google account, Codex CLI in with ChatGPT, and `gh` in with the GitHub account.
+1. Install Node 20+, Git, GitHub CLI (`gh`), Antigravity CLI (`agy`) and Codex CLI on Windows.
+2. Sign Antigravity CLI in with the Google account, Codex CLI in with ChatGPT, and `gh` in with the GitHub account.
 3. Run `npm run qq:setup`. This creates `.workflow-local/bridge-config.json` and freezes a stable exact-file write allowlist from the currently tracked product source under `src/` and `apps/browser-runner/`, excluding tests/fixtures.
-4. Replace only the OpenAI model placeholders with model IDs actually available on this account. Do not guess IDs.
+4. Keep the Google worker on a model ID actually listed by `agy models`; replace only the OpenAI model placeholders with model IDs actually available on this account. Do not guess IDs.
 5. Run `npm run qq:doctor`.
 6. Have the Lead prepare a real frozen pilot task, then run `npm run qq:pilot` until the accepted pilot includes a real reviewer-to-worker repair using both subscription providers.
 7. Run `npm run qq:quota-drill` and then `npm run qq:activate`.

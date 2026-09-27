@@ -1,13 +1,16 @@
 import asyncio
+import json
+import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
-from mindx_runner.cli import RunnerError, run_job
+from mindx_runner.browser_state import BrowserStateCipher
+from mindx_runner.cli import RunnerError, load_configured_adapter, main, run_job
 from mindx_runner.supabase_client import ClaimedRun
 
 JOB_ID = "00000000-0000-4000-8000-000000000001"
@@ -201,6 +204,89 @@ class FakeSessionManager:
         return {}
 
 
+def test_load_configured_adapter_requires_explicit_configuration() -> None:
+    with pytest.raises(RunnerError) as error:
+        load_configured_adapter({})
+
+    assert error.value.code == "SITE_ADAPTER_NOT_CONFIGURED"
+
+
+def test_load_configured_adapter_loads_async_callable(monkeypatch: pytest.MonkeyPatch) -> None:
+    module = ModuleType("mindx_runner.test_site_adapter")
+
+    async def adapter(*_: object) -> int:
+        return 0
+
+    module.adapter = adapter  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+
+    loaded = load_configured_adapter(
+        {"MINDX_SITE_ADAPTER": "mindx_runner.test_site_adapter:adapter"}
+    )
+
+    assert loaded is adapter
+
+
+@pytest.mark.parametrize(
+    "spec",
+    [
+        "test_site_adapter",
+        "mindx_runner.test_site_adapter:missing",
+        "test-site-adapter:adapter",
+        "test_site_adapter:adapter:extra",
+        "os:system",
+    ],
+)
+def test_load_configured_adapter_rejects_invalid_configuration(spec: str) -> None:
+    with pytest.raises(RunnerError) as error:
+        load_configured_adapter({"MINDX_SITE_ADAPTER": spec})
+
+    assert error.value.code == "SITE_ADAPTER_NOT_CONFIGURED"
+
+
+def test_preflight_fails_before_claim_when_site_adapter_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for name, value in ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("MINDX_SITE_ADAPTER", raising=False)
+
+    assert main(["preflight"]) == 1
+
+    output = json.loads(capsys.readouterr().out)
+    assert output == {
+        "status": "failed",
+        "error_code": "SITE_ADAPTER_NOT_CONFIGURED",
+    }
+
+
+def test_preflight_only_succeeds_with_importable_async_site_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    module = ModuleType("mindx_runner.preflight_site_adapter")
+
+    async def adapter(*_: object) -> int:
+        return 0
+
+    module.adapter = adapter  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, module.__name__, module)
+    for name, value in ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv(
+        "MINDX_SITE_ADAPTER",
+        "mindx_runner.preflight_site_adapter:adapter",
+    )
+
+    assert main(["preflight"]) == 0
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "preflight_ok"
+    assert output["job_id"] == JOB_ID
+    assert output["job_type"] == "sync_teaching"
+
+
 @pytest.mark.asyncio
 async def test_run_job_requires_site_adapter_before_claiming_or_opening_browser() -> None:
     client = FakeClient([])
@@ -218,6 +304,73 @@ async def test_run_job_requires_site_adapter_before_claiming_or_opening_browser(
     assert error.value.code == "SITE_ADAPTER_NOT_CONFIGURED"
     assert client.finished == []
     assert session.closed is False
+
+
+@pytest.mark.asyncio
+async def test_run_job_decrypts_active_browser_state_before_starting_session() -> None:
+    class StateClient(FakeClient):
+        def load_active_browser_state(self, workspace_id: str, site: str) -> bytes:
+            assert workspace_id == WORKSPACE_ID
+            assert site == "teaching"
+            envelope = BrowserStateCipher(bytes(range(32)), key_version=4).encrypt(
+                b'{"cookies":[]}', site="teaching"
+            )
+            return envelope.to_bytes()
+
+    client = StateClient([])
+    session = FakeSession({})
+    created_options: dict[str, object] = {}
+
+    async def adapter(*_: object) -> int:
+        return 0
+
+    summary = await run_job(
+        JOB_ID,
+        ENVIRONMENT,
+        client_factory=lambda _: client,
+        session_factory=lambda **options: (created_options.update(options) or session),
+        adapter=adapter,
+    )
+
+    assert summary.status == "succeeded"
+    assert created_options["storage_state"] == {"cookies": []}
+
+
+@pytest.mark.asyncio
+async def test_run_job_finishes_failed_when_active_browser_state_is_missing() -> None:
+    class MissingStateClient(FakeClient):
+        def load_active_browser_state(self, workspace_id: str, site: str) -> None:
+            return None
+
+    client = MissingStateClient([])
+    session = FakeSession({})
+    session_created = False
+
+    def session_factory(**_: object) -> FakeSession:
+        nonlocal session_created
+        session_created = True
+        return session
+
+    async def adapter(*_: object) -> int:
+        return 0
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=session_factory,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "STORAGE_STATE_DECRYPT_FAILED"
+    assert client.finished[0][:4] == (
+        RUN_ID,
+        "failed",
+        0,
+        "STORAGE_STATE_DECRYPT_FAILED",
+    )
+    assert session_created is False
 
 
 @pytest.mark.asyncio
@@ -492,7 +645,10 @@ async def test_exhausted_finalization_budget_does_not_issue_terminal_call() -> N
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("invalid_result", [-1, True, False, -99])
+@pytest.mark.parametrize(
+    "invalid_result",
+    [-1, True, False, -99, 1.5, "3", 2_147_483_648],
+)
 async def test_invalid_adapter_result_finalizes_only_once(
     invalid_result: Any,
 ) -> None:

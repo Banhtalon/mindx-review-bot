@@ -1,6 +1,6 @@
 import asyncio
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import Any, Protocol
 
 from .guardrails import ALLOWED_PRODUCTION_HOSTS
@@ -66,6 +66,22 @@ class ReadonlyBrowserSession:
         self._guard_cdp: Any | None = None
         self._attach_tasks: set[asyncio.Task[None]] = set()
         self._guard_failed = False
+
+    def configure_login_paths(self, login_paths: Collection[str]) -> None:
+        """Set the only POST paths that may be used for an explicit login."""
+        paths = tuple(login_paths)
+        if any(
+            not isinstance(path, str)
+            or not path.startswith("/")
+            or "?" in path
+            or "#" in path
+            for path in paths
+        ):
+            raise RuntimeError("LOGIN_PATHS_INVALID")
+        normalised = tuple(dict.fromkeys(paths))
+        if self._session is not None and normalised != self._login_paths:
+            raise RuntimeError("LOGIN_PATHS_MUST_BE_CONFIGURED_BEFORE_START")
+        self._login_paths = normalised
 
     async def _start(self) -> None:
         if self._session is not None:

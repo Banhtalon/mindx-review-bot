@@ -22,7 +22,16 @@ import type {
   SyntheticReviewDraftSnapshot,
   SyntheticReviewInput,
 } from "./reviewInputs/contracts";
-import { InMemorySyntheticReviewDraftStore } from "./reviewInputs/syntheticDraftStore";
+import { REVIEW_NOTE_MAX_LENGTH } from "./reviewInputs/contracts";
+import {
+  serializeReviewInputsCsv,
+  serializeReviewInputsMarkdown,
+  type ReviewExportContext,
+} from "./reviewInputs/export";
+import {
+  LocalStorageSyntheticReviewDraftStore,
+  type DraftPersistenceStatus,
+} from "./reviewInputs/localStorageDraftStore";
 import { resolveLessonContext } from "./session/lessonContext";
 import type { CourseCatalog, LessonContextWarningCode, SyntheticSession } from "./curriculum/contracts";
 
@@ -270,21 +279,44 @@ export function Phase5ContextSurface({
 type Phase5BReviewInputSurfaceProps = {
   readonly learners?: readonly SyntheticLearner[];
   readonly store?: SyntheticReviewDraftStore;
+  readonly workspaceId?: string;
+  readonly sessionKey?: string;
+  readonly exportContext?: ReviewExportContext;
 };
 
 type ReviewInputPatch = Partial<Pick<SyntheticReviewInput, "attendance" | "level" | "noteDraft">>;
 type DraftCommitStatus = "saved" | "pending" | "conflict";
 
+function downloadTextFile(filename: string, content: string, mimeType: string): void {
+  const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  // Let the browser start the download before releasing the object URL.
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 export function Phase5BReviewInputSurface({
   learners = PHASE5B_SYNTHETIC_LEARNERS,
   store: suppliedStore,
+  workspaceId,
+  sessionKey = "synthetic-robotics-session-3",
+  exportContext = EXPECTED_CONTEXT,
 }: Phase5BReviewInputSurfaceProps) {
-  const [draftStore] = useState<SyntheticReviewDraftStore>(() =>
-    suppliedStore ??
-    new InMemorySyntheticReviewDraftStore(
-      "synthetic-robotics-session-3",
-      createInitialReviewInputs(learners),
-    ),
+  const normalizedSessionKey = sessionKey.trim() || "synthetic-robotics-session-3";
+  const stableSessionKey = `${workspaceId?.trim() || "local"}:${normalizedSessionKey}`;
+  const learnerKeySignature = learners.map((learner) => learner.rowKey).join("\u0000");
+  const draftIdentity = `${stableSessionKey}\u0000${learnerKeySignature}`;
+  const draftStore = useMemo<SyntheticReviewDraftStore>(
+    () =>
+      suppliedStore ??
+      new LocalStorageSyntheticReviewDraftStore(
+        stableSessionKey,
+        createInitialReviewInputs(learners),
+      ),
+    [draftIdentity, suppliedStore],
   );
   const [initialSnapshot] = useState<SyntheticReviewDraftSnapshot>(() => draftStore.read());
   const [inputs, setInputs] = useState<readonly SyntheticReviewInput[]>(initialSnapshot.inputs);
@@ -292,6 +324,18 @@ export function Phase5BReviewInputSurface({
   const [commitStatus, setCommitStatus] = useState<DraftCommitStatus>("saved");
   const [conflictSnapshot, setConflictSnapshot] = useState<SyntheticReviewDraftSnapshot | null>(null);
   const gate = useMemo(() => evaluateReviewInputGate(inputs), [inputs]);
+  const persistenceStatus: DraftPersistenceStatus | null =
+    "persistenceStatus" in draftStore
+      ? (draftStore.persistenceStatus as DraftPersistenceStatus)
+      : null;
+
+  useEffect(() => {
+    const next = draftStore.read();
+    setInputs(next.inputs);
+    setRevision(next.revision);
+    setConflictSnapshot(null);
+    setCommitStatus("saved");
+  }, [draftStore]);
 
   const applyCommitResult = useCallback((result: CommitDraftResult) => {
     if (result.status === "saved") {
@@ -352,10 +396,10 @@ export function Phase5BReviewInputSurface({
         <div>
           <h2 id="synthetic-review-inputs-heading">Synthetic review inputs</h2>
           <p className="muted">
-            Synthetic in-memory draft with debounced local autosave. A full reload intentionally resets these values.
+            Bản nháp được tự lưu trên trình duyệt này. Không có dữ liệu nào được ghi lên Teaching hoặc LMS.
           </p>
         </div>
-        <span className="readonly-badge">Synthetic local draft</span>
+        <span className="readonly-badge">Synthetic · read-only source</span>
       </div>
 
       <div className="review-inputs-toolbar">
@@ -386,9 +430,40 @@ export function Phase5BReviewInputSurface({
             ? "Draft pending"
             : commitStatus === "conflict"
               ? "Autosave paused"
-              : `Saved locally · revision ${revision}`}
+              : persistenceStatus === "memory"
+                ? `Memory only · revision ${revision}`
+                : `Saved locally · revision ${revision}`}
         </strong>
-        <span>Synthetic in-memory draft only. A full reload resets it.</span>
+        <span>
+          {persistenceStatus === "memory"
+            ? "Trình duyệt không cho phép lưu bền vững; nếu tải lại trang, bản nháp có thể mất."
+            : "Đã lưu cục bộ trong trình duyệt; bản cloud sẽ được nối sau khi Supabase hosted được nghiệm thu."}
+        </span>
+      </div>
+
+      <div className="button-row" aria-label="Review exports">
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => downloadTextFile(
+            "mindx-review-inputs.csv",
+            serializeReviewInputsCsv(learners, inputs, exportContext),
+            "text/csv",
+          )}
+        >
+          Tải CSV
+        </button>
+        <button
+          className="secondary-button"
+          type="button"
+          onClick={() => downloadTextFile(
+            "mindx-review-inputs.md",
+            serializeReviewInputsMarkdown(learners, inputs, exportContext),
+            "text/markdown",
+          )}
+        >
+          Tải Markdown
+        </button>
       </div>
 
       {conflictSnapshot ? (
@@ -466,6 +541,7 @@ export function Phase5BReviewInputSurface({
                     id={`${learner.rowKey}-note`}
                     aria-label={noteLabel}
                     rows={3}
+                    maxLength={REVIEW_NOTE_MAX_LENGTH}
                     value={input.noteDraft}
                     onChange={(event) => updateInput(learner.rowKey, { noteDraft: event.currentTarget.value })}
                   />
@@ -479,7 +555,12 @@ export function Phase5BReviewInputSurface({
   );
 }
 
-export default function App() {
+type AppProps = {
+  readonly mode?: "synthetic" | "hosted";
+  readonly workspaceId?: string;
+};
+
+export default function App({ mode = "synthetic", workspaceId }: AppProps) {
   const [contextMismatch, setContextMismatch] = useState(false);
   const [assignments, setAssignments] = useState<Record<string, string>>({});
   const observedContext = contextMismatch
@@ -508,6 +589,25 @@ export default function App() {
       }
       return assignStudent(current, rowKey, internalId, ALLOWED_INTERNAL_IDS);
     });
+  }
+
+  if (mode === "hosted") {
+    return (
+      <main className="review-app">
+        <section className="panel" role="status">
+          <p className="eyebrow">MindX Review Bot</p>
+          <h1>Hosted review chưa sẵn sàng</h1>
+          <p>
+            Tài khoản đã đăng nhập, nhưng luồng đọc Teaching/LMS và lưu Supabase
+            chưa được nghiệm thu trên workspace này. Dữ liệu synthetic bị tắt ở
+            chế độ hosted để tránh hiển thị hoặc lưu nhầm dữ liệu.
+          </p>
+          <p className="muted">
+            Trạng thái: WAITING_CAPABILITY · workspace {workspaceId ?? "chưa xác định"}
+          </p>
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -665,7 +765,7 @@ export default function App() {
         </footer>
       </section>
 
-      <Phase5BReviewInputSurface />
+      <Phase5BReviewInputSurface workspaceId={workspaceId} exportContext={EXPECTED_CONTEXT} />
     </main>
   );
 }

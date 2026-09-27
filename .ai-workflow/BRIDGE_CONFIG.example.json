@@ -4,7 +4,8 @@
   "mode": "ASSISTED",
   "timeout_seconds": 600,
   "write_paths": [
-    "src/App.tsx"
+    "src/App.tsx",
+    "apps/browser-runner/src/mindx_runner/live_adapter.py"
   ],
   "gate_paths": [
     "scripts/verify_no_secrets.mjs",
@@ -16,11 +17,11 @@
   ],
   "worker": {
     "provider": "google",
-    "cli": "gemini",
+    "cli": "antigravity",
     "command": [
-      "gemini"
+      "agy"
     ],
-    "model": "flash"
+    "model": "gemini-3.8-flash-high"
   },
   "reviewer": {
     "provider": "openai",

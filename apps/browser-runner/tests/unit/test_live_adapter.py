@@ -1,0 +1,223 @@
+from dataclasses import dataclass, field
+
+import pytest
+
+from mindx_runner.cli import RunnerError
+from mindx_runner.live_adapter import readonly_site_adapter
+from mindx_runner.live_runner import LiveRunConfig
+from mindx_runner.supabase_client import ClaimedRun
+
+JOB_ID = "00000000-0000-4000-8000-000000000001"
+RUN_ID = "00000000-0000-4000-8000-000000000002"
+WORKSPACE_ID = "00000000-0000-4000-8000-000000000003"
+
+
+_SUPABASE_TEST_VALUE = "server-secret"
+
+
+CONFIG = LiveRunConfig(
+    job_id=JOB_ID,
+    runner_id="runner-test-01",
+    job_type="sync_teaching",
+    supabase_url="https://example.supabase.co",
+    **{"supabase_secret_key": _SUPABASE_TEST_VALUE},
+    browser_state_key=b"k" * 32,
+    teaching_username="teacher@example.invalid",
+    teaching_password="password",
+    lms_username="",
+    lms_password="",
+)
+
+
+@dataclass
+class FakePage:
+    html: str
+
+    async def get_content(self) -> str:
+        return self.html
+
+
+@dataclass
+class FakeBrowser:
+    page: FakePage
+    opened: list[str] = field(default_factory=list)
+    configured_login_paths: tuple[str, ...] | None = None
+
+    def configure_login_paths(self, paths: tuple[str, ...]) -> None:
+        self.configured_login_paths = paths
+
+    async def open(self, url: str) -> FakePage:
+        self.opened.append(url)
+        return self.page
+
+
+def claimed(payload: dict[str, object], *, job_type: str = "sync_teaching") -> ClaimedRun:
+    return ClaimedRun(
+        claimed=True,
+        run_id=RUN_ID,
+        job_id=JOB_ID,
+        workspace_id=WORKSPACE_ID,
+        job_type=job_type,  # type: ignore[arg-type]
+        payload=payload,
+        attempt=1,
+    )
+
+
+TEACHING_HTML = """
+<main data-teaching-schedule="true">
+  <section data-teaching-session="true" data-class-code="SYN-ROBOTICS-01"
+    data-source-session-id="teach-001" data-session-number="3"
+    data-scheduled-date="2026-09-27" data-start-time="09:00:00"
+    data-end-time="10:00:00">Robotics</section>
+</main>
+"""
+
+
+LMS_HTML = """
+<main data-lms-context="true" data-class-code="SYN-CLASS-01"
+  data-session-number="3" data-scheduled-date="2026-09-27"
+  data-start-time="09:00:00" data-end-time="10:00:00"
+  data-source-session-id="lms-001" data-lesson="Robotics">
+  <div data-lms-student="true" data-student-id="student-001"
+    data-discriminator="profile-001" data-attendance="present">Student Alpha</div>
+</main>
+"""
+
+
+@pytest.mark.asyncio
+async def test_teaching_adapter_reads_html_and_configures_explicit_login_paths() -> None:
+    browser = FakeBrowser(FakePage(TEACHING_HTML))
+
+    count = await readonly_site_adapter(
+        CONFIG,
+        claimed(
+            {
+                "teaching_url": "https://teachingmindx.top/schedule",
+                "allowed_class_codes": ["SYN-ROBOTICS-01"],
+                "expected_class_code": "SYN-ROBOTICS-01",
+                "expected_session_number": 3,
+                "login_paths": ["/login"],
+            }
+        ),
+        browser,
+    )
+
+    assert count == 1
+    assert browser.opened == ["https://teachingmindx.top/schedule"]
+    assert browser.configured_login_paths == ("/login",)
+
+
+@pytest.mark.asyncio
+async def test_lms_adapter_reads_only_the_configured_page_and_counts_students() -> None:
+    browser = FakeBrowser(FakePage(LMS_HTML))
+    config = LiveRunConfig(
+        job_id=JOB_ID,
+        runner_id="runner-test-01",
+        job_type="read_lms_pending",
+        supabase_url=CONFIG.supabase_url,
+        **{"supabase_secret_key": _SUPABASE_TEST_VALUE},
+        browser_state_key=b"k" * 32,
+        teaching_username="",
+        teaching_password="",
+        lms_username="teacher@example.invalid",
+        lms_password="password",
+    )
+
+    count = await readonly_site_adapter(
+        config,
+        claimed(
+            {
+                "lms_url": "https://lms.mindx.edu.vn/class/session",
+                "allowed_class_codes": ["SYN-CLASS-01"],
+                "expected_class_code": "SYN-CLASS-01",
+                "expected_session_number": 3,
+            },
+            job_type="read_lms_pending",
+        ),
+        browser,
+    )
+
+    assert count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"teaching_url": "https://evil.example/schedule"},
+        {"teaching_url": "https://lms.mindx.edu.vn/submit"},
+        {"teaching_url": "http://teachingmindx.top/schedule"},
+    ],
+)
+async def test_adapter_rejects_non_allowlisted_or_mutating_url(
+    payload: dict[str, object],
+) -> None:
+    browser = FakeBrowser(FakePage(TEACHING_HTML))
+
+    with pytest.raises(RunnerError) as error:
+        await readonly_site_adapter(CONFIG, claimed(payload), browser)
+
+    assert error.value.code in {"DOMAIN_BLOCKED", "LMS_MUTATION_BLOCKED"}
+    assert browser.opened == []
+
+
+@pytest.mark.asyncio
+async def test_adapter_honors_explicit_payload_url_allowlist() -> None:
+    browser = FakeBrowser(FakePage(TEACHING_HTML))
+
+    with pytest.raises(RunnerError) as error:
+        await readonly_site_adapter(
+            CONFIG,
+            claimed(
+                {
+                    "teaching_url": "https://teachingmindx.top/other",
+                    "allowed_urls": ["https://teachingmindx.top/schedule"],
+                    "allowed_class_codes": ["SYN-ROBOTICS-01"],
+                }
+            ),
+            browser,
+        )
+
+    assert error.value.code == "DOMAIN_BLOCKED"
+    assert browser.opened == []
+
+
+@pytest.mark.asyncio
+async def test_adapter_rejects_job_type_mismatch_before_navigation() -> None:
+    browser = FakeBrowser(FakePage(TEACHING_HTML))
+
+    with pytest.raises(RunnerError) as error:
+        await readonly_site_adapter(
+            CONFIG,
+            claimed(
+                {"teaching_url": "https://teachingmindx.top/schedule"},
+                job_type="read_lms_pending",
+            ),
+            browser,
+        )
+
+    assert error.value.code == "JOB_TYPE_MISMATCH"
+    assert browser.opened == []
+
+
+@pytest.mark.asyncio
+async def test_adapter_fails_closed_when_page_content_is_unavailable() -> None:
+    class NoContentBrowser(FakeBrowser):
+        async def open(self, url: str) -> object:
+            return object()
+
+    browser = NoContentBrowser(FakePage(TEACHING_HTML))
+
+    with pytest.raises(RunnerError) as error:
+        await readonly_site_adapter(
+            CONFIG,
+            claimed(
+                {
+                    "teaching_url": "https://teachingmindx.top/schedule",
+                    "allowed_class_codes": ["SYN-ROBOTICS-01"],
+                }
+            ),
+            browser,
+        )
+
+    assert error.value.code == "PAGE_CONTENT_UNAVAILABLE"

@@ -3,8 +3,9 @@ import {readFile,access} from 'node:fs/promises';
 import {validateProfile} from './lib/workflow.mjs';
 import {validateConfig} from './lib/bridge.mjs';
 const blob=b=>createHash('sha1').update(Buffer.concat([Buffer.from('blob '+b.length+'\0'),b])).digest('hex');
+const pinnedBytes=async p=>Buffer.from((await readFile(p)).toString('utf8').replace(/\r\n/g,'\n'),'utf8');
 const pin=JSON.parse(await readFile('.ai-workflow/V10_TEMPLATE_PIN.json','utf8'));
-for(const [p,sha] of Object.entries(pin.files)){const b=await readFile(p);if(blob(b)!==sha)throw Error('Pinned v10 core drift: '+p);}
+for(const [p,sha] of Object.entries(pin.files)){const b=await pinnedBytes(p);if(blob(b)!==sha)throw Error('Pinned v10 core drift: '+p);}
 validateProfile(JSON.parse(await readFile('.ai-workflow/PROJECT_PROFILE.json','utf8')));
 const example=JSON.parse(await readFile('.ai-workflow/BRIDGE_CONFIG.example.json','utf8'));
 validateConfig(example);

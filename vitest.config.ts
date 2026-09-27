@@ -1,8 +1,8 @@
-import { defineConfig } from "vitest/config";
-
-export default defineConfig({
+export default {
   test: {
     environment: "node",
+    pool: "threads",
+    fileParallelism: false,
     include: [
       "src/**/*.test.ts",
       "src/**/*.test.tsx",
@@ -10,4 +10,4 @@ export default defineConfig({
     ],
     setupFiles: ["./test/setup.ts"],
   },
-});
+};

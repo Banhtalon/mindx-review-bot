@@ -1,15 +1,30 @@
 import re
 from collections.abc import Collection
 from dataclasses import dataclass
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
-from .guardrails import ALLOWED_PRODUCTION_HOSTS
+from .guardrails import is_allowed_url
 
 READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 MUTATION_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 MUTATION_PATH_PARTS = frozenset({"save", "submit", "comment", "comments", "editor"})
+MUTATION_QUERY_PARTS = frozenset(
+    {
+        "save",
+        "submit",
+        "comment",
+        "comments",
+        "review",
+        "review_id",
+        "review_text",
+        "content",
+        "html",
+        "editor",
+    }
+)
 _MUTATION_BODY_FIELD = re.compile(
-    r"(?:^|[&\s\"'{,])(?:comment|comments|review|review_id|review_text|content|html|submit|save|editor)"
+    r"(?:^|[&\s\"'{,])"
+    r"(?:comment|comments|review|review_id|review_text|content|html|submit|save|editor)"
     r"(?:\"|\s)*(?:=|:)",
     re.IGNORECASE,
 )
@@ -39,6 +54,21 @@ def _body_has_mutation_field(body: bytes | None) -> bool:
     return _MUTATION_BODY_FIELD.search(body.decode("utf-8", errors="ignore")) is not None
 
 
+def _query_has_mutation_part(query: str) -> bool:
+    if not query:
+        return False
+    for key, value in parse_qsl(query, keep_blank_values=True):
+        for part in (key, value):
+            tokens = {
+                token
+                for token in re.split(r"[^a-z0-9_]+", part.lower())
+                if token
+            }
+            if tokens & MUTATION_QUERY_PARTS:
+                return True
+    return False
+
+
 def classify_request(
     method: str,
     url: str,
@@ -49,11 +79,13 @@ def classify_request(
 ) -> RequestDecision:
     del content_type
     parsed = urlparse(url)
-    if parsed.scheme != "https" or parsed.hostname not in ALLOWED_PRODUCTION_HOSTS:
+    if not is_allowed_url(url):
         return RequestDecision(False, "DOMAIN_BLOCKED")
 
     path = parsed.path or "/"
     if _is_mutation_path(path):
+        return RequestDecision(False, "LMS_MUTATION_BLOCKED")
+    if _query_has_mutation_part(parsed.query):
         return RequestDecision(False, "LMS_MUTATION_BLOCKED")
     if _body_has_mutation_field(body):
         return RequestDecision(False, "LMS_MUTATION_BLOCKED")

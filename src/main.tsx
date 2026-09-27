@@ -18,7 +18,15 @@ const authGateway = authRuntimeConfig.mode === "authenticated"
 
 function ApplicationShell() {
   if (authRuntimeConfig.mode === "synthetic") {
-    return <App />;
+    if (import.meta.env.DEV) return <App />;
+    return (
+      <main>
+        <h1>Configuration unavailable</h1>
+        <p role="alert">
+          Dữ liệu synthetic chỉ được phép chạy ở môi trường phát triển. Hãy cấu hình Supabase trước khi triển khai.
+        </p>
+      </main>
+    );
   }
 
   if (authRuntimeConfig.mode === "invalid") {
@@ -41,7 +49,7 @@ function ApplicationShell() {
 
   return (
     <AuthBoundary gateway={authGateway} workspaceId={authRuntimeConfig.workspaceId}>
-      <App />
+      <App mode="hosted" workspaceId={authRuntimeConfig.workspaceId} />
     </AuthBoundary>
   );
 }
