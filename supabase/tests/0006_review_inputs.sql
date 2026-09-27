@@ -143,7 +143,19 @@ select ok(
   'review_inputs student link includes workspace_id'
 );
 
-select has_check('public', 'review_inputs', 'review_inputs_revision_check', 'revision remains positive');
+-- pgTAP 3.36 (the version used by Supabase CI) does not provide has_check.
+-- Inspect the catalog directly so the assertion works across local/CI images.
+select ok(
+  exists (
+    select 1
+    from pg_constraint
+    where conrelid = 'public.review_inputs'::regclass
+      and conname = 'review_inputs_revision_check'
+      and contype = 'c'
+      and position('revision > 0' in pg_get_constraintdef(oid)) > 0
+  ),
+  'revision remains positive'
+);
 
 select ok(
   exists (

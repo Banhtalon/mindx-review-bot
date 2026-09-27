@@ -214,6 +214,12 @@ alter table public.review_sessions enable row level security;
 alter table public.review_students enable row level security;
 alter table public.review_inputs enable row level security;
 
+-- Supabase's local bootstrap can expose newly created tables to anon through
+-- inherited/default grants.  Remove those grants explicitly before granting
+-- the intended authenticated and service roles.
+revoke all on public.review_sessions, public.review_students, public.review_inputs
+  from anon, public;
+
 grant select, insert, update
   on public.review_sessions, public.review_students, public.review_inputs
   to authenticated;
