@@ -9,7 +9,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, Final, Protocol
+from typing import Any, Final, Protocol, cast
 
 from .browser_driver import ReadonlyBrowserSession, SessionFactory
 from .browser_state import BrowserStateCipher, BrowserStateError, EncryptedStateEnvelope
@@ -102,7 +102,7 @@ def load_configured_adapter(environment: Mapping[str, str]) -> Adapter:
     )
     if not callable(candidate) or not is_async_callable:
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
-    return candidate
+    return cast(Adapter, candidate)
 
 
 async def _await_with_deadline[ResultT](
