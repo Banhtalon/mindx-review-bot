@@ -113,6 +113,37 @@ async def test_teaching_adapter_reads_html_and_configures_explicit_login_paths()
 
 
 @pytest.mark.asyncio
+async def test_teaching_adapter_reads_html_from_browser_use_page_evaluate() -> None:
+    class EvaluateOnlyPage:
+        async def evaluate(self, expression: str) -> str:
+            assert expression == "() => document.documentElement.outerHTML"
+            return TEACHING_HTML
+
+    class EvaluateOnlyBrowser(FakeBrowser):
+        async def open(self, url: str) -> EvaluateOnlyPage:
+            self.opened.append(url)
+            return EvaluateOnlyPage()
+
+    browser = EvaluateOnlyBrowser(FakePage(TEACHING_HTML))
+
+    count = await readonly_site_adapter(
+        CONFIG,
+        claimed(
+            {
+                "teaching_url": "https://teachingmindx.top/schedule",
+                "allowed_class_codes": ["SYN-ROBOTICS-01"],
+                "expected_class_code": "SYN-ROBOTICS-01",
+                "expected_session_number": 3,
+            }
+        ),
+        browser,
+    )
+
+    assert count == 1
+    assert browser.opened == ["https://teachingmindx.top/schedule"]
+
+
+@pytest.mark.asyncio
 async def test_adapter_maps_opaque_browser_open_failure_to_safe_code() -> None:
     class FailingBrowser(FakeBrowser):
         async def open(self, url: str) -> FakePage:
