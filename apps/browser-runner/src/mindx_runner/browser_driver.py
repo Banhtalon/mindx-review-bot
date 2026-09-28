@@ -1,5 +1,6 @@
 import asyncio
 import inspect
+import os
 from collections.abc import Callable, Collection
 from typing import Any, Protocol
 
@@ -47,6 +48,13 @@ class BrowserGuardError(RuntimeError):
 def _default_session_factory(**options: Any) -> BrowserSessionLike:
     from browser_use.browser import BrowserSession
 
+    # GitHub-hosted Ubuntu runners can lack the kernel capability required by
+    # Chromium's setuid/user-namespace sandbox.  The runner is already an
+    # ephemeral, read-only job with a network guard, so use Browser Use's
+    # documented CI-safe launch flags only on GitHub Actions.  Local runs keep
+    # Chromium's normal sandbox enabled.
+    if os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+        options["chromium_sandbox"] = False
     return BrowserSession(**options)
 
 
