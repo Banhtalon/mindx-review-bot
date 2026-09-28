@@ -266,20 +266,29 @@ class ReadonlyBrowserSession:
             raise BrowserGuardError()
 
         existing_target_handler = getattr(registry, "_handlers", {}).get("Target.attachedToTarget")
-        if existing_target_handler is None:
+        browser_use_handler = getattr(manager, "_handle_target_attached", None)
+        if existing_target_handler is None or not callable(browser_use_handler):
             raise BrowserGuardError()
 
         def on_attached(event: Any, session_id: str | None = None) -> None:
             task = asyncio.create_task(
                 self._handle_attached_target(
-                    event, session_id, cdp, manager, existing_target_handler
+                    event, session_id, cdp, manager, browser_use_handler
                 )
             )
             self._attach_tasks.add(task)
             task.add_done_callback(self._on_attach_task_done)
 
+        def on_request_paused(event: Any, session_id: str | None = None) -> None:
+            # cdp-use awaits registered callbacks inside its WebSocket reader.
+            # Scheduling the async policy handler keeps that reader available
+            # to receive the continue/fail response it sends back to Chrome.
+            task = asyncio.create_task(self._handle_request_paused(event, session_id))
+            self._attach_tasks.add(task)
+            task.add_done_callback(self._on_attach_task_done)
+
         registry.register("Target.attachedToTarget", on_attached)
-        fetch_registration.requestPaused(self._handle_request_paused)
+        fetch_registration.requestPaused(on_request_paused)
         self._guard_cdp = cdp
         try:
             await target_send.setAutoAttach(
@@ -312,38 +321,34 @@ class ReadonlyBrowserSession:
         session_id: str | None,
         cdp: Any,
         manager: Any,
-        existing_target_handler: Any,
+        browser_use_handler: Any,
     ) -> None:
         target_info = event.get("targetInfo")
         attached_session_id = event.get("sessionId")
         if not isinstance(attached_session_id, str):
             raise BrowserGuardError()
         if not self._target_requires_guard(target_info):
-            result = existing_target_handler(event, session_id)
-            if inspect.isawaitable(result):
-                await result
+            await browser_use_handler(event)
             return
 
         try:
-            # Browser Use's attach callback is scheduled asynchronously. Guard
-            # the raw session first while Chrome is still waiting for a debugger.
+            # Install Fetch while Chrome is still paused. The pinned Browser
+            # Use handler then enables Page/Network monitoring and resumes the
+            # target after those steps; the guard is active when it runs.
             await self._guard_cdp_session(
                 type(
                     "AttachedTargetSession",
                     (),
                     {"cdp_client": cdp, "session_id": attached_session_id},
                 )(),
+                manager=manager,
             )
+            # Browser Use's public callback only schedules its async handler.
+            # Invoke the pinned 0.13.6 handler directly so its Page/Network
+            # monitoring completes without resuming the paused target.
             manager_event = dict(event)
             manager_event["waitingForDebugger"] = False
-            result = existing_target_handler(manager_event, session_id)
-            if inspect.isawaitable(result):
-                await result
-            await self._wait_for_and_guard_session(
-                manager,
-                attached_session_id,
-                target_info,
-            )
+            await browser_use_handler(manager_event)
             await self._set_attached_target_auto_attach(attached_session_id)
             await self._resume_attached_target(event)
         except Exception:
@@ -367,6 +372,7 @@ class ReadonlyBrowserSession:
             target_url = target.get("url")
         if target_type is not None and str(target_type) not in {
             "page",
+            "tab",
             "iframe",
             "worker",
             "service_worker",
@@ -380,21 +386,15 @@ class ReadonlyBrowserSession:
             return False
         return True
 
-    async def _wait_for_and_guard_session(
-        self, manager: Any, session_id: str, target_info: Any = None
-    ) -> None:
-        if not self._target_requires_guard(target_info):
+    async def _close_attached_target(self, event: Any) -> None:
+        target_id = (event.get("targetInfo") or {}).get("targetId")
+        target_send = getattr(getattr(self._guard_cdp, "send", None), "Target", None)
+        if not isinstance(target_id, str) or target_send is None:
             return
-        for _ in range(50):
-            cdp_session = manager.get_session(session_id)
-            if cdp_session is not None:
-                await self._guard_cdp_session(cdp_session, manager=manager)
-                return
-            target_id = target_info.get("targetId") if isinstance(target_info, dict) else None
-            if target_id and target_id not in manager.get_all_targets():
-                return
-            await asyncio.sleep(0.02)
-        raise BrowserGuardError()
+        try:
+            await target_send.closeTarget(params={"targetId": target_id})
+        except Exception:
+            pass
 
     async def _resume_attached_target(self, event: Any) -> None:
         if event.get("waitingForDebugger") is not True:
@@ -422,16 +422,6 @@ class ReadonlyBrowserSession:
             )
         except Exception as exc:
             raise BrowserGuardError() from exc
-
-    async def _close_attached_target(self, event: Any) -> None:
-        target_id = (event.get("targetInfo") or {}).get("targetId")
-        target_send = getattr(getattr(self._guard_cdp, "send", None), "Target", None)
-        if not isinstance(target_id, str) or target_send is None:
-            return
-        try:
-            await target_send.closeTarget(params={"targetId": target_id})
-        except Exception:
-            pass
 
     async def _guard_cdp_session(self, cdp_session: Any, *, manager: Any = None) -> None:
         target_session_id = getattr(cdp_session, "session_id", None)

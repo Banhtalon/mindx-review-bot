@@ -114,11 +114,16 @@ class FakeTargetRegistration:
 class FakeTargetSend:
     auto_attach: list[tuple[dict[str, Any], str | None]] = field(default_factory=list)
     closed: list[tuple[dict[str, Any], str | None]] = field(default_factory=list)
+    events: list[str] | None = None
 
     async def setAutoAttach(
         self, *, params: dict[str, Any], session_id: str | None = None
     ) -> None:
         self.auto_attach.append((params, session_id))
+        if self.events is not None:
+            self.events.append(
+                f"auto_attach:{params.get('waitForDebuggerOnStart')}"
+            )
 
     async def closeTarget(
         self, *, params: dict[str, Any], session_id: str | None = None
@@ -129,9 +134,12 @@ class FakeTargetSend:
 @dataclass
 class FakeRuntimeSend:
     resumed: list[str | None] = field(default_factory=list)
+    events: list[str] | None = None
 
     async def runIfWaitingForDebugger(self, *, session_id: str | None = None) -> None:
         self.resumed.append(session_id)
+        if self.events is not None:
+            self.events.append("resume")
 
 
 @dataclass
@@ -161,6 +169,7 @@ class FakeSessionManager:
     targets: list[FakeTarget] = field(default_factory=lambda: [FakeTarget("target-existing")])
     cdp: Any | None = None
     sessions: dict[str, FakeTargetSession] = field(default_factory=dict)
+    handled_events: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.cdp is not None and not self.sessions:
@@ -185,6 +194,28 @@ class FakeSessionManager:
                 self.cdp, attached_session_id
             )
 
+    async def _handle_target_attached(self, event: dict[str, Any]) -> None:
+        if self.cdp is not None:
+            assert any(
+                session_id == event.get("sessionId")
+                for _, session_id in self.cdp.fetch_send.enabled
+            )
+        self.handled_events.append(dict(event))
+        self.on_attached(event)
+        if self.cdp is not None:
+            await self.cdp.send.Target.setAutoAttach(
+                params={
+                    "autoAttach": True,
+                    "waitForDebuggerOnStart": False,
+                    "flatten": True,
+                },
+                session_id=event.get("sessionId"),
+            )
+            if event.get("waitingForDebugger") is True:
+                await self.cdp.send.Runtime.runIfWaitingForDebugger(
+                    session_id=event.get("sessionId")
+                )
+
 
 
 @dataclass
@@ -193,8 +224,11 @@ class FakeCdp:
     fetch_send: FakeFetchSend = field(default_factory=FakeFetchSend)
     target_send: FakeTargetSend = field(default_factory=FakeTargetSend)
     runtime_send: FakeRuntimeSend = field(default_factory=FakeRuntimeSend)
+    events: list[str] = field(default_factory=list)
 
     def __post_init__(self) -> None:
+        self.target_send.events = self.events
+        self.runtime_send.events = self.events
         handlers = self._event_registry._handlers
         self.send = type(
             "Send",
@@ -378,7 +412,7 @@ async def test_readonly_browser_accepts_explicit_login_paths_before_start() -> N
     fetch_send = session.cdp_client.send.Fetch
     callback = session.cdp_client.register.Fetch.callback
 
-    await callback(
+    callback(
         {
             "requestId": "login-1",
             "request": {
@@ -390,6 +424,7 @@ async def test_readonly_browser_accepts_explicit_login_paths_before_start() -> N
         },
         "session-1",
     )
+    await asyncio.sleep(0)
 
     assert fetch_send.continued == [({"requestId": "login-1"}, "session-1")]
     await browser.close()
@@ -448,7 +483,7 @@ async def test_readonly_browser_intercepts_and_fails_mutation_request() -> None:
     fetch_send = session.cdp_client.send.Fetch
     callback = session.cdp_client.register.Fetch.callback
 
-    await callback(
+    callback(
         {
             "requestId": "request-1",
             "request": {
@@ -460,6 +495,7 @@ async def test_readonly_browser_intercepts_and_fails_mutation_request() -> None:
         },
         "session-1",
     )
+    await asyncio.sleep(0)
 
     assert fetch_send.failed == [
         ({"requestId": "request-1", "errorReason": "BlockedByClient"}, "session-1")
@@ -477,7 +513,7 @@ async def test_readonly_browser_continues_allowlisted_read_request() -> None:
     fetch_send = session.cdp_client.send.Fetch
     callback = session.cdp_client.register.Fetch.callback
 
-    await callback(
+    callback(
         {
             "requestId": "request-2",
             "request": {
@@ -488,6 +524,7 @@ async def test_readonly_browser_continues_allowlisted_read_request() -> None:
         },
         "session-1",
     )
+    await asyncio.sleep(0)
 
     assert fetch_send.continued == [({"requestId": "request-2"}, "session-1")]
     assert fetch_send.failed == []
@@ -521,13 +558,21 @@ async def test_readonly_browser_guards_existing_and_future_targets() -> None:
     attached_handler = session.cdp_client._event_registry._handlers[
         "Target.attachedToTarget"
     ]
-    attached_handler({"sessionId": "target-future"}, None)
+    attached_handler(
+        {
+            "sessionId": "target-future",
+            "waitingForDebugger": True,
+            "targetInfo": {"targetId": "target-future", "type": "page"},
+        },
+        None,
+    )
     await asyncio.sleep(0)
 
     assert fetch_send.enabled[-1] == (
         {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]},
         "target-future",
     )
+    assert session.session_manager.handled_events[-1]["waitingForDebugger"] is False
     assert session.cdp_client.target_send.auto_attach[-1] == (
         {
             "autoAttach": True,
@@ -536,4 +581,13 @@ async def test_readonly_browser_guards_existing_and_future_targets() -> None:
         },
         "target-future",
     )
+    assert session.cdp_client.runtime_send.resumed == ["target-future"]
+    assert session.cdp_client.events[-2:] == ["auto_attach:True", "resume"]
     await browser.close()
+
+
+@pytest.mark.parametrize("target_type", ["page", "tab", "iframe", "worker"])
+def test_readonly_browser_guards_web_target_types(target_type: str) -> None:
+    assert ReadonlyBrowserSession._target_requires_guard(
+        {"type": target_type, "url": "https://teachingmindx.top/"}
+    ) is True
