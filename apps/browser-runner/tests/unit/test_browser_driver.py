@@ -44,6 +44,34 @@ class FakeSession:
         self.stopped = True
 
 
+def test_default_session_factory_disables_chromium_sandbox_on_github_actions(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mindx_runner.browser_driver as browser_driver
+
+    created: dict[str, Any] = {}
+
+    class StubBrowserSession:
+        def __init__(self, **options: Any) -> None:
+            created.update(options)
+
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.setattr(
+        "browser_use.browser.BrowserSession",
+        StubBrowserSession,
+    )
+
+    browser_driver._default_session_factory(headless=True)
+
+    assert created["chromium_sandbox"] is False
+
+    created.clear()
+    monkeypatch.delenv("GITHUB_ACTIONS")
+    browser_driver._default_session_factory(headless=True)
+
+    assert "chromium_sandbox" not in created
+
+
 @dataclass
 class FakeFetchSend:
     enabled: list[tuple[dict[str, Any], str | None]] = field(default_factory=list)
