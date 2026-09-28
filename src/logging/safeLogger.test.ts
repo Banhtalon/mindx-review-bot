@@ -53,4 +53,16 @@ describe("safe log metadata", () => {
       durationMs: 42,
     });
   });
+
+  it("keeps safe browser lifecycle error codes", () => {
+    expect(
+      sanitizeLogMetadata({
+        errorCode: "BROWSER_NAVIGATION_FAILED",
+        error_code: "BROWSER_STARTUP_FAILED",
+      }),
+    ).toEqual({
+      errorCode: "BROWSER_NAVIGATION_FAILED",
+      error_code: "BROWSER_STARTUP_FAILED",
+    });
+  });
 });

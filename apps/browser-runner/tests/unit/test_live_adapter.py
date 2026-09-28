@@ -113,6 +113,30 @@ async def test_teaching_adapter_reads_html_and_configures_explicit_login_paths()
 
 
 @pytest.mark.asyncio
+async def test_adapter_maps_opaque_browser_open_failure_to_safe_code() -> None:
+    class FailingBrowser(FakeBrowser):
+        async def open(self, url: str) -> FakePage:
+            raise RuntimeError("cookie=synthetic-cookie")
+
+    browser = FailingBrowser(FakePage(TEACHING_HTML))
+
+    with pytest.raises(RunnerError) as error:
+        await readonly_site_adapter(
+            CONFIG,
+            claimed(
+                {
+                    "teaching_url": "https://teachingmindx.top/schedule",
+                    "allowed_class_codes": ["SYN-ROBOTICS-01"],
+                }
+            ),
+            browser,
+        )
+
+    assert error.value.code == "BROWSER_NAVIGATION_FAILED"
+    assert "synthetic-cookie" not in str(error.value)
+
+
+@pytest.mark.asyncio
 async def test_teaching_adapter_reads_owner_selected_live_schedule() -> None:
     browser = FakeBrowser(FakePage(LIVE_TEACHING_HTML))
 

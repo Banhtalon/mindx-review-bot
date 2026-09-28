@@ -324,7 +324,7 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
         code = getattr(error, "code", None)
         if isinstance(code, str) and code:
             raise RunnerError(code) from error
-        raise RunnerError("DOMAIN_BLOCKED") from error
+        raise RunnerError("BROWSER_NAVIGATION_FAILED") from error
     html = await _page_html(page)
 
     try:

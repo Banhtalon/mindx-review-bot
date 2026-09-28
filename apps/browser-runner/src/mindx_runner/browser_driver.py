@@ -1,7 +1,13 @@
 import asyncio
 import inspect
+import json
 import os
+import shutil
+import tempfile
+import time
 from collections.abc import Callable, Collection
+from contextlib import suppress
+from pathlib import Path
 from typing import Any, Protocol
 
 from .guardrails import ALLOWED_PRODUCTION_HOSTS
@@ -45,6 +51,20 @@ class BrowserGuardError(RuntimeError):
         super().__init__(self.code)
 
 
+class BrowserStartupError(RuntimeError):
+    code = "BROWSER_STARTUP_FAILED"
+
+    def __init__(self) -> None:
+        super().__init__(self.code)
+
+
+class BrowserNavigationError(RuntimeError):
+    code = "BROWSER_NAVIGATION_FAILED"
+
+    def __init__(self) -> None:
+        super().__init__(self.code)
+
+
 def _default_session_factory(**options: Any) -> BrowserSessionLike:
     from browser_use.browser import BrowserSession
 
@@ -74,6 +94,53 @@ class ReadonlyBrowserSession:
         self._guard_cdp: Any | None = None
         self._attach_tasks: set[asyncio.Task[None]] = set()
         self._guard_failed = False
+        self._storage_state_dir: tempfile.TemporaryDirectory[str] | None = None
+
+    def _prepare_storage_state(self) -> str | None:
+        """Materialize an in-memory state without passing secrets to Browser Use logs."""
+        if not isinstance(self._storage_state, dict):
+            return self._storage_state
+        if self._storage_state_dir is not None:
+            return str(Path(self._storage_state_dir.name) / "state.json")
+
+        state_dir = tempfile.TemporaryDirectory(prefix="browseruse-tmp-mindx-state-")
+        state_path = Path(state_dir.name) / "state.json"
+        try:
+            file_descriptor = os.open(
+                state_path,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+            with os.fdopen(file_descriptor, "w", encoding="utf-8") as state_file:
+                json.dump(
+                    self._storage_state,
+                    state_file,
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+                state_file.write("\n")
+        except (OSError, TypeError, ValueError) as error:
+            state_dir.cleanup()
+            raise RuntimeError("STORAGE_STATE_INVALID") from error
+        self._storage_state_dir = state_dir
+        return str(state_path)
+
+    def _cleanup_storage_state(self) -> None:
+        state_dir = self._storage_state_dir
+        if state_dir is None:
+            return
+        for attempt in range(3):
+            try:
+                shutil.rmtree(state_dir.name)
+            except FileNotFoundError:
+                self._storage_state_dir = None
+                return
+            except OSError:
+                if attempt < 2:
+                    time.sleep(0.05)
+                continue
+            self._storage_state_dir = None
+            return
 
     def configure_login_paths(self, login_paths: Collection[str]) -> None:
         """Set the only POST paths that may be used for an explicit login."""
@@ -95,30 +162,61 @@ class ReadonlyBrowserSession:
         if self._session is not None:
             return
         self._guard_failed = False
-        self._session = self._session_factory(
-            headless=True,
-            allowed_domains=sorted(ALLOWED_PRODUCTION_HOSTS),
-            storage_state=self._storage_state,
-            enable_default_extensions=False,
-            captcha_solver=False,
-            keep_alive=False,
-            traces_dir=None,
-            record_video_dir=None,
-            record_har_path=None,
-        )
         try:
+            storage_state = self._prepare_storage_state()
+            session_options: dict[str, Any] = {
+                "headless": True,
+                "allowed_domains": sorted(ALLOWED_PRODUCTION_HOSTS),
+                "storage_state": storage_state,
+                "enable_default_extensions": False,
+                "captcha_solver": False,
+                "keep_alive": False,
+                "traces_dir": None,
+                "record_video_dir": None,
+                "record_har_path": None,
+            }
+            if self._storage_state_dir is not None:
+                # Keep the profile holding restored cookies beside the state
+                # file so one cleanup removes every browser artifact.
+                session_options["user_data_dir"] = self._storage_state_dir.name
+            self._session = self._session_factory(
+                **session_options,
+            )
             await self._session.start()
             await self._install_target_guard()
-        except BaseException:
+        except asyncio.CancelledError:
             session = self._session
             self._session = None
             self._guarded_session_ids.clear()
             self._guard_cdp = None
             await self._cancel_attach_tasks()
-            try:
-                await session.stop()
-            finally:
-                raise
+            if session is not None:
+                with suppress(Exception):
+                    await session.stop()
+            self._cleanup_storage_state()
+            raise
+        except BrowserGuardError:
+            session = self._session
+            self._session = None
+            self._guarded_session_ids.clear()
+            self._guard_cdp = None
+            await self._cancel_attach_tasks()
+            if session is not None:
+                with suppress(Exception):
+                    await session.stop()
+            self._cleanup_storage_state()
+            raise
+        except Exception as error:
+            session = self._session
+            self._session = None
+            self._guarded_session_ids.clear()
+            self._guard_cdp = None
+            await self._cancel_attach_tasks()
+            if session is not None:
+                with suppress(Exception):
+                    await session.stop()
+            self._cleanup_storage_state()
+            raise BrowserStartupError() from error
 
     async def start(self) -> None:
         await self._start()
@@ -134,12 +232,17 @@ class ReadonlyBrowserSession:
             raise RuntimeError(message)
         await self._start()
         assert self._session is not None
-        page = await self._session.new_page()
-        await self._install_network_guard(page)
-        if self._guard_failed:
-            raise BrowserGuardError()
-        await page.goto(url)
-        return page
+        try:
+            page = await self._session.new_page()
+            await self._install_network_guard(page)
+            if self._guard_failed:
+                raise BrowserGuardError()
+            await page.goto(url)
+            return page
+        except (BrowserGuardError, BrowserNavigationError):
+            raise
+        except Exception as error:
+            raise BrowserNavigationError() from error
 
     async def _install_target_guard(self) -> None:
         assert self._session is not None
@@ -351,10 +454,14 @@ class ReadonlyBrowserSession:
                 break
             except RuntimeError as exc:
                 if "Session with given id not found" not in str(exc):
-                    raise
+                    raise BrowserGuardError() from exc
                 if manager is not None and manager.get_session(target_session_id) is None:
                     raise BrowserGuardError() from exc
                 await asyncio.sleep(0.02)
+            except BrowserGuardError:
+                raise
+            except Exception as exc:
+                raise BrowserGuardError() from exc
         else:
             raise BrowserGuardError()
         self._guarded_session_ids.add(target_session_id)
@@ -432,13 +539,17 @@ class ReadonlyBrowserSession:
 
     async def close(self) -> None:
         if self._session is None:
+            self._cleanup_storage_state()
             return
         session = self._session
         self._session = None
         self._guarded_session_ids.clear()
         self._guard_cdp = None
         await self._cancel_attach_tasks()
-        await session.stop()
+        try:
+            await session.stop()
+        finally:
+            self._cleanup_storage_state()
 
     async def _cancel_attach_tasks(self) -> None:
         tasks = tuple(self._attach_tasks)

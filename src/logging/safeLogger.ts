@@ -31,6 +31,8 @@ const SAFE_ENUM_VALUES: Record<string, ReadonlySet<string>> = {
     "GEMINI_SCHEMA_INVALID",
     "GENERATION_PARTIAL",
     "STORAGE_STATE_DECRYPT_FAILED",
+    "BROWSER_NAVIGATION_FAILED",
+    "BROWSER_STARTUP_FAILED",
     "QUOTA_GUARD_BLOCKED",
   ]),
   error_code: new Set([
@@ -52,6 +54,8 @@ const SAFE_ENUM_VALUES: Record<string, ReadonlySet<string>> = {
     "GEMINI_SCHEMA_INVALID",
     "GENERATION_PARTIAL",
     "STORAGE_STATE_DECRYPT_FAILED",
+    "BROWSER_NAVIGATION_FAILED",
+    "BROWSER_STARTUP_FAILED",
     "QUOTA_GUARD_BLOCKED",
   ]),
 };

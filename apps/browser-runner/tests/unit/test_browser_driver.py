@@ -1,10 +1,16 @@
 import asyncio
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from mindx_runner.browser_driver import ReadonlyBrowserSession
+from mindx_runner.browser_driver import (
+    BrowserNavigationError,
+    BrowserStartupError,
+    ReadonlyBrowserSession,
+)
 
 
 @dataclass
@@ -245,6 +251,121 @@ async def test_readonly_browser_starts_with_safe_options_and_opens_allowlisted_u
 
     await browser.close()
     assert created[0].stopped is True
+
+
+@pytest.mark.asyncio
+async def test_readonly_browser_materializes_and_cleans_in_memory_storage_state() -> None:
+    created: list[FakeSession] = []
+
+    def factory(**options: Any) -> FakeSession:
+        session = FakeSession(options)
+        created.append(session)
+        return session
+
+    browser = ReadonlyBrowserSession(
+        storage_state={
+            "cookies": [
+                {
+                    "name": "sid",
+                    "value": "synthetic-cookie",
+                    "domain": ".teachingmindx.top",
+                    "path": "/",
+                }
+            ],
+            "origins": [],
+        },
+        session_factory=factory,
+    )
+
+    await browser.start()
+
+    state_path = Path(str(created[0].options["storage_state"]))
+    assert state_path.exists()
+    assert Path(str(created[0].options["user_data_dir"])) == state_path.parent
+    assert "synthetic-cookie" not in str(state_path)
+    assert "synthetic-cookie" not in repr(created[0].options)
+    assert json.loads(state_path.read_text(encoding="utf-8"))["cookies"][0]["value"] == (
+        "synthetic-cookie"
+    )
+
+    await browser.close()
+    assert not state_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_readonly_browser_hides_startup_failure_and_cleans_storage_state() -> None:
+    created: list[FakeSession] = []
+
+    class FailingSession(FakeSession):
+        async def start(self) -> None:
+            raise RuntimeError("cookie=synthetic-cookie")
+
+    def factory(**options: Any) -> FailingSession:
+        session = FailingSession(options)
+        created.append(session)
+        return session
+
+    browser = ReadonlyBrowserSession(
+        storage_state={"cookies": [], "origins": []},
+        session_factory=factory,
+    )
+
+    with pytest.raises(BrowserStartupError) as error:
+        await browser.start()
+
+    assert error.value.code == "BROWSER_STARTUP_FAILED"
+    assert "synthetic-cookie" not in str(error.value)
+    assert not Path(str(created[0].options["storage_state"])).exists()
+    assert created[0].stopped is True
+
+
+@pytest.mark.asyncio
+async def test_readonly_browser_retries_locked_storage_cleanup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import mindx_runner.browser_driver as browser_driver
+
+    original_rmtree = browser_driver.shutil.rmtree
+    attempts = 0
+
+    def flaky_rmtree(path: str, *args: Any, **kwargs: Any) -> None:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise PermissionError("temporary lock")
+        original_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(browser_driver.shutil, "rmtree", flaky_rmtree)
+    session = FakeSession({})
+    browser = ReadonlyBrowserSession(
+        storage_state={"cookies": [], "origins": []},
+        session_factory=lambda **options: (session.options.update(options) or session),
+    )
+
+    await browser.start()
+    state_path = Path(str(session.options["storage_state"]))
+    await browser.close()
+
+    assert attempts >= 2
+    assert not state_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_readonly_browser_hides_navigation_failure() -> None:
+    class FailingPage(FakePage):
+        async def goto(self, url: str) -> None:
+            raise RuntimeError("cookie=synthetic-cookie")
+
+    session = FakeSession({})
+    session.page = FailingPage()
+    browser = ReadonlyBrowserSession(session_factory=lambda **_: session)
+
+    with pytest.raises(BrowserNavigationError) as error:
+        await browser.open("https://teachingmindx.top/schedule")
+
+    assert error.value.code == "BROWSER_NAVIGATION_FAILED"
+    assert "synthetic-cookie" not in str(error.value)
+    await browser.close()
 
 
 @pytest.mark.asyncio

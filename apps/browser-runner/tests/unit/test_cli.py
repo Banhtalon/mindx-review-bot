@@ -4,11 +4,13 @@ import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
 
+from mindx_runner.browser_driver import BrowserStartupError
 from mindx_runner.browser_state import BrowserStateCipher
 from mindx_runner.cli import RunnerError, load_configured_adapter, main, run_job
 from mindx_runner.supabase_client import ClaimedRun
@@ -413,6 +415,14 @@ async def test_run_job_decrypts_active_browser_state_before_starting_session() -
     client = StateClient([])
     session = FakeSession({})
     created_options: dict[str, object] = {}
+    observed_state: dict[str, object] = {}
+
+    def session_factory(**options: object) -> FakeSession:
+        created_options.update(options)
+        observed_state.update(
+            json.loads(Path(str(options["storage_state"])).read_text(encoding="utf-8"))
+        )
+        return session
 
     async def adapter(*_: object) -> int:
         return 0
@@ -421,12 +431,13 @@ async def test_run_job_decrypts_active_browser_state_before_starting_session() -
         JOB_ID,
         ENVIRONMENT,
         client_factory=lambda _: client,
-        session_factory=lambda **options: (created_options.update(options) or session),
+        session_factory=session_factory,
         adapter=adapter,
     )
 
     assert summary.status == "succeeded"
-    assert created_options["storage_state"] == {"cookies": [], "origins": []}
+    assert observed_state == {"cookies": [], "origins": []}
+    assert not Path(str(created_options["storage_state"])).exists()
 
 
 @pytest.mark.asyncio
@@ -626,6 +637,34 @@ async def test_run_job_applies_the_timeout_before_browser_start(
 
     assert error.value.code == "RUNNER_TIMEOUT"
     assert client.finished == []
+    assert session.closed is True
+
+
+@pytest.mark.asyncio
+async def test_run_job_finishes_known_browser_startup_failure() -> None:
+    class FailingStartSession(FakeSession):
+        async def start(self) -> None:
+            raise RuntimeError("cookie=synthetic-cookie")
+
+    client = FakeClient([])
+    session = FailingStartSession({})
+
+    with pytest.raises(BrowserStartupError) as error:
+        await run_job(
+            JOB_ID,
+            ENVIRONMENT,
+            client_factory=lambda _: client,
+            session_factory=lambda **_: session,
+            adapter=lambda *_: asyncio.sleep(0, result=0),
+        )
+
+    assert error.value.code == "BROWSER_STARTUP_FAILED"
+    assert client.finished[0][:4] == (
+        RUN_ID,
+        "failed",
+        0,
+        "BROWSER_STARTUP_FAILED",
+    )
     assert session.closed is True
 
 

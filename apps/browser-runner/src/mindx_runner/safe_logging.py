@@ -36,6 +36,8 @@ SAFE_ENUM_VALUES: dict[str, frozenset[str]] = {
             "GEMINI_SCHEMA_INVALID",
             "GENERATION_PARTIAL",
             "STORAGE_STATE_DECRYPT_FAILED",
+            "BROWSER_NAVIGATION_FAILED",
+            "BROWSER_STARTUP_FAILED",
             "QUOTA_GUARD_BLOCKED",
         }
     ),
@@ -59,6 +61,8 @@ SAFE_ENUM_VALUES: dict[str, frozenset[str]] = {
             "GEMINI_SCHEMA_INVALID",
             "GENERATION_PARTIAL",
             "STORAGE_STATE_DECRYPT_FAILED",
+            "BROWSER_NAVIGATION_FAILED",
+            "BROWSER_STARTUP_FAILED",
             "QUOTA_GUARD_BLOCKED",
         }
     ),
