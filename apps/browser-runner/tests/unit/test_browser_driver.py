@@ -65,6 +65,12 @@ def test_default_session_factory_disables_chromium_sandbox_on_github_actions(
 
     assert created["chromium_sandbox"] is False
 
+    created.clear()
+    monkeypatch.delenv("GITHUB_ACTIONS")
+    browser_driver._default_session_factory(headless=True)
+
+    assert "chromium_sandbox" not in created
+
 
 @dataclass
 class FakeFetchSend:
