@@ -135,6 +135,22 @@ def test_finish_job_run_sends_allowlisted_terminal_status() -> None:
     }
 
 
+@pytest.mark.parametrize("error_code", ["BROWSER_NAVIGATION_FAILED", "BROWSER_STARTUP_FAILED"])
+def test_finish_job_run_accepts_safe_browser_lifecycle_errors(error_code: str) -> None:
+    transport = FakeTransport([response([{"status": "failed"}])])
+    client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)
+
+    client.finish_job_run(
+        RUN_ID,
+        RUNNER_ID,
+        "failed",
+        records_read=0,
+        error_code=error_code,
+    )
+
+    assert json.loads(transport.requests[0][3] or b"")["target_error_code"] == error_code
+
+
 def test_heartbeat_job_sends_runner_owned_lease_refresh() -> None:
     transport = FakeTransport([response([{"job_id": JOB_ID, "runner_id": RUNNER_ID}])])
     client = SupabaseRunnerClient(BASE_URL, SECRET, transport=transport)

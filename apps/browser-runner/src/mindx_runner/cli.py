@@ -501,7 +501,10 @@ async def run_job(
     except Exception as error:
         error_code = safe_error_code(error)
         duration_ms = max(0, int((time.monotonic() - started_at) * 1000)) if started_at else 0
-        if (browser is None or browser_started) and not terminal_call_started:
+        if (
+            (browser is None or browser_started or error_code == "BROWSER_STARTUP_FAILED")
+            and not terminal_call_started
+        ):
             terminal_call_started = True
             await _finish_run_best_effort(
                 client,
