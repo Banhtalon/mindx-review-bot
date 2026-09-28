@@ -130,6 +130,13 @@ async def _page_html(page: object) -> str:
     if getter is None:
         getter = getattr(page, "content", None)
     if getter is None:
+        evaluator = getattr(page, "evaluate", None)
+        if callable(evaluator):
+            def read_html() -> object:
+                return evaluator("() => document.documentElement.outerHTML")
+
+            getter = read_html
+    if getter is None:
         raise RunnerError("PAGE_CONTENT_UNAVAILABLE")
     try:
         value = getter() if callable(getter) else getter
