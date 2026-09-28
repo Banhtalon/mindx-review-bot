@@ -298,6 +298,9 @@ class FakeSessionManager:
     def get_all_targets(self) -> dict[str, object]:
         return {}
 
+    async def _handle_target_attached(self, _event: dict[str, object]) -> None:
+        return None
+
 
 def test_load_configured_adapter_requires_explicit_configuration() -> None:
     with pytest.raises(RunnerError) as error:
