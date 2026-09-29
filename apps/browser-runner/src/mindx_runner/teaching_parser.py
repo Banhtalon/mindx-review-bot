@@ -212,7 +212,9 @@ def _live_clock(value: str) -> time:
         raise TeachingParserError("TEACHING_DATA_INVALID") from error
 
 
-def _live_schedule_records(html: str) -> tuple[list[dict[str, str | None]], bool]:
+def _live_schedule_records(
+    html: str, allowed_codes: Collection[str]
+) -> tuple[list[dict[str, str | None]], bool]:
     parser = _LiveTeachingDomParser()
     parser.feed(html)
     parser.close()
@@ -250,9 +252,20 @@ def _live_schedule_records(html: str) -> tuple[list[dict[str, str | None]], bool
             cells = _live_direct_cells(row)
             if not cells:
                 continue
+            target_in_row = any(
+                len(code_nodes := [
+                    node
+                    for node in _live_descendants(session_node)
+                    if _live_has_class(node, "class-code")
+                ])
+                == 1
+                and _live_text(code_nodes[0]).strip().upper() in allowed_codes
+                for session_node in _live_descendants(row)
+                if _live_has_class(session_node, "regular-class")
+            )
             row_time_matches = list(_LIVE_TIME_PATTERN.finditer(_live_text(cells[0])))
             if len(row_time_matches) != 1:
-                if any(_live_has_class(node, "regular-class") for node in _live_descendants(row)):
+                if target_in_row:
                     raise TeachingParserError("TEACHING_DATA_INVALID")
                 continue
             time_match = row_time_matches[0]
@@ -263,7 +276,7 @@ def _live_schedule_records(html: str) -> tuple[list[dict[str, str | None]], bool
                 or cell.attrs.get("rowspan", "1") != "1"
                 for cell in cells
             ):
-                if any(_live_has_class(node, "regular-class") for node in _live_descendants(row)):
+                if target_in_row:
                     raise TeachingParserError("TEACHING_DATA_INVALID")
                 continue
             for index, cell in enumerate(cells[1:], start=1):
@@ -281,7 +294,10 @@ def _live_schedule_records(html: str) -> tuple[list[dict[str, str | None]], bool
                         if _live_has_class(node, "class-code")
                     ]
                     if len(code_nodes) != 1:
-                        raise TeachingParserError("TEACHING_DATA_INVALID")
+                        continue
+                    class_code = _live_text(code_nodes[0]).strip().upper()
+                    if class_code not in allowed_codes:
+                        continue
                     attributes = session_node.attrs
                     inner_times = list(_LIVE_TIME_PATTERN.finditer(_live_text(session_node)))
                     if len(inner_times) > 1:
@@ -299,7 +315,7 @@ def _live_schedule_records(html: str) -> tuple[list[dict[str, str | None]], bool
                             raise TeachingParserError("TEACHING_DATA_INVALID")
                     records.append(
                         {
-                            "class-code": _live_text(code_nodes[0]).strip(),
+                            "class-code": class_code,
                             "source-session-id": attributes.get("data-source-session-id") or None,
                             "session-number": attributes.get("data-session-number") or None,
                             "session-type": "regular",
@@ -343,20 +359,20 @@ def parse_teaching_schedule(
         raise TeachingParserError("TEACHING_LOGIN_REQUIRED")
     if parser.incomplete_session:
         raise TeachingParserError("TEACHING_DATA_INVALID")
+    allowed_codes = {code.strip().upper() for code in allowed_class_codes}
+    if not allowed_codes:
+        raise TeachingParserError("TEACHING_CLASS_CATALOG_UNAVAILABLE")
+
     if parser.schedule_marker:
         records = parser.records
         live_schedule = False
     else:
         try:
-            records, live_schedule = _live_schedule_records(html)
+            records, live_schedule = _live_schedule_records(html, allowed_codes)
         except RecursionError as error:
             raise TeachingParserError("TEACHING_DATA_INVALID") from error
     if not parser.schedule_marker and not live_schedule:
         raise TeachingParserError("TEACHING_DATA_INVALID")
-    allowed_codes = {code.strip().upper() for code in allowed_class_codes}
-    if not allowed_codes:
-        raise TeachingParserError("TEACHING_CLASS_CATALOG_UNAVAILABLE")
-
     sessions: list[TeachingSessionExtract] = []
     source_ids: set[str] = set()
     semantic_ids: set[tuple[str, date, int | None, time, time]] = set()
