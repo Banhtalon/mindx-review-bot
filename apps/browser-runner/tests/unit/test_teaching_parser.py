@@ -82,9 +82,33 @@ def test_parser_rejects_excessively_nested_live_markup() -> None:
         parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
 
 
-def test_parser_rejects_live_inner_time_mismatch() -> None:
+def test_parser_uses_live_inner_time_when_it_is_inside_the_row_envelope() -> None:
     html = read_fixture("live-week.html").replace(
-        "08:00:00 - 10:00:00", "09:00:00 - 10:00:00", 1
+        "08:00 - 10:00", "10:00 - 12:00", 1
+    ).replace(
+        "08:00:00 - 10:00:00", "10:00:00 - 11:30:00", 1
+    )
+
+    batch = parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+    assert batch.sessions[0].start_time == time(10, 0)
+    assert batch.sessions[0].end_time == time(11, 30)
+
+
+def test_parser_rejects_live_inner_time_outside_the_row_envelope() -> None:
+    html = read_fixture("live-week.html").replace(
+        "08:00:00 - 10:00:00", "07:00:00 - 10:00:00", 1
+    )
+
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+
+def test_parser_rejects_live_inner_time_after_the_row_envelope() -> None:
+    html = read_fixture("live-week.html").replace(
+        "08:00 - 10:00", "10:00 - 12:00", 1
+    ).replace(
+        "08:00:00 - 10:00:00", "10:00:00 - 12:30:00", 1
     )
 
     with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
@@ -149,11 +173,12 @@ def test_parser_rejects_truncated_session_markup() -> None:
         parse_teaching_schedule(truncated)
 
 
-def test_parser_rejects_a_class_code_outside_the_supplied_catalog() -> None:
-    with pytest.raises(TeachingParserError, match="TEACHING_UNKNOWN_CLASS_CODE"):
-        parse_teaching_schedule(
-            read_fixture("normal-week.html"), allowed_class_codes={"SYN-OTHER-01"}
-        )
+def test_parser_filters_classes_outside_the_supplied_catalog() -> None:
+    batch = parse_teaching_schedule(
+        read_fixture("normal-week.html"), allowed_class_codes={"SYN-ROBOTICS-01"}
+    )
+
+    assert [session.class_code for session in batch.sessions] == ["SYN-ROBOTICS-01"]
 
 
 def test_parser_rejects_login_page_instead_of_treating_it_as_empty() -> None:

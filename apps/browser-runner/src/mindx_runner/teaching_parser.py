@@ -284,14 +284,19 @@ def _live_schedule_records(html: str) -> tuple[list[dict[str, str | None]], bool
                         raise TeachingParserError("TEACHING_DATA_INVALID")
                     attributes = session_node.attrs
                     inner_times = list(_LIVE_TIME_PATTERN.finditer(_live_text(session_node)))
-                    if len(inner_times) > 1 or (
-                        inner_times
-                        and (
-                            _live_clock(inner_times[0].group("start")) != row_start
-                            or _live_clock(inner_times[0].group("end")) != row_end
-                        )
-                    ):
+                    if len(inner_times) > 1:
                         raise TeachingParserError("TEACHING_DATA_INVALID")
+                    session_start = row_start
+                    session_end = row_end
+                    if inner_times:
+                        session_start = _live_clock(inner_times[0].group("start"))
+                        session_end = _live_clock(inner_times[0].group("end"))
+                        if (
+                            session_start < row_start
+                            or session_end > row_end
+                            or session_end <= session_start
+                        ):
+                            raise TeachingParserError("TEACHING_DATA_INVALID")
                     records.append(
                         {
                             "class-code": _live_text(code_nodes[0]).strip(),
@@ -299,8 +304,8 @@ def _live_schedule_records(html: str) -> tuple[list[dict[str, str | None]], bool
                             "session-number": attributes.get("data-session-number") or None,
                             "session-type": "regular",
                             "scheduled-date": scheduled_date.isoformat(),
-                            "start-time": row_start.isoformat(),
-                            "end-time": row_end.isoformat(),
+                            "start-time": session_start.isoformat(),
+                            "end-time": session_end.isoformat(),
                             "block": attributes.get("data-block") or None,
                             "special-event": attributes.get("data-special-event") or None,
                             "teacher-name": None,
@@ -370,7 +375,7 @@ def parse_teaching_schedule(
                 teacher_name=record.get("teacher-name"),
             )
             if session.class_code not in allowed_codes:
-                raise TeachingParserError("TEACHING_UNKNOWN_CLASS_CODE")
+                continue
             source_id = session.source_session_id
             if source_id is not None and source_id in source_ids:
                 raise TeachingParserError("TEACHING_DUPLICATE_SOURCE_ID")

@@ -68,6 +68,13 @@ Site-specific Teaching and LMS adapters are separate from this boundary. They
 must provide deterministic selectors and identity assertions before a live
 smoke run is enabled.
 
+For the live Teaching schedule, `allowed_class_codes` is a target filter:
+entries for other classes are ignored, while the expected class and session
+must still match exactly. The time shown on the schedule row is the outer
+envelope. One detailed class time fully inside that envelope is used; when no
+detailed time exists, the row time is used. Multiple, inverted, or
+out-of-envelope time ranges fail closed as `TEACHING_DATA_INVALID`.
+
 ### Workflow and CLI
 
 `mindx_runner.cli` provides `preflight` and `run` entry points. `preflight`
