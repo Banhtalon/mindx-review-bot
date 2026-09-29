@@ -46,6 +46,24 @@ def test_parser_extracts_owner_selected_live_schedule_contract() -> None:
     assert session.block == "Coding"
 
 
+def test_parser_ignores_invalid_live_time_for_unrelated_class() -> None:
+    unrelated = """
+          <div class="regular-class" data-block="Coding" data-session-number="99"
+            data-special-event="" id="regular-class-unrelated">
+            <span>B. 99</span>
+            <span class="class-code">OTHER-CLASS</span>
+            <span>07:00:00 - 13:00:00</span>
+          </div>
+"""
+    html = read_fixture("live-week.html").replace(
+        "          </div>\n        </td>", "          </div>\n" + unrelated + "        </td>", 1
+    )
+
+    batch = parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+    assert [session.class_code for session in batch.sessions] == ["VT-CSI02"]
+
+
 def test_parser_rejects_invalid_live_header_date() -> None:
     html = read_fixture("live-week.html").replace("27/09/2026", "31/02/2026", 1)
 
