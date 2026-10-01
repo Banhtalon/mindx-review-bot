@@ -274,3 +274,160 @@ def test_parser_preserves_block_and_special_event() -> None:
 
     assert batch.sessions[0].block == "Coding"
     assert batch.sessions[0].special_event == "SYN-EVENT-01"
+
+
+def test_parser_ignores_unrelated_live_row_with_invalid_or_malformed_time() -> None:
+    unrelated_rows = """
+      <tr>
+        <td>25:00 - 26:00</td>
+        <td></td>
+        <td>
+          <div class="regular-class" data-block="Coding" data-session-number="99"
+            data-special-event="" id="regular-class-unrelated-1">
+            <span>B. 99</span>
+            <span class="class-code">OTHER-CLASS</span>
+          </div>
+        </td>
+      </tr>
+      <tr>
+        <td>malformed time text</td>
+        <td></td>
+        <td>
+          <div class="regular-class" data-block="Coding" data-session-number="98"
+            data-special-event="" id="regular-class-unrelated-2">
+            <span>B. 98</span>
+            <span class="class-code">OTHER-CLASS-2</span>
+          </div>
+        </td>
+      </tr>
+"""
+    html = read_fixture("live-week.html").replace(
+        "      <tr>\n        <td>08:00 - 10:00</td>",
+        unrelated_rows + "      <tr>\n        <td>08:00 - 10:00</td>",
+        1,
+    )
+    batch = parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+    assert len(batch.sessions) == 1
+    assert batch.sessions[0].class_code == "VT-CSI02"
+    assert batch.sessions[0].start_time == time(8, 0)
+    assert batch.sessions[0].end_time == time(10, 0)
+
+
+def test_parser_ignores_empty_live_row_with_invalid_or_malformed_time() -> None:
+    empty_rows = """
+      <tr>
+        <td>25:00 - 26:00</td>
+        <td></td>
+        <td></td>
+      </tr>
+      <tr>
+        <td>malformed time text</td>
+        <td></td>
+        <td></td>
+      </tr>
+"""
+    html = read_fixture("live-week.html").replace(
+        "      <tr>\n        <td>08:00 - 10:00</td>",
+        empty_rows + "      <tr>\n        <td>08:00 - 10:00</td>",
+        1,
+    )
+    batch = parse_teaching_schedule(html, allowed_class_codes={"VT-CSI02"})
+
+    assert len(batch.sessions) == 1
+    assert batch.sessions[0].class_code == "VT-CSI02"
+    assert batch.sessions[0].start_time == time(8, 0)
+
+
+def test_parser_rejects_selected_live_row_with_invalid_or_malformed_time() -> None:
+    invalid_clock_html = read_fixture("live-week.html").replace(
+        "08:00 - 10:00", "25:00 - 26:00", 1
+    )
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(invalid_clock_html, allowed_class_codes={"VT-CSI02"})
+
+    malformed_text_html = read_fixture("live-week.html").replace(
+        "08:00 - 10:00", "malformed-time-text", 1
+    )
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(malformed_text_html, allowed_class_codes={"VT-CSI02"})
+
+
+def test_parser_ignores_unrelated_synthetic_record_with_malformed_fields() -> None:
+    unrelated_session = """
+  <article class="generated-card css-older" data-teaching-session="true"
+    data-class-code="UNRELATED-CLASS" data-source-session-id="unrelated-sess"
+    data-session-number="not-a-number"
+    data-scheduled-date="9999-99-99"
+    data-start-time="25:00"
+    data-end-time="26:00">
+    <h3>Unrelated practice</h3>
+  </article>
+"""
+    html = read_fixture("normal-week.html").replace(
+        "</main>", unrelated_session + "</main>", 1
+    )
+    batch = parse_teaching_schedule(
+        html, allowed_class_codes={"SYN-ROBOTICS-01"}
+    )
+
+    assert len(batch.sessions) == 1
+    assert batch.sessions[0].class_code == "SYN-ROBOTICS-01"
+
+
+def test_parser_normalizes_synthetic_class_code_before_allow_list_check() -> None:
+    unrelated_session = """
+  <article class="generated-card css-older" data-teaching-session="true"
+    data-class-code="  unrelated   code  " data-source-session-id="unrelated-sess"
+    data-session-number="not-a-number"
+    data-scheduled-date="not-a-date"
+    data-start-time="25:00"
+    data-end-time="26:00">
+  </article>
+"""
+    html = read_fixture("normal-week.html").replace(
+        'data-class-code=" syn-robotics-01 "',
+        'data-class-code="  syn   robotics   01  "',
+        1,
+    ).replace(
+        "</main>", unrelated_session + "</main>", 1
+    )
+    batch = parse_teaching_schedule(
+        html, allowed_class_codes={"SYN ROBOTICS 01"}
+    )
+
+    assert len(batch.sessions) == 1
+    assert batch.sessions[0].class_code == "SYN ROBOTICS 01"
+
+
+def test_parser_rejects_missing_class_identifier_on_synthetic_record() -> None:
+    missing_code_article = """
+  <article class="generated-card css-older" data-teaching-session="true"
+    data-source-session-id="missing-code-sess"
+    data-session-number="1"
+    data-scheduled-date="2026-08-17"
+    data-start-time="09:00"
+    data-end-time="10:30">
+  </article>
+"""
+    html = read_fixture("normal-week.html").replace(
+        "</main>", missing_code_article + "</main>", 1
+    )
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html)
+
+
+def test_parser_rejects_selected_synthetic_session_with_invalid_session_number() -> None:
+    html = read_fixture("normal-week.html").replace(
+        'data-session-number="3"', 'data-session-number="not-an-int"', 1
+    )
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html)
+
+
+def test_parser_rejects_selected_synthetic_session_with_invalid_date() -> None:
+    html = read_fixture("normal-week.html").replace(
+        'data-scheduled-date="2026-08-17"', 'data-scheduled-date="2026-02-31"', 1
+    )
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html)
