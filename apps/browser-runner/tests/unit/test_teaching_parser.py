@@ -431,3 +431,13 @@ def test_parser_rejects_selected_synthetic_session_with_invalid_date() -> None:
     )
     with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
         parse_teaching_schedule(html)
+
+
+def test_parser_preserves_raw_class_code_length_limit_for_selected_class() -> None:
+    html = read_fixture("normal-week.html").replace(
+        'data-class-code=" syn-robotics-01 "',
+        'data-class-code="' + " " * 125 + 'syn-robotics-01 "',
+        1,
+    )
+    with pytest.raises(TeachingParserError, match="TEACHING_DATA_INVALID"):
+        parse_teaching_schedule(html)

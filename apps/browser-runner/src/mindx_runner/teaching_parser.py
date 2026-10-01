@@ -381,7 +381,7 @@ def parse_teaching_schedule(
             if class_code not in allowed_codes:
                 continue
             session = TeachingSessionExtract(
-                class_code=class_code,
+                class_code=raw_class_code,
                 source_session_id=record.get("source-session-id"),
                 session_number=_optional_int(record, "session-number"),
                 session_type=record.get("session-type"),
