@@ -1,10 +1,12 @@
-from dataclasses import dataclass, field
+import asyncio
+import traceback
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 import pytest
 
 from mindx_runner.cli import RunnerError
-from mindx_runner.live_adapter import readonly_site_adapter
+from mindx_runner.live_adapter import _page_html, readonly_site_adapter
 from mindx_runner.live_runner import LiveRunConfig
 from mindx_runner.supabase_client import ClaimedRun
 
@@ -116,8 +118,7 @@ async def test_teaching_adapter_reads_html_and_configures_explicit_login_paths()
 async def test_teaching_adapter_reads_html_from_browser_use_page_evaluate() -> None:
     class EvaluateOnlyPage:
         async def evaluate(self, expression: str) -> str:
-            assert expression == "() => document.documentElement.outerHTML"
-            return TEACHING_HTML
+            return "READY:" + TEACHING_HTML
 
     class EvaluateOnlyBrowser(FakeBrowser):
         async def open(self, url: str) -> EvaluateOnlyPage:
@@ -302,3 +303,155 @@ async def test_adapter_fails_closed_when_page_content_is_unavailable() -> None:
         )
 
     assert error.value.code == "PAGE_CONTENT_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("job_type", ["sync_teaching", "read_lms_pending"])
+@pytest.mark.parametrize("case", ["ready", "wrong_class", "wrong_session", "login"])
+async def test_evaluate_waits_for_loading_and_blank_then_reads_one_snapshot(
+    job_type: str, case: str,
+) -> None:
+    html = TEACHING_HTML if job_type == "sync_teaching" else LMS_HTML
+    code = "SYN-ROBOTICS-01" if job_type == "sync_teaching" else "SYN-CLASS-01"
+    if case == "login":
+        html = '<main data-page-state="login"></main>'
+
+    class LoadingPage:
+        calls = 0
+
+        async def evaluate(self, expression: str) -> str:
+            self.calls += 1
+            # A premature outerHTML read gets an incomplete but nonempty document.
+            if "readyState" not in expression:
+                return "<html><body></body></html>"
+            assert "complete" in expression
+            assert "document.documentElement" in expression
+            assert "document.body" in expression
+            assert "about:blank" in expression
+            assert "location.href" in expression
+            assert "outerHTML" in expression
+            return "" if self.calls < 3 else "READY:" + html
+
+    page = LoadingPage()
+
+    class LoadingBrowser:
+        async def open(self, url: str) -> LoadingPage:
+            return page
+
+    read = readonly_site_adapter(
+        replace(CONFIG, job_type=job_type),  # type: ignore[arg-type]
+        claimed(
+            {
+                "url": (
+                    "https://teachingmindx.top/schedule" if job_type == "sync_teaching"
+                    else "https://lms.mindx.edu.vn/class/session"
+                ),
+                "allowed_class_codes": [code],
+                "expected_class_code": "OTHER-CLASS" if case == "wrong_class" else code,
+                "expected_session_number": 99 if case == "wrong_session" else 3,
+            },
+            job_type=job_type,
+        ),
+        LoadingBrowser(),
+    )
+    if case == "ready":
+        assert await read == 1
+    else:
+        with pytest.raises(RunnerError) as error:
+            await read
+        assert error.value.code == {
+            "wrong_class": "CLASS_IDENTITY_MISMATCH",
+            "wrong_session": "SESSION_IDENTITY_MISMATCH",
+            "login": (
+                "TEACHING_LOGIN_REQUIRED" if job_type == "sync_teaching" else "LMS_LOGIN_REQUIRED"
+            ),
+        }[case]
+    assert page.calls == 3  # No separate read after the ready snapshot.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hang", [False, True])
+async def test_evaluate_total_deadline_includes_polling_and_hanging_call(hang: bool) -> None:
+    class NeverReadyPage:
+        calls = 0
+        cancelled = False
+
+        async def evaluate(self, expression: str) -> str:
+            self.calls += 1
+            # First poll consumes part of the same deadline as the next call.
+            if hang and self.calls > 1:
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    self.cancelled = True
+            await asyncio.sleep(0.2)
+            return ""
+
+    page = NeverReadyPage()
+    started = asyncio.get_running_loop().time()
+    async with asyncio.timeout(12):
+        with pytest.raises(RunnerError) as error:
+            await _page_html(page)
+    elapsed = asyncio.get_running_loop().time() - started
+    assert error.value.code == "PAGE_CONTENT_UNAVAILABLE"
+    assert 9.5 <= elapsed < 11.5
+    assert page.calls > 1
+    assert page.cancelled is hang
+
+
+@pytest.mark.asyncio
+async def test_evaluate_cancellation_propagates_and_cancels_pending_call() -> None:
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    class HangingPage:
+        async def evaluate(self, expression: str) -> str:
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+            return ""
+
+    task = asyncio.create_task(_page_html(HangingPage()))
+    await asyncio.wait_for(entered.wait(), timeout=1)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_evaluate_error_does_not_expose_raw_detail_in_traceback() -> None:
+    class FailingPage:
+        async def evaluate(self, expression: str) -> str:
+            raise RuntimeError("synthetic-private-page-detail")
+
+    with pytest.raises(RunnerError) as error:
+        await _page_html(FailingPage())
+    assert error.value.code == "PAGE_CONTENT_UNAVAILABLE"
+    assert "synthetic-private-page-detail" not in "".join(traceback.format_exception(error.value))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", ["False", "True", "READY:", None, 1])
+async def test_evaluate_rejects_serialized_booleans_and_invalid_snapshots(value: object) -> None:
+    class InvalidPage:
+        async def evaluate(self, expression: str) -> object:
+            return value
+
+    with pytest.raises(RunnerError) as error:
+        await _page_html(InvalidPage())
+    assert error.value.code == "PAGE_CONTENT_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("getter", ["get_content", "content"])
+async def test_existing_content_getters_take_precedence_over_evaluate(getter: str) -> None:
+    class GetterPage:
+        async def evaluate(self, expression: str) -> str:
+            pytest.fail("Existing content getter must retain precedence")
+
+    page = GetterPage()
+    setattr(page, getter, lambda: TEACHING_HTML)
+    assert await _page_html(page) == TEACHING_HTML

@@ -4,8 +4,8 @@
   "commit": "e0c1944268bb328f992b6716cff72a64bc72a936",
   "version": "10.0.0-rc.1",
   "files": {
-    ".ai-workflow/V10_CANONICAL_SPEC.md": "9355f66238d808721bcf8f2fe048f03ce7a58a57",
-    ".ai-workflow/CLI_BRIDGE.md": "e2b7011e9c66c77e810a6a6184d79bcba86628cf",
+    ".ai-workflow/V10_CANONICAL_SPEC.md": "dfc81036a6c901937ef95c8dc746f8387886ed4d",
+    ".ai-workflow/CLI_BRIDGE.md": "f06bf914322daaa2cf17fe97addbc15376932399",
     ".ai-workflow/DATA_MODEL.md": "d21a716be9952696b2b3e788fe10d5207ffe2d9c",
     ".ai-workflow/FAST_LANE.md": "bc745d9f6dd633d28c71a74e76f2d5079f25941f",
     ".ai-workflow/HANDOFF_FILES.md": "45cfbead4cbfdac6fe758a2e16bebe929f876004",
@@ -28,10 +28,24 @@
     "scripts/workflow.mjs": "54f3d8662e94722b56f8d9988910dbb6018fd4d9",
     "scripts/lib/bridge-adapters.mjs": "2f4f12e1efc9afa26fc85f893bd4b04d39acb547",
     "scripts/lib/bridge-process.mjs": "d511f3ba2abb7a19c43012068ce3e685dc5c617c",
-    "scripts/lib/bridge.mjs": "6415b3e79c08963318c45eecd0a60cef961c26c6",
+    "scripts/lib/bridge.mjs": "0867655487d226cf180df03e5b21095869856d17",
     "scripts/lib/documentation.mjs": "38888f35256acc561301b5f7f1c5841585bb6834",
     "scripts/lib/fast-lane.mjs": "866e26a895d0c752f61e6afecae06a6edbc9366f",
     "scripts/lib/redact.mjs": "79bad54d10369e2b95582f488d14a7d89ec5265d",
     "scripts/lib/workflow.mjs": "e061b015ede7a37fcb35e0c0cf7f0ad22dda61b7"
+  },
+  "provenance": {
+    "kind": "upstream-with-local-patch",
+    "upstream_commit": "e0c1944268bb328f992b6716cff72a64bc72a936",
+    "local_patch": {
+      "task_id": "TASK-SOURCE-REVIEW-POLICY",
+      "base_sha": "7d221c8d5d4589e460e01a2cbf4627850eaf1561",
+      "patched_core_files": [
+        "scripts/lib/bridge.mjs",
+        ".ai-workflow/V10_CANONICAL_SPEC.md",
+        ".ai-workflow/CLI_BRIDGE.md"
+      ],
+      "description": "Exact inspected source literals and declared static review dependencies; files hashes describe local bytes, not upstream acceptance."
+    }
   }
 }

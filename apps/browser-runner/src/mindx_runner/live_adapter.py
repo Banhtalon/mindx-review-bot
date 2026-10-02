@@ -1,5 +1,6 @@
 """Small, deterministic, read-only Teaching/LMS site adapter."""
 
+import asyncio
 import inspect
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
@@ -132,10 +133,28 @@ async def _page_html(page: object) -> str:
     if getter is None:
         evaluator = getattr(page, "evaluate", None)
         if callable(evaluator):
-            def read_html() -> object:
-                return evaluator("() => document.documentElement.outerHTML")
-
-            getter = read_html
+            try:
+                async with asyncio.timeout(10):
+                    while True:
+                        # Browser Use stringifies booleans; return an explicit marker
+                        # and acquire HTML in the same evaluation as readiness.
+                        snapshot = evaluator(
+                            "() => document.readyState === 'complete' && "
+                            "document.documentElement && document.body && "
+                            "location.href && !location.href.startsWith('about:blank') "
+                            "? 'READY:' + document.documentElement.outerHTML : ''"
+                        )
+                        if inspect.isawaitable(snapshot):
+                            snapshot = await snapshot
+                        if isinstance(snapshot, str) and snapshot.startswith("READY:"):
+                            if snapshot[6:]:
+                                return snapshot[6:]
+                            raise RunnerError("PAGE_CONTENT_UNAVAILABLE")
+                        if snapshot != "":
+                            raise RunnerError("PAGE_CONTENT_UNAVAILABLE")
+                        await asyncio.sleep(0.1)
+            except Exception:
+                raise RunnerError("PAGE_CONTENT_UNAVAILABLE") from None
     if getter is None:
         raise RunnerError("PAGE_CONTENT_UNAVAILABLE")
     try:

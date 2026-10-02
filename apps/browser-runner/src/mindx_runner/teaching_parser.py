@@ -263,11 +263,11 @@ def _live_schedule_records(
                 for session_node in _live_descendants(row)
                 if _live_has_class(session_node, "regular-class")
             )
+            if not target_in_row:
+                continue
             row_time_matches = list(_LIVE_TIME_PATTERN.finditer(_live_text(cells[0])))
             if len(row_time_matches) != 1:
-                if target_in_row:
-                    raise TeachingParserError("TEACHING_DATA_INVALID")
-                continue
+                raise TeachingParserError("TEACHING_DATA_INVALID")
             time_match = row_time_matches[0]
             row_start = _live_clock(time_match.group("start"))
             row_end = _live_clock(time_match.group("end"))
@@ -276,9 +276,7 @@ def _live_schedule_records(
                 or cell.attrs.get("rowspan", "1") != "1"
                 for cell in cells
             ):
-                if target_in_row:
-                    raise TeachingParserError("TEACHING_DATA_INVALID")
-                continue
+                raise TeachingParserError("TEACHING_DATA_INVALID")
             for index, cell in enumerate(cells[1:], start=1):
                 scheduled_date = dates[index] if index < len(dates) else None
                 if scheduled_date is None:
@@ -378,8 +376,12 @@ def parse_teaching_schedule(
     semantic_ids: set[tuple[str, date, int | None, time, time]] = set()
     try:
         for record in records:
+            raw_class_code = _required(record, "class-code")
+            class_code = TeachingSessionExtract.normalize_class_code(raw_class_code)
+            if class_code not in allowed_codes:
+                continue
             session = TeachingSessionExtract(
-                class_code=_required(record, "class-code"),
+                class_code=raw_class_code,
                 source_session_id=record.get("source-session-id"),
                 session_number=_optional_int(record, "session-number"),
                 session_type=record.get("session-type"),
@@ -390,8 +392,6 @@ def parse_teaching_schedule(
                 special_event=record.get("special-event"),
                 teacher_name=record.get("teacher-name"),
             )
-            if session.class_code not in allowed_codes:
-                continue
             source_id = session.source_session_id
             if source_id is not None and source_id in source_ids:
                 raise TeachingParserError("TEACHING_DUPLICATE_SOURCE_ID")

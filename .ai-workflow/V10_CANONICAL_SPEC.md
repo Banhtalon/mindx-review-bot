@@ -98,14 +98,30 @@ Usage records retain provider-reported counters or null when unavailable; API pr
 does not establish subscription quota. Full redacted gate evidence remains available.
 The packet checker cannot prove a human/model identity, detect fabricated JSON,
 or enforce all transitions. Lead must retain genuine execution/review records.
-For source inspection, Lead may predeclare exact test-file paths and SHA-256
-content approvals for personally inspected synthetic test data in bridge config.
-Their JSON digest is frozen as execution.source_approvals_sha256 in the task and
-checked against the config before work. The checkpoint also binds configuration;
-changed bytes
-invalidate them. No directory-wide secret exemption is supported. Recognizable
-credential formats and current secret environment values remain blocked even with
-an approval. Runtime output and argument redaction remain unchanged.
+For source inspection, Lead may predeclare exact file paths and SHA-256 content
+approvals for personally inspected source in bridge config. The only approval
+kinds are `synthetic-test-data` for test files and `static-review-dependency` for
+non-test files explicitly named in gate_paths or review_context_paths. A directory
+declaration does not approve its children; a static approval must resolve to a
+declared regular file. Their JSON digest is frozen as
+execution.source_approvals_sha256 in the task and checked against the config
+before work. The checkpoint also binds configuration; changed bytes invalidate
+approvals. No directory-wide or arbitrary credential exemption is supported.
+An exact test approval admits the standalone quoted `cookie=synthetic-cookie`
+error literal; an exact static dependency approval admits the standalone quoted
+`Bearer [REDACTED]` replacement literal. Recognition is deliberately limited to
+complete Python `.py` `raise RuntimeError` lines with a single literal argument,
+and JavaScript `.js`/`.mjs`/`.cjs` standalone const literal declarations or a
+standalone `const replacements` array of regexp/literal pairs. Source token
+inspection excludes comments and containing strings; unsupported syntax cannot
+grant an exception. Quotes must match and the whole supported expression must
+end without extension: prefixes, suffixes, grouped concatenation and enclosing
+array transformations remain blocked. These narrowly recognized literals are
+masked only inside the source check, never in the review packet. Existing
+inspected synthetic test-data redaction allowances remain test-only. Other
+credential headers, recognizable credential formats, credential URLs, private
+keys, invalid text and current secret environment values remain blocked even
+with an approval. Runtime output and argument redaction remain unchanged.
 Review packets persist the exact inspected source, base/head content hashes,
 declared context and gate sources alongside the source digest. Missing required
 source context or oversized packets stop review. Technical review may pass before
