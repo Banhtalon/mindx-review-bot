@@ -40,8 +40,12 @@ nguyên văn nội dung của từng phiên bản base/head cần đọc.
 
 Quyền test chỉ nhận thêm nguyên chuỗi `cookie=synthetic-cookie` có dấu nháy;
 quyền file phụ thuộc chỉ nhận thêm nguyên chuỗi thay thế `Bearer [REDACTED]`
-có dấu nháy. Chuỗi phải đứng riêng giữa các dấu phân cách của mã nguồn;
-thêm ký tự, ghép chuỗi hoặc header khác vẫn bị chặn. Khóa thật, URL chứa thông
+có dấu nháy. Chỉ nhận dòng Python `.py` gọi `raise RuntimeError` với một nguyên
+chuỗi, hoặc khai báo hằng `const` JavaScript `.js`/`.mjs`/`.cjs` đứng riêng và
+bảng `const replacements` chỉ gồm cặp biểu thức kiểm tra/chuỗi thay thế.
+Phải xác định đúng chuỗi nguồn, không nhận mẫu nằm trong comment hay chuỗi lớn
+hơn. Cú pháp chưa hỗ trợ, ghép thêm sau ngoặc hoặc biến đổi cả mảng vẫn bị chặn.
+Thêm ký tự, ghép chuỗi hoặc header khác vẫn bị chặn. Khóa thật, URL chứa thông
 tin đăng nhập và giá trị bí mật của môi trường vẫn bị chặn. Packet giữ nguyên
 toàn bộ nguồn; không thay thế hoặc xóa các chuỗi này khi gửi review.
 Các chi tiết giới hạn nằm trong canonical spec.

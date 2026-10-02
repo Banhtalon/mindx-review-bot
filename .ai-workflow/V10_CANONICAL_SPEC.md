@@ -109,9 +109,14 @@ before work. The checkpoint also binds configuration; changed bytes invalidate
 approvals. No directory-wide or arbitrary credential exemption is supported.
 An exact test approval admits the standalone quoted `cookie=synthetic-cookie`
 error literal; an exact static dependency approval admits the standalone quoted
-`Bearer [REDACTED]` replacement literal. Quotes must match and source delimiters
-must bound the complete literal: prefixes, suffixes, extended values and adjacent
-string concatenation remain blocked. These narrowly recognized literals are
+`Bearer [REDACTED]` replacement literal. Recognition is deliberately limited to
+complete Python `.py` `raise RuntimeError` lines with a single literal argument,
+and JavaScript `.js`/`.mjs`/`.cjs` standalone const literal declarations or a
+standalone `const replacements` array of regexp/literal pairs. Source token
+inspection excludes comments and containing strings; unsupported syntax cannot
+grant an exception. Quotes must match and the whole supported expression must
+end without extension: prefixes, suffixes, grouped concatenation and enclosing
+array transformations remain blocked. These narrowly recognized literals are
 masked only inside the source check, never in the review packet. Existing
 inspected synthetic test-data redaction allowances remain test-only. Other
 credential headers, recognizable credential formats, credential URLs, private

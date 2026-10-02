@@ -123,6 +123,56 @@ describe('exact inspected source policy', () => {
     expect(sourceAllowed(testPath, existing, config([approval(testPath, existing)]), {})).toBe(true);
   });
 
+  for (const [file, marker, kind] of [
+    [testPath, cookie, 'synthetic-test-data'],
+    [dependency, bearer, 'static-review-dependency'],
+  ]) {
+    it.each([
+      ['grouped concatenation', `const value = ("${marker}") + "tail";`],
+      ['nested larger string', `const value = "prefix ('${marker}') tail";`],
+      ['array join', `const value = ["${marker}", "tail"].join("");`],
+      ['nested grouping', `const value = (("${marker}")) + "tail";`],
+      ['grouped prefix', `const value = "prefix" + ("${marker}");`],
+      ['multiline triple string', `value = '''prefix\nraise RuntimeError("${marker}")\ntail'''`],
+      ['template string', 'const value = `prefix\nexport const placeholder = "' + marker + '";\ntail`;'],
+      ['commented statement', `/*\nexport const placeholder = "${marker}";\n*/`],
+      ['error argument expression', `raise RuntimeError(("${marker}") + "tail")`],
+      ['nested formatted multiline string', `value = f"""{"""prefix\nraise RuntimeError("${marker}")\ntail"""}"""`],
+    ])(`rejects %s for ${kind}`, (_label, source) => {
+      expect(sourceAllowed(file, source, config([approval(file, source, kind)]), {})).toBe(false);
+    });
+  }
+
+  it('continues to admit the complete original Python tests and redaction dependency', async () => {
+    for (const [file, kind] of [
+      ['apps/browser-runner/tests/unit/test_browser_driver.py', 'synthetic-test-data'],
+      ['apps/browser-runner/tests/unit/test_live_adapter.py', 'synthetic-test-data'],
+      [dependency, 'static-review-dependency'],
+    ]) {
+      const source = await readFile(new URL('../' + file, import.meta.url), 'utf8');
+      expect(sourceAllowed(file, source, config([approval(file, source, kind)]), {})).toBe(true);
+      expect(sourceAllowed(file, source, config([]), {})).toBe(false);
+    }
+  });
+
+  it('accepts a standalone replacement table but rejects transformations of the enclosing array', () => {
+    const table = `const replacements = [\n  [/example/g, "${bearer}"],\n]`;
+    const standalone = table + ';\n';
+    expect(sourceAllowed(dependency, standalone,
+      config([approval(dependency, standalone, 'static-review-dependency')]), {})).toBe(true);
+    for (const suffix of ['.join("");', '.concat("tail");', ' + "tail";', '[0] + "tail";']) {
+      const source = table + suffix;
+      expect(sourceAllowed(dependency, source,
+        config([approval(dependency, source, 'static-review-dependency')]), {})).toBe(false);
+    }
+    for (const source of [`const text = \`prefix\n${standalone}tail\`;`,
+      'const text = "prefix\\\n' + standalone.replaceAll('"', "'") + 'tail";',
+      `/* prefix\n${standalone}tail */`]) {
+      expect(sourceAllowed(dependency, source,
+        config([approval(dependency, source, 'static-review-dependency')]), {})).toBe(false);
+    }
+  });
+
   it('preserves runtime redaction and argument rejection', async () => {
     expect(redactText(cookie, {})).not.toContain('synthetic-cookie');
     expect(redactText('Bearer opaque-value', {})).toBe(bearer);

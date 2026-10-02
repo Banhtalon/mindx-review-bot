@@ -11,15 +11,82 @@ const relativePath=p=>typeof p==='string'&&p&&!path.isAbsolute(p)&&!p.includes('
 const sourceHash=content=>createHash('sha256').update(content).digest('hex');
 const testSource=p=>/(^|\/)(test|tests)\//.test(p)||/(^|\/)(tests|test_[^/]+)\.py$/.test(p)||/\.(test|spec)\.[cm]?[jt]sx?$/.test(p);
 const approvalRole=(name,kind,config)=>kind==='synthetic-test-data'?testSource(name):kind==='static-review-dependency'&&!testSource(name)&&[...(config.gate_paths??[]),...(config.review_context_paths??[])].includes(name);
+function sourceTokens(content,python){
+  const tokens=[];
+  for(let i=0;i<content.length;){
+    const start=i,c=content[i];
+    if(/\s/.test(c)){i++;continue;}
+    if((python&&c==='#')||(!python&&content.startsWith('//',i))){i=content.indexOf('\n',i);if(i<0)break;continue;}
+    if(!python&&content.startsWith('/*',i)){const end=content.indexOf('*/',i+2);if(end<0)break;i=end+2;continue;}
+    // ponytail: recognize only the inspected source forms; stop at templates or
+    // ambiguous slash syntax. Use a language parser if more forms are required.
+    if(c==='`')break;
+    let type='code';
+    if(c==='"'||c==="'"){
+      const quote=python&&content.startsWith(c.repeat(3),i)?c.repeat(3):c;i+=quote.length;
+      const formatted=python&&tokens.at(-1)?.end===start&&/^(?:f|fr|rf)$/i.test(tokens.at(-1).text);
+      if(formatted&&quote.length!==1)break;
+      let braces=0;
+      while(i<content.length&&!content.startsWith(quote,i)){
+        if(content[i]==='\\'){i+=2;continue;}
+        if(formatted){
+          if(content[i]==='{')braces++;else if(content[i]==='}')braces--;
+          if(braces&&(content[i]==='\n'||content[i]==='\r'))return tokens;
+          if(braces&&(content[i]==='"'||content[i]==="'")){
+            const inner=content[i++];
+            while(i<content.length&&content[i]!==inner&&content[i]!=='\n'&&content[i]!=='\r')i+=content[i]==='\\'?2:1;
+            if(content[i]!==inner)return tokens;
+          }
+        }
+        i++;
+      }
+      if(i>=content.length||braces!==0)break;i+=quote.length;type='string';
+    }else if(!python&&c==='/'){
+      if(!['=','[','(',',',':','!','?',';','{'].includes(tokens.at(-1)?.text))break;
+      let bracket=false;i++;
+      for(;i<content.length;i++){
+        if(content[i]==='\n'||content[i]==='\r')return tokens;
+        if(content[i]==='\\'){i++;continue;}
+        if(content[i]==='[')bracket=true;else if(content[i]===']')bracket=false;
+        else if(content[i]==='/'&&!bracket)break;
+      }
+      if(i>=content.length)break;i++;while(/[a-z]/i.test(content[i]??''))i++;type='regex';
+    }else i+=(/^[A-Za-z_$][\w$]*/.exec(content.slice(i))?.[0].length??1);
+    tokens.push({text:content.slice(start,i),start,end:i,type});
+  }
+  return tokens;
+}
+function maskInspectedLiterals(name,content,kind){
+  const python=kind==='synthetic-test-data';
+  if(python?!name.endsWith('.py'):! /\.[cm]?js$/.test(name))return content;
+  const tokens=sourceTokens(content,python),accepted=new Set();
+  const marker=python?'cookie=synthetic-cookie':'Bearer [REDACTED]';
+  const exact=t=>t?.type==='string'&&(t.text==='"'+marker+'"'||t.text==="'"+marker+"'");
+  const before=t=>content.slice(content.lastIndexOf('\n',t.start-1)+1,t.start);
+  const after=t=>content.slice(t.end,content.indexOf('\n',t.end)<0?content.length:content.indexOf('\n',t.end)).replace(/\r$/,'');
+  for(const t of tokens)if(exact(t)){
+    if(python?/^[ \t]*raise[ \t]+RuntimeError\([ \t]*$/.test(before(t))&&/^[ \t]*\)[ \t]*$/.test(after(t)):
+      /^[ \t]*(?:export[ \t]+)?const[ \t]+[A-Za-z_$][\w$]*[ \t]*=[ \t]*$/.test(before(t))&&/^;[ \t]*$/.test(after(t)))accepted.add(t);
+  }
+  // The original redactor uses a standalone array of [regexp, replacement]
+  // pairs. Validate that whole expression, never just the marker's closing ].
+  if(!python)for(let i=0;i<tokens.length;i++){
+    if(tokens[i].text!=='const'||tokens[i+1]?.text!=='replacements'||tokens[i+2]?.text!=='='||tokens[i+3]?.text!=='['||! /^[ \t]*$/.test(before(tokens[i])))continue;
+    let j=i+4;const values=[];
+    while(tokens[j]?.text==='['&&tokens[j+1]?.type==='regex'&&tokens[j+2]?.text===','&&tokens[j+3]?.type==='string'&&tokens[j+4]?.text===']'){
+      values.push(tokens[j+3]);j+=5;if(tokens[j]?.text!==',')break;j++;
+    }
+    if(tokens[j]?.text===']'&&tokens[j+1]?.text===';'&&/^[ \t]*$/.test(after(tokens[j+1])))for(const t of values)if(exact(t))accepted.add(t);
+  }
+  for(const t of [...accepted].sort((a,b)=>b.start-a.start))content=content.slice(0,t.start)+'""'+content.slice(t.end);
+  return content;
+}
 export function sourceAllowed(name,content,config,env=process.env){
   if(content.includes('\0')||content.includes('\ufffd'))return false;
   // Check real credential formats and current secrets against the original bytes.
   if(secretEnvironmentValues(env).some(v=>content.includes(v))||/\b(?:ghp_|github_pat_|sk-|xox[baprs]-)[A-Za-z0-9_-]{8,}|\b[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b|https?:\/\/[^\s:@/]+:[^\s@/]+@|-----BEGIN [^-]*PRIVATE KEY-----/i.test(content))return false;
   const approval=config.synthetic_source_approvals?.find(a=>a.path===name&&a.sha256===sourceHash(content)&&approvalRole(name,a.kind,config));
-  // Only standalone quoted literals, bounded by source delimiters (not string
-  // concatenation), are masked for this check. Review retains the original bytes.
-  const inspected=approval?.kind==='synthetic-test-data'?content.replace(/((?:^|[=(,:[{])\s*)(["'])cookie=synthetic-cookie\2(?=\s*(?:[),;\]}]|$))/g,'$1'):
-    approval?.kind==='static-review-dependency'?content.replace(/((?:^|[=(,:[{])\s*)(["'])Bearer \[REDACTED\]\2(?=\s*(?:[),;\]}]|$))/g,'$1'):content;
+  const inspected=approval?maskInspectedLiterals(name,content,approval.kind):content;
   if(/Bearer\s+\S+|(?:authorization|set-cookie|cookie)\s*[:=]/i.test(inspected))return false;
   if(redactText(inspected,env)===inspected)return true;
   return approval?.kind==='synthetic-test-data';
