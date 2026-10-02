@@ -4,7 +4,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+// @ts-expect-error TS7016: Existing bridge JavaScript module has no TypeScript declarations.
 import { configHash, reviewSource, sourceAllowed, validateConfig } from '../scripts/lib/bridge.mjs';
+// @ts-expect-error TS7016: Existing redaction JavaScript module has no TypeScript declarations.
 import { looksLikeSecretArgument, redactText, runRedacted } from '../scripts/lib/redact.mjs';
 
 const sha = (text: string) => createHash('sha256').update(text).digest('hex');
