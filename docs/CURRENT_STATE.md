@@ -1,5 +1,102 @@
 # Current Project State
 
+Updated: 2026-10-02 (Asia/Saigon). Verified product baseline on GitHub `main`:
+`f02c4ad7135aeff23479e4e66fe60285d1d1b4d4`, merged through
+[PR #31](https://github.com/Banhtalon/mindx-review-bot/pull/31).
+Workflow authority is `.ai-workflow/V10_CANONICAL_SPEC.md`.
+
+## Current completed scope
+
+- PR #31 is merged. Reviewed candidate `505aad994b222edff3129f8579380cbc2462e1fb`
+  and main have identical product tree `bbde830bcfa62a6c664fc0b764ae4921367fe7b2`.
+- [Main verification](https://github.com/Banhtalon/mindx-review-bot/actions/runs/36980402733)
+  completed successfully at the exact merged baseline. The completed implementation
+  packet records 352 Python tests and independent PASS; those are previous checks,
+  not a new test run during this documentation audit.
+- [Teaching cloud pilot](https://github.com/Banhtalon/mindx-review-bot/actions/runs/36968042010)
+  succeeded at candidate `505aad9`: VT-CSI02, session 6, 2026-09-27, 08:00–10:00.
+  LMS steps were skipped. A fresh metadata-only SELECT confirms job/run succeeded,
+  attempts 3/3, records_read 1, no error, and the expected GitHub runner.
+- Completed fixes filter unrelated Teaching rows before date/time validation,
+  wait for page readiness, and allow exact inspected test/dependency literals
+  through the source review check while retaining credential safeguards.
+- [Encrypted-state bootstrap](https://github.com/Banhtalon/mindx-review-bot/actions/runs/36967719095)
+  succeeded. The temporary transport-secret name is absent from the fresh
+  repository Actions secret inventory; no credential values were accessed.
+- Owner acceptance and merge approval belong to the completed pilot. Its job
+  `ddccd0a9-7f17-4ebd-a82d-a4cce27b796e` is complete at 3/3 attempts.
+  Do not rerun/reset/replace it to extend that authorization.
+
+`records_read=1` means one validated session was read. The live adapter returns
+a count and the CLI stores run metadata; this does not prove durable Teaching
+session/catalog reconciliation.
+
+## Current approved work and next sequence
+
+Owner requested necessary next work and explicitly selected Luna 6 max as
+subagent. Current v10 packet: `TASK-STATE-HOSTED-AUDIT`, documentation reconciliation
+and hosted metadata audit. No product code, new live pilot, migration, deployment,
+scheduler activation, push or merge is approved by this packet.
+
+1. Finish independent review of this documentation candidate; keep product main
+   unchanged until a separate Owner merge decision.
+2. Prepare trusted target configuration for manual hosted dispatch using synthetic
+   data and a separate v10 contract. Current cron sends an empty payload; the live
+   adapter needs a page and the dispatch guard rejects URL-bearing payloads.
+   Preserve the guard and explicit class/session selection. Adding keys alone is
+   insufficient; do not guess the target or reuse the exhausted job.
+3. After a reviewed concrete implementation exists, obtain Owner's exact target
+   and authorization for configuration/deployment and one bounded PC-off pilot.
+   Lead performs technical checks; Owner supplies account-only actions and acceptance.
+4. Prepare a separately authorized LMS read only after login and target exist.
+5. Consider automatic scheduling only after hosted/live acceptance and a separate
+   Owner decision; defer later product phases until prerequisites pass.
+
+## Current product evidence boundary
+
+| Area | Current evidence | Remaining gap |
+| --- | --- | --- |
+| Phase 1 | Prior local tests; five hosted infrastructure tables have row-level restrictions enabled | Hosted user/workspace acceptance and full role behavior |
+| Phase 2 | Hosted Teaching run, persisted run metadata, required routines with restricted call permissions, private state bucket | Long-run heartbeat, contention/recovery, hosted reset/reuse lifecycle, end-to-end dispatch with PC off |
+| Phase 3 | One exact Teaching class/session succeeds | Other targets, cold/warm metrics, durable reconciliation |
+| Phase 4 | Prior local/synthetic contracts | Live LMS read, login/reuse, stable mapping, persistence and timing; zero active LMS states in pilot workspace |
+| Phase 5–5C | Prior local/synthetic UI, draft recovery/export | Hosted drafts, live extraction/reconciliation and production review generation |
+
+Infrastructure presence is not hosted functional acceptance. The fresh observations
+and limits are in [the hosted readiness report](phase-reports/2026-10-02-hosted-readiness-audit.md).
+Older phase reports/indexes remain historical evidence; blocked rows are not
+automatically promoted to PASS.
+
+The cron workflow has only `workflow_dispatch`, no schedule. Repository variable
+`CRON_DISPATCH_ENABLED=false` is present but is not referenced by current source.
+The successful pilot directly invoked `browser-runner`, not the Edge Function →
+GitHub chain; the Owner's PC-off condition was not demonstrated.
+`dispatch-job` is deployed, but deployed-source parity and invocation remain
+unverified. Repository secret inventory lacks `CRON_DISPATCH_SECRET` and
+`CRON_WORKSPACE_ID` used by the workflow; other account stores are not asserted.
+
+The checked-in profile remains `ASSISTED`, `bridge_installed=false`, with unverified
+bindings. The accepted pilot's separate local configuration does not activate this
+profile or authorize future autonomous work. Retain one writer, frozen v10 contracts,
+bounded repairs and genuine independent review. Historical v9 waiting states do not
+apply to the completed pilot or this new task. This audit did not refresh rulesets.
+
+Teaching/LMS remain read-only: no Save/Submit/comments, automatic Zalo send,
+CAPTCHA/OTP bypass, guessed identity or row-order mapping. Keep student data,
+browser state and credentials out of models/logs/commits. No new hosted writes.
+
+Recovery: original handoffs/frozen pilot packets are untouched. Latest completed
+pilot handoff is `.workflow-local/teaching-filter-completion/HANDOFF_2026-10-02_CONTINUED.md`.
+The ignored root Owner status has a byte-preserving backup before refresh. Tracked
+documentation is on a separate branch; main remains the accepted product baseline.
+
+<details>
+<summary>Historical snapshot below — superseded status and instructions</summary>
+
+The following snapshot is retained for context only. Its baseline, waiting states,
+v9 next-task instructions and ruleset assertions are historical, not current routing
+or authorization. Use the current sections above and the canonical v10 contract.
+
 Last workflow baseline on `main`: `255ccf9635aecc50474a0a88049355ef4c3638fc`. Issue #12 revision 1 exhausted attempt 4 with Qualified Review NEEDS_FIX. Owner authorized revision 2 to fix those findings; it starts from `519d4a1ae881c5a8a2960aa77ab2c01b6b54b57b` in a new worktree. The historical v9 task is not active on main; adopted tasks follow v10.
 
 This file is a routing/status summary for agents. It does not replace the V4 master specification. Live GitHub issue/ruleset/CI state is authoritative for rapidly changing workflow-control fields.
@@ -182,3 +279,5 @@ Update this file when any of these changes materially:
 - workflow state machine.
 
 Do not turn a historical/synthetic PASS into a live PASS by summary wording.
+
+</details>
