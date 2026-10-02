@@ -1,6 +1,7 @@
 import asyncio
 import inspect
 import json
+import logging
 import os
 import shutil
 import tempfile
@@ -9,9 +10,11 @@ from collections.abc import Callable, Collection
 from contextlib import suppress
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import parse_qsl
 
 from .guardrails import ALLOWED_PRODUCTION_HOSTS
 from .network_guard import classify_request
+from .teaching_auth import LOGIN_SCRIPT, LOGIN_URL
 
 
 class BrowserPage(Protocol):
@@ -95,6 +98,54 @@ class ReadonlyBrowserSession:
         self._attach_tasks: set[asyncio.Task[None]] = set()
         self._guard_failed = False
         self._storage_state_dir: tempfile.TemporaryDirectory[str] | None = None
+
+        self._teaching_login_used = False
+        self._teaching_login_pending: tuple[str, str] | None = None
+        self._previous_logging_disable: int | None = None
+
+    async def login_teaching(self, page: BrowserPage, username: str, password: str) -> None:
+        """One explicit login; credentials stay in memory and logging stays off until close."""
+        if self._teaching_login_used or not username or not password:
+            raise RuntimeError("AUTH_FAILED")
+        evaluator = getattr(page, "evaluate", None)
+        if not callable(evaluator):
+            raise RuntimeError("TEACHING_SELECTOR_CHANGED")
+        self._teaching_login_used = True
+        self._previous_logging_disable = logging.root.manager.disable
+        logging.disable(max(logging.CRITICAL, self._previous_logging_disable))
+        self._teaching_login_pending = (username, password)
+        try:
+            async with asyncio.timeout(20):
+                result = await evaluator(LOGIN_SCRIPT, username, password)
+                if result == "CHALLENGE":
+                    raise RuntimeError("AUTH_INTERACTION_REQUIRED")
+                if result != "LOGIN_SENT":
+                    raise RuntimeError("TEACHING_SELECTOR_CHANGED")
+                while True:
+                    try:
+                        result = await evaluator(
+                            "() => document.readyState === 'complete' && "
+                            "!window.__mindxLoginPending ? 'COMPLETE' : 'WAITING'"
+                        )
+                    except Exception:
+                        # Navigation can replace the evaluation context; never resubmit.
+                        result = "WAITING"
+                    if result == "COMPLETE":
+                        if self._teaching_login_pending is not None:
+                            raise RuntimeError("AUTH_FAILED")
+                        return
+                    await asyncio.sleep(0.1)
+        except TimeoutError:
+            raise RuntimeError("AUTH_FAILED") from None
+        except RuntimeError as error:
+            code = str(error)
+            if code in {"AUTH_FAILED", "AUTH_INTERACTION_REQUIRED", "TEACHING_SELECTOR_CHANGED"}:
+                raise RuntimeError(code) from None
+            raise RuntimeError("AUTH_FAILED") from None
+        except Exception:
+            raise RuntimeError("AUTH_FAILED") from None
+        finally:
+            self._teaching_login_pending = None
 
     def _prepare_storage_state(self) -> str | None:
         """Materialize an in-memory state without passing secrets to Browser Use logs."""
@@ -511,6 +562,30 @@ class ReadonlyBrowserSession:
                 content_type=content_type,
                 login_paths=self._login_paths,
             )
+            if self._teaching_login_used and method.upper() not in {"GET", "HEAD", "OPTIONS"}:
+                # The sole write exception is an exact password login, consumed before sending.
+                pending = self._teaching_login_pending
+                pairs = parse_qsl(body or "", strict_parsing=True, max_num_fields=3)
+                allowed = (
+                    pending is not None
+                    and method.upper() == "POST"
+                    and request.get("url") == LOGIN_URL
+                    and len(pairs) in {2, 3}
+                    and dict(pairs).get("username") == pending[0]
+                    and dict(pairs).get("password") == pending[1]
+                    and len(dict(pairs)) == len(pairs)
+                    and set(dict(pairs)) <= {"username", "password", "redirect"}
+                    and dict(pairs).get("redirect", "/") == "/"
+                    and isinstance(content_type, str)
+                    and content_type.split(";", 1)[0].lower() == "application/x-www-form-urlencoded"
+                )
+                if allowed:
+                    self._teaching_login_pending = None
+                    await fetch_send.continueRequest(
+                        params={"requestId": request_id}, session_id=session_id
+                    )
+                    return
+                raise RuntimeError("AUTH_FAILED")
             if decision.allowed:
                 await fetch_send.continueRequest(
                     params={"requestId": request_id},
@@ -530,6 +605,9 @@ class ReadonlyBrowserSession:
     async def close(self) -> None:
         if self._session is None:
             self._cleanup_storage_state()
+            if self._previous_logging_disable is not None:
+                logging.disable(self._previous_logging_disable)
+                self._previous_logging_disable = None
             return
         session = self._session
         self._session = None
@@ -540,6 +618,9 @@ class ReadonlyBrowserSession:
             await session.stop()
         finally:
             self._cleanup_storage_state()
+            if self._previous_logging_disable is not None:
+                logging.disable(self._previous_logging_disable)
+                self._previous_logging_disable = None
 
     async def _cancel_attach_tasks(self) -> None:
         tasks = tuple(self._attach_tasks)

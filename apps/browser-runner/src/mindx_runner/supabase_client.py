@@ -26,6 +26,7 @@ SAFE_ERROR_CODES = frozenset(
     {
         "AUTH_EXPIRED",
         "AUTH_FAILED",
+        "AUTH_INTERACTION_REQUIRED",
         "CAPTCHA_DETECTED",
         "DOMAIN_BLOCKED",
         "TEACHING_SELECTOR_CHANGED",
