@@ -37,6 +37,8 @@ def test_live_workflow_scopes_credentials_by_job_type() -> None:
         "SUPABASE_SECRET_KEY",
         "BROWSER_STATE_ENCRYPTION_KEY",
         "MINDX_TEACHING_TARGET_JSON",
+        "TEACHING_USERNAME",
+        "TEACHING_PASSWORD",
     }
     assert set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", lms_block)) == {
         "SUPABASE_URL",

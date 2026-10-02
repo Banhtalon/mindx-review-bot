@@ -113,6 +113,39 @@ LMS_HTML = """
 </main>
 """
 
+
+@pytest.mark.asyncio
+async def test_expired_teaching_session_logs_in_once_before_reading() -> None:
+    login_html = (
+        '<form method="POST"><input name="username"><input type="password" name="password"></form>'
+    )
+
+    class LoginBrowser(FakeBrowser):
+        login_calls = 0
+
+        async def login_teaching(self, page: FakePage, username: str, password: str) -> None:
+            assert username == CONFIG.teaching_username
+            assert password == CONFIG.teaching_password
+            self.login_calls += 1
+            page.html = TEACHING_HTML
+
+    browser = LoginBrowser(FakePage(login_html))
+    assert (
+        await readonly_site_adapter(
+            CONFIG,
+            claimed(
+                {
+                    "teaching_url": "https://teachingmindx.top/",
+                    "allowed_class_codes": ["SYN-ROBOTICS-01"],
+                }
+            ),
+            browser,
+        )
+        == 1
+    )
+    assert browser.login_calls == 1
+
+
 LIVE_TEACHING_HTML = (
     Path(__file__).parents[1] / "fixtures" / "teaching" / "live-week.html"
 ).read_text(encoding="utf-8")

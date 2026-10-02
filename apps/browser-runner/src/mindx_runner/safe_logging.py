@@ -20,6 +20,7 @@ SAFE_ENUM_VALUES: dict[str, frozenset[str]] = {
         {
             "AUTH_EXPIRED",
             "AUTH_FAILED",
+            "AUTH_INTERACTION_REQUIRED",
             "CAPTCHA_DETECTED",
             "DOMAIN_BLOCKED",
             "TEACHING_SELECTOR_CHANGED",
@@ -45,6 +46,7 @@ SAFE_ENUM_VALUES: dict[str, frozenset[str]] = {
         {
             "AUTH_EXPIRED",
             "AUTH_FAILED",
+            "AUTH_INTERACTION_REQUIRED",
             "CAPTCHA_DETECTED",
             "DOMAIN_BLOCKED",
             "TEACHING_SELECTOR_CHANGED",

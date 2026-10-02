@@ -12,6 +12,7 @@ from .cli import RunnerError
 from .lms_models import LmsPageExtract
 from .lms_parser import LmsParserError, parse_lms_page
 from .network_guard import classify_request
+from .teaching_auth import teaching_auth_state
 from .teaching_models import TeachingBatchExtract
 from .teaching_parser import TeachingParserError, parse_teaching_schedule
 
@@ -335,8 +336,8 @@ def _check_lms_context(
 async def readonly_site_adapter(config: object, claimed: object, browser: object) -> int:
     """Read one explicitly configured page and return validated record count.
 
-    The adapter never submits forms, calls a write endpoint, or returns page
-    content. All HTML is consumed by deterministic parsers immediately.
+    Only an explicit, bounded Teaching password login may submit a form.
+    All lesson data stays read-only; HTML is consumed by deterministic parsers.
     """
 
     job_type = getattr(config, "job_type", None)
@@ -386,6 +387,39 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
             raise RunnerError(code) from error
         raise RunnerError("BROWSER_NAVIGATION_FAILED") from error
     html = await _page_html(page)
+
+    if job_type == "sync_teaching":
+        auth_state = teaching_auth_state(html)
+        if auth_state == "challenge":
+            raise RunnerError("AUTH_INTERACTION_REQUIRED")
+        if auth_state == "invalid":
+            raise RunnerError("TEACHING_SELECTOR_CHANGED")
+        if auth_state == "login":
+            username = getattr(config, "teaching_username", "")
+            password = getattr(config, "teaching_password", "")
+            if not username or not password:
+                raise RunnerError("TEACHING_LOGIN_REQUIRED")
+            login = getattr(browser, "login_teaching", None)
+            if not callable(login):
+                raise RunnerError("TEACHING_SELECTOR_CHANGED")
+            try:
+                await login(page, username, password)
+                page = await open_page(url)
+                html = await _page_html(page)
+            except Exception as error:
+                code = str(error)
+                if code in {
+                    "AUTH_FAILED",
+                    "AUTH_INTERACTION_REQUIRED",
+                    "TEACHING_SELECTOR_CHANGED",
+                }:
+                    raise RunnerError(code) from None
+                raise RunnerError("AUTH_FAILED") from None
+            auth_state = teaching_auth_state(html)
+            if auth_state == "challenge":
+                raise RunnerError("AUTH_INTERACTION_REQUIRED")
+            if auth_state != "none":
+                raise RunnerError("AUTH_FAILED")
 
     try:
         if job_type == "sync_teaching":
