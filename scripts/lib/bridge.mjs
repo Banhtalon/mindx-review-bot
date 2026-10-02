@@ -10,13 +10,19 @@ const required=(ok,message)=>{if(!ok)throw Error(message);};
 const relativePath=p=>typeof p==='string'&&p&&!path.isAbsolute(p)&&!p.includes('\\')&&!p.split('/').some(s=>['..','.',''].includes(s))&&!/[\x00-\x1f:*?\[\]]/.test(p)&&redactText(p)===p;
 const sourceHash=content=>createHash('sha256').update(content).digest('hex');
 const testSource=p=>/(^|\/)(test|tests)\//.test(p)||/(^|\/)(tests|test_[^/]+)\.py$/.test(p)||/\.(test|spec)\.[cm]?[jt]sx?$/.test(p);
+const approvalRole=(name,kind,config)=>kind==='synthetic-test-data'?testSource(name):kind==='static-review-dependency'&&!testSource(name)&&[...(config.gate_paths??[]),...(config.review_context_paths??[])].includes(name);
 export function sourceAllowed(name,content,config,env=process.env){
   if(content.includes('\0')||content.includes('\ufffd'))return false;
-  // Exact inspected test bytes, never a directory-wide exemption. Credentials
-  // with recognizable formats and current secret environment values stay blocked.
-  if(secretEnvironmentValues(env).some(v=>content.includes(v))||/\b(?:ghp_|github_pat_|sk-|xox[baprs]-)[A-Za-z0-9_-]{8,}|\b[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b|Bearer\s+\S+|(?:authorization|set-cookie|cookie)\s*[:=]|https?:\/\/[^\s:@/]+:[^\s@/]+@|-----BEGIN [^-]*PRIVATE KEY-----/i.test(content))return false;
-  if(redactText(content,env)===content)return true;
-  return !!(testSource(name)&&config.synthetic_source_approvals?.some(a=>a.path===name&&a.sha256===sourceHash(content)&&a.kind==='synthetic-test-data'));
+  // Check real credential formats and current secrets against the original bytes.
+  if(secretEnvironmentValues(env).some(v=>content.includes(v))||/\b(?:ghp_|github_pat_|sk-|xox[baprs]-)[A-Za-z0-9_-]{8,}|\b[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\.[A-Za-z0-9_-]{12,}\b|https?:\/\/[^\s:@/]+:[^\s@/]+@|-----BEGIN [^-]*PRIVATE KEY-----/i.test(content))return false;
+  const approval=config.synthetic_source_approvals?.find(a=>a.path===name&&a.sha256===sourceHash(content)&&approvalRole(name,a.kind,config));
+  // Only standalone quoted literals, bounded by source delimiters (not string
+  // concatenation), are masked for this check. Review retains the original bytes.
+  const inspected=approval?.kind==='synthetic-test-data'?content.replace(/((?:^|[=(,:[{])\s*)(["'])cookie=synthetic-cookie\2(?=\s*(?:[),;\]}]|$))/g,'$1'):
+    approval?.kind==='static-review-dependency'?content.replace(/((?:^|[=(,:[{])\s*)(["'])Bearer \[REDACTED\]\2(?=\s*(?:[),;\]}]|$))/g,'$1'):content;
+  if(/Bearer\s+\S+|(?:authorization|set-cookie|cookie)\s*[:=]/i.test(inspected))return false;
+  if(redactText(inspected,env)===inspected)return true;
+  return approval?.kind==='synthetic-test-data';
 }
 export async function atomicJson(file,value) {
   const tmp=file+'.'+randomUUID()+'.tmp';
@@ -40,7 +46,7 @@ export function validateConfig(c) {
   if(c.synthetic_source_approvals!==undefined){
     required(Array.isArray(c.synthetic_source_approvals)&&c.synthetic_source_approvals.length<=100,'invalid synthetic source approvals');
     const seen=new Set();for(const a of c.synthetic_source_approvals){
-      required(a&&relativePath(a.path)&&testSource(a.path)&&/^[a-f0-9]{64}$/.test(a.sha256??'')&&a.kind==='synthetic-test-data'&&typeof a.reason==='string'&&a.reason.trim()&&redactText(a.reason)===a.reason,'invalid exact synthetic test approval');
+      required(a&&relativePath(a.path)&&approvalRole(a.path,a.kind,c)&&/^[a-f0-9]{64}$/.test(a.sha256??'')&&typeof a.reason==='string'&&a.reason.trim()&&redactText(a.reason)===a.reason,'invalid exact source approval');
       const id=a.path+':'+a.sha256;required(!seen.has(id),'duplicate synthetic source approval');seen.add(id);
     }
   }
@@ -194,6 +200,7 @@ export function reviewSource(cwd,t,config) {
   const list=ref=>git(cwd,'ls-tree','-r','--name-only','-z',ref,'--',...declared).split('\0').filter(Boolean);
   const contextNames=[...list(t.base_sha),...list(t.candidate_head)];
   for(const p of declared.filter(p=>p!=='package.json'))required(contextNames.some(n=>n===p||n.startsWith(p+'/')),'declared review context is missing: '+p);
+  for(const a of config.synthetic_source_approvals??[])if(a.kind==='static-review-dependency')required(contextNames.includes(a.path),'static review approval must name a declared file');
   const files=[],base_files=[],baseline=[];let bytes=Buffer.byteLength(diff);
   for(const name of new Set([...names,...contextNames])){
     required(relativePath(name),'unsafe review source path');

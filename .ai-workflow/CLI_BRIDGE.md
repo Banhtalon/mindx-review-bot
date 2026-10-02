@@ -26,14 +26,32 @@ ví dụ model, form và template nền mà thay đổi đang sử dụng. Packe
 lượt review có `review-source.json`: diff, nội dung đã kiểm tra và hash base/head.
 `source_sha256` trong lịch sử liên kết với packet này.
 
-`synthetic_source_approvals` có dạng
+`synthetic_source_approvals` cho file test có dạng
 `[{"path":"notes/tests.py","sha256":"<SHA-256 nội dung UTF-8 chính xác>","kind":"synthetic-test-data","reason":"Lead đã đọc và xác nhận dữ liệu thử"}]`.
 Đây là ghi nhận kiểm tra nguồn của Lead trước khi bắt đầu checkpoint, tách khỏi
 cấu hình tự phát hiện dữ liệu giả. File test mới hoặc thay đổi nội dung cần được
-kiểm tra lại; config thay đổi không thể tiếp tục checkpoint cũ. Chuỗi giống khóa
-truy cập thật vẫn bị chặn. Các chi tiết giới hạn nằm trong canonical spec.
+kiểm tra lại; config thay đổi không thể tiếp tục checkpoint cũ.
+
+Với file phụ thuộc phục vụ review, dùng cùng cấu trúc nhưng
+`"kind":"static-review-dependency"`. File này phải không phải file test và phải
+được ghi đúng đường dẫn file trong `gate_paths` hoặc `review_context_paths`.
+Khai báo một thư mục không duyệt cả thư mục hay các file con. SHA-256 phải khớp
+nguyên văn nội dung của từng phiên bản base/head cần đọc.
+
+Quyền test chỉ nhận thêm nguyên chuỗi `cookie=synthetic-cookie` có dấu nháy;
+quyền file phụ thuộc chỉ nhận thêm nguyên chuỗi thay thế `Bearer [REDACTED]`
+có dấu nháy. Chuỗi phải đứng riêng giữa các dấu phân cách của mã nguồn;
+thêm ký tự, ghép chuỗi hoặc header khác vẫn bị chặn. Khóa thật, URL chứa thông
+tin đăng nhập và giá trị bí mật của môi trường vẫn bị chặn. Packet giữ nguyên
+toàn bộ nguồn; không thay thế hoặc xóa các chuỗi này khi gửi review.
+Các chi tiết giới hạn nằm trong canonical spec.
 Task Gemini-first ghi `execution.source_approvals_sha256` bằng SHA-256 của
 `JSON.stringify(config.synthetic_source_approvals)` trước khi freeze.
+
+`V10_TEMPLATE_PIN.json` lưu hash của các byte core đang dùng. Khi có bản vá cục
+bộ, `provenance.local_patch` ghi task và điểm bắt đầu, còn `commit` vẫn chỉ là
+commit upstream gốc, không phải bằng chứng upstream đã chứa bản vá. Pin và
+checker của bản ứng viên không thay thế review độc lập trên đúng commit.
 
 ## Khôi phục
 
