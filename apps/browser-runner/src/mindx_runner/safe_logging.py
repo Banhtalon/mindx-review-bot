@@ -1,6 +1,7 @@
 import re
 
 SAFE_ENUM_VALUES: dict[str, frozenset[str]] = {
+    "teaching_auth_mode": frozenset({"saved_session", "password_login", "not_observed"}),
     "status": frozenset(
         {
             "queued",

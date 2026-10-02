@@ -27,6 +27,7 @@ from .live_runner import (
     load_live_config,
     safe_error_code,
 )
+from .safe_logging import sanitize_log_metadata
 from .supabase_client import MAX_RECORDS_READ, ClaimedRun, SupabaseRunnerClient
 
 
@@ -43,6 +44,7 @@ class SafeRunSummary:
     status: str
     records_read: int
     error_code: str | None = None
+    teaching_auth_mode: str | None = None
 
 
 class RunnerClient(Protocol):
@@ -516,7 +518,15 @@ async def run_job(
             duration_ms=duration_ms,
             deadline=finalization_deadline,
         )
-        return SafeRunSummary(config.job_id, claimed.run_id, "succeeded", records_read)
+        auth_mode = None
+        if config.job_type == "sync_teaching" and records_read > 0:
+            auth_mode = sanitize_log_metadata(
+                {"teaching_auth_mode": getattr(browser, "teaching_auth_mode", None)}
+            ).get("teaching_auth_mode")
+        return SafeRunSummary(
+            config.job_id, claimed.run_id, "succeeded", records_read,
+            teaching_auth_mode=cast(str | None, auth_mode),
+        )
     except Exception as error:
         error_code = safe_error_code(error)
         duration_ms = max(0, int((time.monotonic() - started_at) * 1000)) if started_at else 0
@@ -585,6 +595,36 @@ def _bootstrap_browser_state(args: argparse.Namespace, environment: Mapping[str,
     print(json.dumps({"status": "browser_state_uploaded", "site": version.site}))
 
 
+def _report_success(
+    summary: SafeRunSummary, environment: Mapping[str, str], job_type: str
+) -> None:
+    metadata = sanitize_log_metadata({
+        "job_id": summary.job_id, "status": summary.status, "records_read": summary.records_read,
+        "teaching_auth_mode": summary.teaching_auth_mode,
+    })
+    if job_type == "sync_teaching":
+        if not metadata.get("records_read") or "teaching_auth_mode" not in metadata:
+            metadata["teaching_auth_mode"] = "not_observed"
+    else:
+        metadata.pop("teaching_auth_mode", None)
+    print(json.dumps(metadata))
+    summary_path = environment.get("GITHUB_STEP_SUMMARY")
+    if summary_path and job_type == "sync_teaching":
+        label = {
+            "saved_session": "Dùng lại phiên đăng nhập còn hiệu lực",
+            "password_login": "Đăng nhập bằng mật khẩu rồi đọc lịch thành công",
+            "not_observed": "Chưa có bằng chứng về cách đăng nhập",
+        }[str(metadata["teaching_auth_mode"])]
+        # Optional presentation must never turn an already finalized job into a retry.
+        with suppress(OSError, ValueError):
+            with Path(summary_path).open("a", encoding="utf-8") as report:
+                report.write(
+                    "### Kết quả đọc Teaching\n\n"
+                    f"- Số buổi đọc được: **{metadata.get('records_read', 0)}**.\n"
+                    f"- Cách đăng nhập: **{label}**.\n"
+                )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     environment = dict(os.environ)
@@ -612,9 +652,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         # claim or browser startup. Missing or invalid adapter configuration is
         # therefore still fail-closed.
         run_environment = {**environment, "JOB_ID": args.job_id}
-        load_live_config(run_environment)
+        config = load_live_config(run_environment)
         adapter = load_configured_adapter(environment)
-        asyncio.run(run_job(args.job_id, environment, adapter=adapter))
+        summary = asyncio.run(run_job(args.job_id, environment, adapter=adapter))
+        _report_success(summary, environment, config.job_type)
     except Exception as error:
         print(json.dumps({"status": "failed", "error_code": safe_error_code(error)}))
         return 1
