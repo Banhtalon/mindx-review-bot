@@ -345,8 +345,7 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
         raise RunnerError("JOB_TYPE_MISMATCH")
     payload = _payload_mapping(getattr(claimed, "payload", {}))
     target = getattr(config, "teaching_target", None)
-    use_trusted_target = job_type == "sync_teaching" and not payload and target is not None
-    if use_trusted_target:
+    if job_type == "sync_teaching" and not payload and target is not None:
         payload = {
             "teaching_url": target.teaching_url,
             "allowed_class_codes": (target.class_code,),
@@ -354,6 +353,16 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
             "expected_session_number": target.session_number,
             "expected_source_session_id": target.source_session_id,
         }
+        context = _ExpectedContext(
+            class_code=target.class_code,
+            session_number=target.session_number,
+            source_session_id=target.source_session_id,
+            scheduled_date=target.scheduled_date,
+            start_time=target.start_time,
+            end_time=target.end_time,
+        )
+    else:
+        context = _validate_context(job_type, payload)
     login_paths = _read_login_paths(payload)
     configure = getattr(browser, "configure_login_paths", None)
     if configure is not None:
@@ -362,18 +371,6 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
         configure(login_paths)
     url = _read_url(job_type, payload, login_paths)
     codes = _allowed_class_codes(payload)
-    context = (
-        _ExpectedContext(
-            class_code=target.class_code,
-            session_number=target.session_number,
-            source_session_id=target.source_session_id,
-            scheduled_date=target.scheduled_date,
-            start_time=target.start_time,
-            end_time=target.end_time,
-        )
-        if use_trusted_target
-        else _validate_context(job_type, payload)
-    )
     open_page = getattr(browser, "open", None)
     if not callable(open_page):
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
