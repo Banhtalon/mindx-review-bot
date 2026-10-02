@@ -53,6 +53,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
+          MINDX_TEACHING_TARGET_JSON: ${{ secrets.MINDX_TEACHING_TARGET_JSON }}
         run: uv run --project apps/browser-runner mindx-runner preflight
 
       - name: Preflight LMS read-only runner
@@ -84,6 +85,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           BROWSER_STATE_ENCRYPTION_KEY: ${{ secrets.BROWSER_STATE_ENCRYPTION_KEY }}
+          MINDX_TEACHING_TARGET_JSON: ${{ secrets.MINDX_TEACHING_TARGET_JSON }}
         run: uv run --project apps/browser-runner mindx-runner run "$JOB_ID"
 
       - name: Execute LMS read-only runner

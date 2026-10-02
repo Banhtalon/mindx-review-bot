@@ -33,6 +33,15 @@ ENVIRONMENT = {
     "LMS_USERNAME": "lms@example.invalid",
     "LMS_PASSWORD": "lms-password",
 }
+TARGET_DATA = {
+    "workspace_id": WORKSPACE_ID,
+    "teaching_url": "https://teachingmindx.top/schedule",
+    "class_code": "SYN-ROBOTICS-01",
+    "session_number": 3,
+    "scheduled_date": "2026-09-27",
+    "start_time": "09:00:00",
+    "end_time": "10:00:00",
+}
 
 
 def test_bootstrap_browser_state_reads_local_file_and_never_prints_state(
@@ -385,6 +394,28 @@ def test_preflight_only_succeeds_with_importable_async_site_adapter(
     assert output["job_type"] == "sync_teaching"
 
 
+def test_preflight_rejects_malformed_trusted_target_without_creating_client(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    for name, value in ENVIRONMENT.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("MINDX_TEACHING_TARGET_JSON", "{malformed-private-value}")
+    monkeypatch.delenv("MINDX_SITE_ADAPTER", raising=False)
+
+    class UnexpectedClient:
+        def __init__(self, *_: object) -> None:
+            pytest.fail("Invalid target must be rejected before any runner client is created")
+
+    monkeypatch.setattr("mindx_runner.cli.SupabaseRunnerClient", UnexpectedClient)
+
+    assert main(["preflight"]) == 1
+    assert json.loads(capsys.readouterr().out) == {
+        "status": "failed",
+        "error_code": "LIVE_CONFIG_INVALID",
+    }
+
+
 @pytest.mark.asyncio
 async def test_run_job_requires_site_adapter_before_claiming_or_opening_browser() -> None:
     client = FakeClient([])
@@ -441,6 +472,93 @@ async def test_run_job_decrypts_active_browser_state_before_starting_session() -
     assert summary.status == "succeeded"
     assert observed_state == {"cookies": [], "origins": []}
     assert not Path(str(created_options["storage_state"])).exists()
+
+
+@pytest.mark.asyncio
+async def test_empty_payload_workspace_mismatch_fails_before_state_read_or_browser(
+) -> None:
+    other_workspace = "00000000-0000-4000-8000-000000000004"
+    target = {**TARGET_DATA, "workspace_id": other_workspace}
+    environment = {
+        **ENVIRONMENT,
+        "MINDX_TEACHING_TARGET_JSON": json.dumps(target, separators=(",", ":")),
+    }
+
+    class TrackingClient(FakeClient):
+        state_reads = 0
+
+        def load_active_browser_state(self, workspace_id: str, site: str) -> None:
+            self.state_reads += 1
+            return None
+
+    client = TrackingClient([])
+    browser_created = False
+
+    def session_factory(**_: object) -> FakeSession:
+        nonlocal browser_created
+        browser_created = True
+        return FakeSession({})
+
+    async def adapter(*_: object) -> int:
+        return 1
+
+    with pytest.raises(RunnerError) as error:
+        await run_job(
+            JOB_ID,
+            environment,
+            client_factory=lambda _: client,
+            session_factory=session_factory,
+            adapter=adapter,
+        )
+
+    assert error.value.code == "WORKSPACE_ID_MISMATCH"
+    assert client.state_reads == 0
+    assert browser_created is False
+    assert client.finished[0][:4] == (RUN_ID, "failed", 0, "WORKSPACE_ID_MISMATCH")
+
+
+@pytest.mark.asyncio
+async def test_nonempty_legacy_payload_ignores_trusted_workspace_target() -> None:
+    target = {**TARGET_DATA, "workspace_id": "00000000-0000-4000-8000-000000000004"}
+    environment = {
+        **ENVIRONMENT,
+        "MINDX_TEACHING_TARGET_JSON": json.dumps(target, separators=(",", ":")),
+    }
+    legacy_payload = {
+        "teaching_url": "https://teachingmindx.top/legacy-schedule",
+        "allowed_class_codes": ["SYN-LEGACY-01"],
+    }
+
+    class LegacyPayloadClient(FakeClient):
+        def claim_job_run(self, job_id: str, runner_id: str) -> ClaimedRun:
+            claimed = super().claim_job_run(job_id, runner_id)
+            return ClaimedRun(
+                claimed=True,
+                run_id=claimed.run_id,
+                job_id=claimed.job_id,
+                workspace_id=claimed.workspace_id,
+                job_type=claimed.job_type,
+                payload=legacy_payload,
+                attempt=claimed.attempt,
+            )
+
+    client = LegacyPayloadClient([])
+    seen_payloads: list[dict[str, object]] = []
+
+    async def adapter(_: object, claimed: ClaimedRun, __: object) -> int:
+        seen_payloads.append(claimed.payload)
+        return 0
+
+    result = await run_job(
+        JOB_ID,
+        environment,
+        client_factory=lambda _: client,
+        session_factory=lambda **_: FakeSession(),
+        adapter=adapter,
+    )
+
+    assert result.status == "succeeded"
+    assert seen_payloads == [legacy_payload]
 
 
 @pytest.mark.asyncio

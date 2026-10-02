@@ -66,6 +66,7 @@ SAFE_ERROR_CODES = frozenset(
         "LOGIN_PATHS_INVALID",
         "RUNNER_FAILED",
         "RUNNER_TIMEOUT",
+        "WORKSPACE_ID_MISMATCH",
     }
 )
 JobType = Literal["sync_teaching", "read_lms_pending"]

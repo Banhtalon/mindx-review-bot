@@ -1,7 +1,9 @@
 import base64
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from datetime import date, time
 from typing import Final, Literal, NoReturn
 from urllib.parse import urlparse
 from uuid import UUID
@@ -56,9 +58,11 @@ SAFE_ERROR_CODES: Final[frozenset[str]] = frozenset(
         "PAGE_CONTENT_UNAVAILABLE",
         "LOGIN_PATHS_INVALID",
         "RUNNER_TIMEOUT",
+        "WORKSPACE_ID_MISMATCH",
     }
 )
 JobType = Literal["sync_teaching", "read_lms_pending"]
+_TEACHING_TARGET_ENV: Final[str] = "MINDX_TEACHING_TARGET_JSON"
 
 
 class LiveConfigError(RuntimeError):
@@ -73,6 +77,18 @@ class LiveConfigError(RuntimeError):
         super().__init__(message)
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class TeachingTarget:
+    workspace_id: str
+    teaching_url: str
+    class_code: str
+    session_number: int
+    scheduled_date: date
+    start_time: time
+    end_time: time
+    source_session_id: str | None = None
+
+
 @dataclass(frozen=True, slots=True)
 class LiveRunConfig:
     job_id: str
@@ -85,6 +101,7 @@ class LiveRunConfig:
     teaching_password: str = field(repr=False)
     lms_username: str = field(repr=False)
     lms_password: str = field(repr=False)
+    teaching_target: TeachingTarget | None = field(default=None, repr=False)
 
 
 def _fail(field_name: str | None = None) -> NoReturn:
@@ -160,6 +177,130 @@ def _validate_supabase_url(value: str) -> str:
     return value.rstrip("/")
 
 
+def _unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(_: str) -> NoReturn:
+    raise ValueError
+
+
+def _load_teaching_target(environment: Mapping[str, str]) -> TeachingTarget | None:
+    raw = environment.get(_TEACHING_TARGET_ENV)
+    if raw is None or raw == "":
+        return None
+    try:
+        if len(raw.encode("utf-8")) > 4096:
+            raise ValueError
+        value = json.loads(
+            raw,
+            object_pairs_hook=_unique_object,
+            parse_constant=_reject_json_constant,
+        )
+        required = {
+            "workspace_id",
+            "teaching_url",
+            "class_code",
+            "session_number",
+            "scheduled_date",
+            "start_time",
+            "end_time",
+        }
+        allowed = required | {"source_session_id"}
+        if not isinstance(value, dict) or not required <= value.keys() or value.keys() - allowed:
+            raise ValueError
+
+        workspace_id = value["workspace_id"]
+        if not isinstance(workspace_id, str) or str(UUID(workspace_id)) != workspace_id:
+            raise ValueError
+
+        teaching_url = value["teaching_url"]
+        if (
+            not isinstance(teaching_url, str)
+            or not teaching_url
+            or teaching_url != teaching_url.strip()
+            or any(char.isspace() or ord(char) < 32 for char in teaching_url)
+            or "\\" in teaching_url
+        ):
+            raise ValueError
+        parsed_url = urlparse(teaching_url)
+        port = parsed_url.port
+        if (
+            parsed_url.scheme != "https"
+            or parsed_url.hostname != "teachingmindx.top"
+            or parsed_url.username is not None
+            or parsed_url.password is not None
+            or port not in {None, 443}
+            or parsed_url.fragment
+            or "#" in teaching_url
+            or (
+                parsed_url.query
+                and re.fullmatch(r"week_offset=-?[0-9]+", parsed_url.query) is None
+            )
+        ):
+            raise ValueError
+        from .network_guard import classify_request
+
+        if not classify_request("GET", teaching_url).allowed:
+            raise ValueError
+
+        class_code = value["class_code"]
+        if not isinstance(class_code, str):
+            raise ValueError
+        class_code = " ".join(class_code.split()).upper()
+        if not class_code or len(class_code) > 120:
+            raise ValueError
+
+        session_number = value["session_number"]
+        if type(session_number) is not int or session_number < 1:
+            raise ValueError
+
+        scheduled_date_value = value["scheduled_date"]
+        if not isinstance(scheduled_date_value, str):
+            raise ValueError
+        scheduled_date = date.fromisoformat(scheduled_date_value)
+        if scheduled_date.isoformat() != scheduled_date_value:
+            raise ValueError
+
+        start_time_value = value["start_time"]
+        end_time_value = value["end_time"]
+        if not isinstance(start_time_value, str) or not isinstance(end_time_value, str):
+            raise ValueError
+        start_time = time.fromisoformat(start_time_value)
+        end_time = time.fromisoformat(end_time_value)
+        if start_time.tzinfo is not None or end_time.tzinfo is not None or end_time <= start_time:
+            raise ValueError
+
+        source_session_id: str | None = None
+        if "source_session_id" in value:
+            source_session_id = value["source_session_id"]
+            if (
+                not isinstance(source_session_id, str)
+                or not source_session_id
+                or source_session_id != source_session_id.strip()
+                or len(source_session_id) > 200
+            ):
+                raise ValueError
+
+        return TeachingTarget(
+            workspace_id=workspace_id,
+            teaching_url=teaching_url,
+            class_code=class_code,
+            session_number=session_number,
+            scheduled_date=scheduled_date,
+            start_time=start_time,
+            end_time=end_time,
+            source_session_id=source_session_id,
+        )
+    except Exception:
+        raise LiveConfigError(_TEACHING_TARGET_ENV) from None
+
+
 def load_live_config(environment: Mapping[str, str]) -> LiveRunConfig:
     _flag(environment, "AUTOMATION_ENABLED", "true")
     _flag(environment, "MVP_LMS_WRITE_ENABLED", "false")
@@ -194,6 +335,11 @@ def load_live_config(environment: Mapping[str, str]) -> LiveRunConfig:
             _optional(environment, "LMS_PASSWORD")
             if job_type == "read_lms_pending"
             else ""
+        ),
+        teaching_target=(
+            _load_teaching_target(environment)
+            if job_type == "sync_teaching"
+            else None
         ),
     )
 

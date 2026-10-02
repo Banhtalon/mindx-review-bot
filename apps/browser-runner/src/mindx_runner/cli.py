@@ -446,6 +446,25 @@ async def run_job(
             deadline=finalization_deadline,
         )
         raise RunnerError("JOB_TYPE_MISMATCH")
+    if (
+        config.teaching_target is not None
+        and claimed.job_type == "sync_teaching"
+        and isinstance(claimed.payload, Mapping)
+        and not claimed.payload
+        and claimed.workspace_id != config.teaching_target.workspace_id
+    ):
+        terminal_call_started = True
+        await _finish_run(
+            client,
+            claimed.run_id,
+            config.runner_id,
+            "failed",
+            records_read=0,
+            error_code="WORKSPACE_ID_MISMATCH",
+            duration_ms=0,
+            deadline=finalization_deadline,
+        )
+        raise RunnerError("WORKSPACE_ID_MISMATCH")
 
     browser: ReadonlyBrowserSession | None = None
     browser_started = False
