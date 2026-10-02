@@ -46,7 +46,8 @@ ba kết quả:
 - **Đăng nhập bằng mật khẩu rồi đọc lịch thành công**: hệ thống gặp trang đăng
   nhập, hoàn tất một lần đăng nhập và đọc được đúng mục tiêu đã chọn.
 - **Chưa có bằng chứng về cách đăng nhập**: chưa có thông tin đủ để phân biệt
-  hai cách trên; không suy đoán từ màu xanh của lượt chạy.
+  hai cách trên, hoặc chưa xác nhận được buổi cụ thể; không suy đoán từ màu
+  xanh của lượt chạy. Chỉ chọn danh sách lớp chưa đủ để ghi nhận cách đăng nhập.
 
 Thông tin này chỉ có nhãn cố định và số lượng; không chứa tài khoản, mật khẩu,
 phiên đăng nhập, nội dung trang hoặc thông tin học viên. Lượt đọc thất bại không

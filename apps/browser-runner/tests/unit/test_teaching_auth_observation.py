@@ -45,6 +45,35 @@ async def test_auth_observation_requires_successful_validated_read(login: bool) 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("login", [False, True])
+@pytest.mark.parametrize("context", [{}, {"expected_context": {}},
+                                     {"expected_class_code": "SYN-ROBOTICS-01"},
+                                     {"expected_session_number": 3}])
+async def test_read_without_session_target_cannot_claim_auth_mode(
+    login: bool, context: dict[str, object],
+) -> None:
+    browser = LoginBrowser(FakePage(LOGIN_HTML if login else TEACHING_HTML))
+    payload = {"teaching_url": PAYLOAD["teaching_url"],
+               "allowed_class_codes": PAYLOAD["allowed_class_codes"], **context}
+    assert await readonly_site_adapter(CONFIG, claimed(payload), browser) == 1
+    assert getattr(browser, "teaching_auth_mode", None) is None
+    assert browser.login_calls == int(login)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("login", [False, True])
+async def test_unique_source_session_target_can_confirm_auth_mode(login: bool) -> None:
+    browser = LoginBrowser(FakePage(LOGIN_HTML if login else TEACHING_HTML))
+    payload = {"teaching_url": PAYLOAD["teaching_url"],
+               "allowed_class_codes": PAYLOAD["allowed_class_codes"],
+               "expected_source_session_id": "teach-001"}
+    assert await readonly_site_adapter(CONFIG, claimed(payload), browser) == 1
+    assert getattr(browser, "teaching_auth_mode", None) == (
+        "password_login" if login else "saved_session"
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("outcome", ["failed", "mismatch", "zero", "challenge", "missing"])
 async def test_failed_mismatched_or_empty_read_cannot_retain_auth_claim(outcome: str) -> None:
     browser = LoginBrowser(FakePage(LOGIN_HTML if outcome != "zero" else TEACHING_HTML))
