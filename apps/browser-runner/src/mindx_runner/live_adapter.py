@@ -344,6 +344,9 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
     claimed_type = getattr(claimed, "job_type", None)
     if job_type not in {"sync_teaching", "read_lms_pending"} or claimed_type != job_type:
         raise RunnerError("JOB_TYPE_MISMATCH")
+    if job_type == "sync_teaching":
+        setattr(browser, "teaching_auth_mode", None)  # noqa: B010 - existing duck-typed browser
+    auth_mode = "saved_session"
     payload = _payload_mapping(getattr(claimed, "payload", {}))
     target = getattr(config, "teaching_target", None)
     if job_type == "sync_teaching" and not payload and target is not None:
@@ -420,11 +423,18 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
                 raise RunnerError("AUTH_INTERACTION_REQUIRED")
             if auth_state != "none":
                 raise RunnerError("AUTH_FAILED")
+            auth_mode = "password_login"
 
     try:
         if job_type == "sync_teaching":
             batch = parse_teaching_schedule(html, allowed_class_codes=codes)
-            return _check_teaching_context(context, batch)
+            count = _check_teaching_context(context, batch)
+            if count > 0 and (
+                context.source_session_id is not None
+                or (context.class_code is not None and context.session_number is not None)
+            ):
+                setattr(browser, "teaching_auth_mode", auth_mode)  # noqa: B010
+            return count
         parsed = parse_lms_page(html, allowed_class_codes=codes)
         return _check_lms_context(context, parsed)
     except RunnerError:
