@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import json
 import traceback
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -7,7 +9,7 @@ import pytest
 
 from mindx_runner.cli import RunnerError
 from mindx_runner.live_adapter import _page_html, readonly_site_adapter
-from mindx_runner.live_runner import LiveRunConfig
+from mindx_runner.live_runner import LiveRunConfig, load_live_config
 from mindx_runner.supabase_client import ClaimedRun
 
 JOB_ID = "00000000-0000-4000-8000-000000000001"
@@ -16,6 +18,31 @@ WORKSPACE_ID = "00000000-0000-4000-8000-000000000003"
 
 
 _SUPABASE_TEST_VALUE = "server-secret"
+_TARGET_DATA = {
+    "workspace_id": WORKSPACE_ID,
+    "teaching_url": "https://teachingmindx.top/schedule?week_offset=0",
+    "class_code": "syn-robotics-01",
+    "session_number": 3,
+    "scheduled_date": "2026-09-27",
+    "start_time": "09:00:00",
+    "end_time": "10:00:00",
+    "source_session_id": "teach-001",
+}
+_TARGET_ENV = {
+    "AUTOMATION_ENABLED": "true",
+    "MVP_LMS_WRITE_ENABLED": "false",
+    "JOB_ID": JOB_ID,
+    "RUNNER_ID": "runner-test-01",
+    "JOB_TYPE": "sync_teaching",
+    "SUPABASE_URL": "https://example.supabase.co",
+    "SUPABASE_SECRET_KEY": _SUPABASE_TEST_VALUE,
+    "BROWSER_STATE_ENCRYPTION_KEY": base64.b64encode(b"k" * 32).decode("ascii"),
+}
+
+
+def config_with_target(**updates: object) -> LiveRunConfig:
+    raw = json.dumps({**_TARGET_DATA, **updates}, separators=(",", ":"))
+    return load_live_config({**_TARGET_ENV, "MINDX_TEACHING_TARGET_JSON": raw})
 
 
 CONFIG = LiveRunConfig(
@@ -112,6 +139,68 @@ async def test_teaching_adapter_reads_html_and_configures_explicit_login_paths()
     assert count == 1
     assert browser.opened == ["https://teachingmindx.top/schedule"]
     assert browser.configured_login_paths == ("/login",)
+
+
+@pytest.mark.asyncio
+async def test_empty_teaching_payload_uses_one_exact_trusted_target() -> None:
+    browser = FakeBrowser(FakePage(TEACHING_HTML))
+
+    count = await readonly_site_adapter(
+        config_with_target(),
+        claimed({}),
+        browser,
+    )
+
+    assert count == 1
+    assert browser.opened == ["https://teachingmindx.top/schedule?week_offset=0"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"scheduled_date": "2026-09-28"},
+        {"start_time": "09:15:00"},
+        {"end_time": "10:15:00"},
+        {"source_session_id": "different-session"},
+    ],
+)
+async def test_trusted_target_rejects_wrong_date_time_or_source_after_parse(
+    updates: dict[str, object],
+) -> None:
+    browser = FakeBrowser(FakePage(TEACHING_HTML))
+
+    with pytest.raises(RunnerError) as error:
+        await readonly_site_adapter(config_with_target(**updates), claimed({}), browser)
+
+    assert error.value.code == "SESSION_IDENTITY_MISMATCH"
+    assert browser.opened == ["https://teachingmindx.top/schedule?week_offset=0"]
+
+
+@pytest.mark.asyncio
+async def test_nonempty_teaching_payload_does_not_inherit_or_override_trusted_target() -> None:
+    browser = FakeBrowser(FakePage(TEACHING_HTML))
+    config = config_with_target(
+        teaching_url="https://teachingmindx.top/other",
+        class_code="SYN-OTHER-99",
+        source_session_id="different-session",
+    )
+
+    count = await readonly_site_adapter(
+        config,
+        claimed(
+            {
+                "teaching_url": "https://teachingmindx.top/schedule",
+                "allowed_class_codes": ["SYN-ROBOTICS-01"],
+                "expected_class_code": "SYN-ROBOTICS-01",
+                "expected_session_number": 3,
+            }
+        ),
+        browser,
+    )
+
+    assert count == 1
+    assert browser.opened == ["https://teachingmindx.top/schedule"]
 
 
 @pytest.mark.asyncio

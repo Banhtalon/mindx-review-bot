@@ -1,4 +1,5 @@
 import base64
+import json
 
 import pytest
 
@@ -11,6 +12,16 @@ from mindx_runner.live_runner import (
 )
 
 KEY = base64.b64encode(bytes(range(32))).decode("ascii")
+TARGET_CONFIG = {
+    "workspace_id": "00000000-0000-4000-8000-000000000003",
+    "teaching_url": "https://teachingmindx.top/schedule",
+    "class_code": "syn-robotics-01",
+    "session_number": 3,
+    "scheduled_date": "2026-09-27",
+    "start_time": "09:00:00",
+    "end_time": "10:00:00",
+    "source_session_id": "teach-001",
+}
 BASE_ENV = {
     "AUTOMATION_ENABLED": "true",
     "MVP_LMS_WRITE_ENABLED": "false",
@@ -27,6 +38,10 @@ BASE_ENV = {
 }
 
 
+def target_json(**updates: object) -> str:
+    return json.dumps({**TARGET_CONFIG, **updates}, separators=(",", ":"))
+
+
 def test_load_live_config_validates_flags_and_key_without_secret_repr() -> None:
     config = load_live_config(BASE_ENV)
 
@@ -36,6 +51,68 @@ def test_load_live_config_validates_flags_and_key_without_secret_repr() -> None:
     assert config.browser_state_key == bytes(range(32))
     assert "server-secret" not in repr(config)
     assert "teaching-password" not in repr(config)
+
+
+def test_load_live_config_keeps_trusted_teaching_target_private_and_normalized() -> None:
+    target_json_value = target_json()
+    config = load_live_config(
+        {**BASE_ENV, "MINDX_TEACHING_TARGET_JSON": target_json_value}
+    )
+
+    target = config.teaching_target
+    assert target is not None
+    assert target.workspace_id == TARGET_CONFIG["workspace_id"]
+    assert target.class_code == "SYN-ROBOTICS-01"
+    assert target.session_number == 3
+    assert target.scheduled_date.isoformat() == "2026-09-27"
+    assert "teachingmindx.top" not in repr(config)
+    assert "SYN-ROBOTICS-01" not in repr(config)
+    assert target_json_value not in repr(config)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "{not-json-sensitive-value}",
+        target_json()[:-1] + ',"workspace_id":"00000000-0000-4000-8000-000000000004"}',
+        json.dumps({**TARGET_CONFIG, "unexpected": "private-value"}),
+        json.dumps({**TARGET_CONFIG, "workspace_id": None}),
+        json.dumps({**TARGET_CONFIG, "session_number": True}),
+        json.dumps({**TARGET_CONFIG, "scheduled_date": "2026W39"}),
+        json.dumps({**TARGET_CONFIG, "start_time": "09:00:00+07:00"}),
+        json.dumps({**TARGET_CONFIG, "start_time": "10:00:00", "end_time": "09:00:00"}),
+        json.dumps({**TARGET_CONFIG, "teaching_url": "https://user:pass@teachingmindx.top/schedule"}),
+        json.dumps({**TARGET_CONFIG, "teaching_url": "https://teachingmindx.top/schedule?token=private"}),
+        json.dumps({**TARGET_CONFIG, "teaching_url": "https://teachingmindx.top/schedule?week_offset=0&week_offset=1"}),
+        json.dumps({**TARGET_CONFIG, "teaching_url": "https://teachingmindx.top/schedule/save"}),
+    ],
+)
+def test_load_live_config_rejects_malformed_or_unsafe_teaching_target(raw: str) -> None:
+    with pytest.raises(LiveConfigError) as error:
+        load_live_config({**BASE_ENV, "MINDX_TEACHING_TARGET_JSON": raw})
+
+    assert error.value.code == "LIVE_CONFIG_INVALID"
+    assert raw not in str(error.value)
+
+
+def test_load_live_config_rejects_oversized_teaching_target() -> None:
+    raw = " " * 4097
+
+    with pytest.raises(LiveConfigError):
+        load_live_config({**BASE_ENV, "MINDX_TEACHING_TARGET_JSON": raw})
+
+
+def test_lms_config_does_not_consume_teaching_target() -> None:
+    config = load_live_config(
+        {
+            **BASE_ENV,
+            "JOB_TYPE": "read_lms_pending",
+            "MINDX_TEACHING_TARGET_JSON": "malformed-private-value",
+        }
+    )
+
+    assert config.job_type == "read_lms_pending"
+    assert config.teaching_target is None
 
 
 @pytest.mark.parametrize(

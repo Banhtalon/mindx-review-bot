@@ -4,6 +4,7 @@ import asyncio
 import inspect
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, time
 from typing import Final
 from urllib.parse import urlparse
 
@@ -196,6 +197,9 @@ class _ExpectedContext:
     class_code: str | None = None
     session_number: int | None = None
     source_session_id: str | None = None
+    scheduled_date: date | None = None
+    start_time: time | None = None
+    end_time: time | None = None
 
 
 def _validate_context(job_type: str, payload: Mapping[str, object]) -> _ExpectedContext:
@@ -284,10 +288,22 @@ def _check_teaching_context(
             session for session in matches
             if session.source_session_id == expected_source
         ]
+    if context.scheduled_date is not None:
+        matches = [
+            session for session in matches
+            if session.scheduled_date == context.scheduled_date
+        ]
+    if context.start_time is not None:
+        matches = [session for session in matches if session.start_time == context.start_time]
+    if context.end_time is not None:
+        matches = [session for session in matches if session.end_time == context.end_time]
     if (
         expected_class is not None
         or expected_session is not None
         or expected_source is not None
+        or context.scheduled_date is not None
+        or context.start_time is not None
+        or context.end_time is not None
     ):
         if len(matches) != 1:
             raise RunnerError("SESSION_IDENTITY_MISMATCH")
@@ -328,6 +344,16 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
     if job_type not in {"sync_teaching", "read_lms_pending"} or claimed_type != job_type:
         raise RunnerError("JOB_TYPE_MISMATCH")
     payload = _payload_mapping(getattr(claimed, "payload", {}))
+    target = getattr(config, "teaching_target", None)
+    use_trusted_target = job_type == "sync_teaching" and not payload and target is not None
+    if use_trusted_target:
+        payload = {
+            "teaching_url": target.teaching_url,
+            "allowed_class_codes": (target.class_code,),
+            "expected_class_code": target.class_code,
+            "expected_session_number": target.session_number,
+            "expected_source_session_id": target.source_session_id,
+        }
     login_paths = _read_login_paths(payload)
     configure = getattr(browser, "configure_login_paths", None)
     if configure is not None:
@@ -336,7 +362,18 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
         configure(login_paths)
     url = _read_url(job_type, payload, login_paths)
     codes = _allowed_class_codes(payload)
-    context = _validate_context(job_type, payload)
+    context = (
+        _ExpectedContext(
+            class_code=target.class_code,
+            session_number=target.session_number,
+            source_session_id=target.source_session_id,
+            scheduled_date=target.scheduled_date,
+            start_time=target.start_time,
+            end_time=target.end_time,
+        )
+        if use_trusted_target
+        else _validate_context(job_type, payload)
+    )
     open_page = getattr(browser, "open", None)
     if not callable(open_page):
         raise RunnerError("SITE_ADAPTER_NOT_CONFIGURED")
