@@ -1,6 +1,11 @@
 import re
 
 SAFE_ENUM_VALUES: dict[str, frozenset[str]] = {
+    "teaching_login_failure": frozenset({
+        "script_failed", "request_not_observed", "request_body_unavailable",
+        "request_rejected", "request_send_failed", "wait_timeout",
+        "post_login_page_failed", "post_login_still_login", "not_observed",
+    }),
     "teaching_auth_mode": frozenset({"saved_session", "password_login", "not_observed"}),
     "status": frozenset(
         {
