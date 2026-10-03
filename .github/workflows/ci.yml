@@ -8,6 +8,32 @@ permissions:
   contents: read
 
 jobs:
+  synthetic-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.12"
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install locked browser-runner
+        run: uv sync --locked --project apps/browser-runner
+
+      - name: Check one-shot login with isolated Chromium and synthetic data
+        env:
+          ANONYMIZED_TELEMETRY: "false"
+        run: |
+          chrome_path="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$chrome_path" || { echo "SYNTHETIC_CHROMIUM_REQUIRED"; exit 1; }
+          uv run --project apps/browser-runner python apps/browser-runner/tests/integration/managed_page_probe.py --chromium "$chrome_path"
+
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20

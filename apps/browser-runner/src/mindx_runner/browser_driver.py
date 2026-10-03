@@ -522,6 +522,26 @@ class ReadonlyBrowserSession:
         """Pause every page request and apply the read-only network policy."""
         assert self._session is not None
         cdp = getattr(self._session, "cdp_client", None)
+        target_id = getattr(page, "_target_id", None)
+        if target_id is not None:
+            # Browser Use 0.13.6 creates actor pages without a session. Reading
+            # page.session_id then attaches a second Fetch interceptor to the
+            # same target. Bind the actor to the already managed session first.
+            try:
+                if not isinstance(target_id, str) or not target_id:
+                    raise BrowserGuardError()
+                managed = await self._session.get_or_create_cdp_session(target_id, focus=False)
+                managed_id = getattr(managed, "session_id", None)
+                if (
+                    not isinstance(managed_id, str) or not managed_id
+                    or getattr(managed, "cdp_client", None) is not cdp
+                    or getattr(managed, "target_id", None) != target_id
+                ):
+                    raise BrowserGuardError()
+                actor_page: Any = page
+                actor_page._session_id = managed_id
+            except Exception as error:
+                raise BrowserGuardError() from error
         session_id = getattr(page, "session_id", None)
         if cdp is None or session_id is None:
             raise BrowserGuardError()
