@@ -583,21 +583,34 @@ class ReadonlyBrowserSession:
             if self._teaching_login_used and method.upper() not in {"GET", "HEAD", "OPTIONS"}:
                 # The sole write exception is an exact password login, consumed before sending.
                 pending = self._teaching_login_pending
-                pairs = parse_qsl(body or "", strict_parsing=True, max_num_fields=3)
-                allowed = (
-                    pending is not None
-                    and method.upper() == "POST"
-                    and request.get("url") == LOGIN_URL
-                    and len(pairs) in {2, 3}
-                    and dict(pairs).get("username") == pending[0]
-                    and dict(pairs).get("password") == pending[1]
-                    and len(dict(pairs)) == len(pairs)
-                    and set(dict(pairs)) <= {"username", "password", "redirect"}
-                    and dict(pairs).get("redirect", "/") == "/"
-                    and isinstance(content_type, str)
-                    and content_type.split(";", 1)[0].lower() == "application/x-www-form-urlencoded"
-                )
-                if allowed:
+                try:
+                    pairs = parse_qsl(
+                        body or "", keep_blank_values=True, strict_parsing=True, max_num_fields=3,
+                    )
+                except ValueError:
+                    pairs = []
+                fields = dict(pairs)
+                rejection: str | None = None
+                if pending is None:
+                    rejection = "request_permission_unavailable"
+                elif (
+                    method.upper() != "POST"
+                    or request.get("url") != LOGIN_URL
+                    or len(pairs) not in {2, 3}
+                    or len(fields) != len(pairs)
+                    or not {"username", "password"} <= fields.keys()
+                    or not fields.keys() <= {"username", "password", "redirect"}
+                    or fields.get("redirect", "/") != "/"
+                ):
+                    rejection = "request_form_invalid"
+                elif fields["username"] != pending[0] or fields["password"] != pending[1]:
+                    rejection = "request_credentials_mismatch"
+                elif (
+                    not isinstance(content_type, str)
+                    or content_type.split(";", 1)[0].lower() != "application/x-www-form-urlencoded"
+                ):
+                    rejection = "request_content_type_invalid"
+                if rejection is None:
                     self._teaching_login_pending = None
                     try:
                         await fetch_send.continueRequest(
@@ -608,6 +621,8 @@ class ReadonlyBrowserSession:
                             self.teaching_login_failure = "request_send_failed"
                         raise
                     return
+                if teaching_post and self.teaching_login_failure is None:
+                    self.teaching_login_failure = rejection
                 raise RuntimeError("AUTH_FAILED")
             if decision.allowed:
                 await fetch_send.continueRequest(

@@ -23,7 +23,8 @@ from mindx_runner.safe_logging import sanitize_log_metadata
     ("script", "script_failed"),
     ("absent", "request_not_observed"),
     ("body", "request_body_unavailable"),
-    ("rejected", "request_rejected"),
+    ("rejected", "request_form_invalid"),
+    ("unexpected", "request_rejected"),
     ("send", "request_send_failed"),
     ("timeout", "wait_timeout"),
 ])
@@ -33,6 +34,10 @@ async def test_driver_records_safe_failure_without_relaxing_post_guard(
     browser = ReadonlyBrowserSession()
     cdp = FakeCdp()
     browser._guard_cdp = cdp
+    if case == "unexpected":
+        def fail_classification(*_: object, **__: object) -> object:
+            raise ValueError("synthetic-private-value")
+        monkeypatch.setattr(browser_driver, "classify_request", fail_classification)
     if case == "send":
         async def fail_send(**_: object) -> None:
             raise ValueError("synthetic-private-value")
@@ -70,7 +75,7 @@ async def test_driver_records_safe_failure_without_relaxing_post_guard(
         assert browser.teaching_login_failure == expected
         assert browser._teaching_login_pending is None
         assert len(cdp.fetch_send.continued) <= 1
-        if case in {"body", "rejected", "send"}:
+        if case in {"body", "rejected", "unexpected", "send"}:
             assert cdp.fetch_send.failed
     finally:
         await browser.close()
@@ -79,6 +84,10 @@ async def test_driver_records_safe_failure_without_relaxing_post_guard(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case,expected", [
     ("driver", "request_rejected"),
+    ("request_form_invalid", "request_form_invalid"),
+    ("request_credentials_mismatch", "request_credentials_mismatch"),
+    ("request_content_type_invalid", "request_content_type_invalid"),
+    ("request_permission_unavailable", "request_permission_unavailable"),
     ("page", "post_login_page_failed"),
     ("still_login", "post_login_still_login"),
 ])
@@ -90,8 +99,8 @@ async def test_adapter_carries_failure_and_clears_stale_metadata(case: str, expe
         async def login_teaching(self, *_: object) -> None:
             assert self.teaching_login_failure is None
             self.login_calls += 1
-            if case == "driver":
-                self.teaching_login_failure = "request_rejected"
+            if case == "driver" or case.startswith("request_"):
+                self.teaching_login_failure = expected
                 raise RuntimeError("AUTH_FAILED")
 
         async def open(self, url: str) -> ContentPage:
@@ -142,11 +151,16 @@ def test_cli_failure_json_and_summary_are_closed_and_do_not_claim_success(
     assert "password_login" not in output + text
 
 
+@pytest.mark.parametrize("detail", [
+    "request_rejected", "request_form_invalid", "request_credentials_mismatch",
+    "request_content_type_invalid", "request_permission_unavailable",
+])
 def test_summary_write_failure_and_lms_cannot_add_teaching_failure(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    capsys: pytest.CaptureFixture[str], detail: str,
 ) -> None:
     async def run(*_: object, **__: object) -> object:
-        raise cli.RunnerError("AUTH_FAILED", teaching_login_failure="request_rejected")
+        raise cli.RunnerError("AUTH_FAILED", teaching_login_failure=detail)
 
     for name, value in ENVIRONMENT.items():
         monkeypatch.setenv(name, value)
@@ -160,9 +174,19 @@ def test_summary_write_failure_and_lms_cannot_add_teaching_failure(
     assert "teaching_login_failure" not in json.loads(capsys.readouterr().out)
 
 
+@pytest.mark.parametrize("detail,label", [
+    ("request_send_failed", "Không gửi được yêu cầu đăng nhập"),
+    ("request_form_invalid", "Dữ liệu biểu mẫu đăng nhập không hợp lệ"),
+    (
+        "request_credentials_mismatch",
+        "Thông tin đăng nhập trong yêu cầu không khớp dữ liệu đang chờ",
+    ),
+    ("request_content_type_invalid", "Yêu cầu đăng nhập có kiểu dữ liệu không phù hợp"),
+    ("request_permission_unavailable", "Quyền gửi đăng nhập một lần không còn hiệu lực"),
+])
 @pytest.mark.asyncio
 async def test_failure_detail_survives_finalization_and_cleanup_without_retry(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], detail: str, label: str,
 ) -> None:
     client = FakeClient([])
     session = FakeSession()
@@ -171,7 +195,7 @@ async def test_failure_detail_survives_finalization_and_cleanup_without_retry(
     async def adapter(*_: object) -> int:
         nonlocal calls
         calls += 1
-        raise cli.RunnerError("AUTH_FAILED", teaching_login_failure="request_send_failed")
+        raise cli.RunnerError("AUTH_FAILED", teaching_login_failure=detail)
 
     with pytest.raises(cli.RunnerError) as caught:
         await cli.run_job(
@@ -184,8 +208,13 @@ async def test_failure_detail_survives_finalization_and_cleanup_without_retry(
     assert session.closed and session.stop_calls == 1
     report = tmp_path / "summary.md"
     cli._report_failure(caught.value, {**RUN_ENVIRONMENT, "GITHUB_STEP_SUMMARY": str(report)})
-    assert json.loads(capsys.readouterr().out)["teaching_login_failure"] == "request_send_failed"
-    assert "Không gửi được yêu cầu đăng nhập" in report.read_text(encoding="utf-8")
+    output = capsys.readouterr().out
+    assert json.loads(output)["teaching_login_failure"] == detail
+    text = report.read_text(encoding="utf-8")
+    assert label in text
+    assert "Đăng nhập chưa thành công" in text and "**0**" in text
+    assert "password_login" not in output + text
+    assert USER not in output + text and PASSWORD not in output + text
 
 
 @pytest.mark.asyncio

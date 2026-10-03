@@ -109,6 +109,99 @@ async def test_network_boundary_permits_one_exact_login_then_blocks_repetition()
     assert len(cdp.fetch_send.continued) == 1
     assert len(cdp.fetch_send.failed) == 1
     assert browser._teaching_login_pending is None
+    assert browser.teaching_login_failure == "request_permission_unavailable"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case,expected", [
+    ("empty_extra", "request_form_invalid"),
+    ("empty_mutation", "request_form_invalid"),
+    ("empty_redirect", "request_form_invalid"),
+    ("empty_duplicate", "request_form_invalid"),
+    ("extra_field", "request_form_invalid"),
+    ("four_fields", "request_form_invalid"),
+    ("duplicate", "request_form_invalid"),
+    ("redirect", "request_form_invalid"),
+    ("missing_field", "request_form_invalid"),
+    ("malformed", "request_form_invalid"),
+    ("missing_body", "request_form_invalid"),
+    ("username", "request_credentials_mismatch"),
+    ("password", "request_credentials_mismatch"),
+    ("missing_type", "request_content_type_invalid"),
+    ("wrong_type", "request_content_type_invalid"),
+    ("type_space", "request_content_type_invalid"),
+    ("permission", "request_permission_unavailable"),
+])
+async def test_exact_login_rejects_invalid_forms_with_fixed_safe_reason(
+    case: str, expected: str,
+) -> None:
+    browser = ReadonlyBrowserSession()
+    cdp = FakeCdp()
+    browser._guard_cdp = cdp
+    browser._teaching_login_used = True
+    browser._teaching_login_pending = None if case == "permission" else (USER, PASSWORD)
+    base = urlencode({"username": USER, "password": PASSWORD})
+    bodies = {
+        "empty_extra": base + "&unexpected=",
+        "empty_mutation": base + "&save=",
+        "empty_redirect": base + "&redirect=",
+        "empty_duplicate": base + "&username=",
+        "extra_field": base + "&unexpected=synthetic",
+        "four_fields": base + "&redirect=%2F&unexpected=",
+        "duplicate": base + "&username=synthetic-other",
+        "redirect": base + "&redirect=%2Fother",
+        "missing_field": urlencode({"username": USER, "redirect": "/"}),
+        "malformed": base + "&malformed",
+        "username": urlencode({"username": "synthetic-other", "password": PASSWORD}),
+        "password": urlencode({"username": USER, "password": "synthetic-other"}),
+    }
+    request = event(body=bodies.get(case))
+    if case == "missing_body":
+        request["request"].pop("postData")
+        request["request"]["hasPostData"] = False
+    if case == "missing_type":
+        request["request"]["headers"] = {}
+    if case in {"wrong_type", "type_space"}:
+        request["request"]["headers"] = {
+            "Content-Type": "text/plain" if case == "wrong_type"
+            else "application/x-www-form-urlencoded ; charset=UTF-8",
+        }
+    await browser._handle_request_paused(request, "session-1")
+    assert not cdp.fetch_send.continued
+    assert len(cdp.fetch_send.failed) == 1
+    assert browser.teaching_login_failure == expected
+    # A later blocked event must not replace the first fixed diagnosis.
+    await browser._handle_request_paused(event(body=base + "&unexpected="), "session-1")
+    assert browser.teaching_login_failure == expected
+    assert not cdp.fetch_send.continued
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", ["two_fields", "three_fields", "charset", "unicode"])
+async def test_exact_login_valid_controls_keep_one_shot_and_clear_diagnosis(case: str) -> None:
+    browser = ReadonlyBrowserSession()
+    cdp = FakeCdp()
+    browser._guard_cdp = cdp
+    browser._teaching_login_used = True
+    user, password = ("synthetic+é&=", "synthetic+雪&=") if case == "unicode" else (USER, PASSWORD)
+    browser._teaching_login_pending = (user, password)
+    fields = {"username": user, "password": password}
+    if case != "two_fields":
+        fields["redirect"] = "/"
+    request = event(body=urlencode(fields))
+    if case == "charset":
+        request["request"]["headers"] = {
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        }
+    await browser._handle_request_paused(request, "session-1")
+    assert len(cdp.fetch_send.continued) == 1
+    assert not cdp.fetch_send.failed
+    assert browser.teaching_login_failure is None
+    assert browser._teaching_login_pending is None
+    await browser._handle_request_paused(request, "session-1")
+    assert len(cdp.fetch_send.continued) == 1
+    assert len(cdp.fetch_send.failed) == 1
+    assert browser.teaching_login_failure == "request_permission_unavailable"
 
 
 @pytest.mark.parametrize(
