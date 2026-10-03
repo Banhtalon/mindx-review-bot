@@ -346,6 +346,7 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
         raise RunnerError("JOB_TYPE_MISMATCH")
     if job_type == "sync_teaching":
         setattr(browser, "teaching_auth_mode", None)  # noqa: B010 - existing duck-typed browser
+        setattr(browser, "teaching_login_failure", None)  # noqa: B010
     auth_mode = "saved_session"
     payload = _payload_mapping(getattr(claimed, "payload", {}))
     target = getattr(config, "teaching_target", None)
@@ -405,24 +406,31 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
             login = getattr(browser, "login_teaching", None)
             if not callable(login):
                 raise RunnerError("TEACHING_SELECTOR_CHANGED")
+            login_completed = False
             try:
                 await login(page, username, password)
+                login_completed = True
                 page = await open_page(url)
                 html = await _page_html(page)
             except Exception as error:
                 code = str(error)
-                if code in {
-                    "AUTH_FAILED",
-                    "AUTH_INTERACTION_REQUIRED",
-                    "TEACHING_SELECTOR_CHANGED",
-                }:
+                if code in {"AUTH_INTERACTION_REQUIRED", "TEACHING_SELECTOR_CHANGED"}:
                     raise RunnerError(code) from None
-                raise RunnerError("AUTH_FAILED") from None
+                detail = getattr(browser, "teaching_login_failure", None)
+                if detail is None and login_completed:
+                    detail = "post_login_page_failed"
+                raise RunnerError("AUTH_FAILED", teaching_login_failure=detail) from None
             auth_state = teaching_auth_state(html)
             if auth_state == "challenge":
                 raise RunnerError("AUTH_INTERACTION_REQUIRED")
             if auth_state != "none":
-                raise RunnerError("AUTH_FAILED")
+                detail = getattr(browser, "teaching_login_failure", None)
+                raise RunnerError(
+                    "AUTH_FAILED",
+                    teaching_login_failure=(
+                        "post_login_still_login" if detail is None else detail
+                    ),
+                )
             auth_mode = "password_login"
 
     try:

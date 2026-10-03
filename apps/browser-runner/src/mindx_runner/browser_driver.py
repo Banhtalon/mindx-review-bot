@@ -101,6 +101,7 @@ class ReadonlyBrowserSession:
 
         self._teaching_login_used = False
         self._teaching_login_pending: tuple[str, str] | None = None
+        self.teaching_login_failure: str | None = None
         self._previous_logging_disable: int | None = None
 
     async def login_teaching(self, page: BrowserPage, username: str, password: str) -> None:
@@ -114,9 +115,11 @@ class ReadonlyBrowserSession:
         self._previous_logging_disable = logging.root.manager.disable
         logging.disable(max(logging.CRITICAL, self._previous_logging_disable))
         self._teaching_login_pending = (username, password)
+        executing_script = True
         try:
             async with asyncio.timeout(20):
                 result = await evaluator(LOGIN_SCRIPT, username, password)
+                executing_script = False
                 if result == "CHALLENGE":
                     raise RuntimeError("AUTH_INTERACTION_REQUIRED")
                 if result != "LOGIN_SENT":
@@ -132,17 +135,25 @@ class ReadonlyBrowserSession:
                         result = "WAITING"
                     if result == "COMPLETE":
                         if self._teaching_login_pending is not None:
+                            if self.teaching_login_failure is None:
+                                self.teaching_login_failure = "request_not_observed"
                             raise RuntimeError("AUTH_FAILED")
                         return
                     await asyncio.sleep(0.1)
         except TimeoutError:
+            if self.teaching_login_failure is None:
+                self.teaching_login_failure = "wait_timeout"
             raise RuntimeError("AUTH_FAILED") from None
         except RuntimeError as error:
             code = str(error)
             if code in {"AUTH_FAILED", "AUTH_INTERACTION_REQUIRED", "TEACHING_SELECTOR_CHANGED"}:
                 raise RuntimeError(code) from None
+            if executing_script and self.teaching_login_failure is None:
+                self.teaching_login_failure = "script_failed"
             raise RuntimeError("AUTH_FAILED") from None
         except Exception:
+            if executing_script and self.teaching_login_failure is None:
+                self.teaching_login_failure = "script_failed"
             raise RuntimeError("AUTH_FAILED") from None
         finally:
             self._teaching_login_pending = None
@@ -536,6 +547,11 @@ class ReadonlyBrowserSession:
             return
 
         fetch_send = cdp.send.Fetch
+        teaching_post = (
+            self._teaching_login_used
+            and str(request.get("method", "")).upper() == "POST"
+            and request.get("url") == LOGIN_URL
+        )
         try:
             method = str(request.get("method", ""))
             body = request.get("postData")
@@ -544,6 +560,8 @@ class ReadonlyBrowserSession:
                 and request.get("hasPostData") is True
                 and not isinstance(body, str)
             ):
+                if teaching_post and self.teaching_login_failure is None:
+                    self.teaching_login_failure = "request_body_unavailable"
                 raise RuntimeError("UNKNOWN_REQUEST_BODY")
             body_bytes = body.encode("utf-8", errors="ignore") if isinstance(body, str) else None
             headers = request.get("headers") or {}
@@ -581,9 +599,14 @@ class ReadonlyBrowserSession:
                 )
                 if allowed:
                     self._teaching_login_pending = None
-                    await fetch_send.continueRequest(
-                        params={"requestId": request_id}, session_id=session_id
-                    )
+                    try:
+                        await fetch_send.continueRequest(
+                            params={"requestId": request_id}, session_id=session_id
+                        )
+                    except Exception:
+                        if self.teaching_login_failure is None:
+                            self.teaching_login_failure = "request_send_failed"
+                        raise
                     return
                 raise RuntimeError("AUTH_FAILED")
             if decision.allowed:
@@ -593,7 +616,8 @@ class ReadonlyBrowserSession:
                 )
                 return
         except Exception:
-            pass
+            if teaching_post and self.teaching_login_failure is None:
+                self.teaching_login_failure = "request_rejected"
         try:
             await fetch_send.failRequest(
                 params={"requestId": request_id, "errorReason": "BlockedByClient"},

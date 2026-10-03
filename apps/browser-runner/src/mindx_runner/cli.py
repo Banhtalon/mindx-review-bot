@@ -32,8 +32,9 @@ from .supabase_client import MAX_RECORDS_READ, ClaimedRun, SupabaseRunnerClient
 
 
 class RunnerError(RuntimeError):
-    def __init__(self, code: str) -> None:
+    def __init__(self, code: str, *, teaching_login_failure: object = None) -> None:
         self.code = code
+        self.teaching_login_failure = teaching_login_failure
         super().__init__(code)
 
 
@@ -625,6 +626,40 @@ def _report_success(
                 )
 
 
+def _report_failure(error: Exception, environment: Mapping[str, str]) -> None:
+    code = safe_error_code(error)
+    metadata: dict[str, object] = {"status": "failed", "error_code": code}
+    teaching_failure = code == "AUTH_FAILED" and environment.get("JOB_TYPE") == "sync_teaching"
+    if teaching_failure:
+        detail = sanitize_log_metadata({
+            "teaching_login_failure": getattr(error, "teaching_login_failure", None),
+        }).get("teaching_login_failure", "not_observed")
+        metadata["teaching_login_failure"] = detail
+    print(json.dumps(metadata))
+    summary_path = environment.get("GITHUB_STEP_SUMMARY")
+    if summary_path and teaching_failure:
+        label = {
+            "script_failed": "Lỗi khi thực hiện bước đăng nhập",
+            "request_not_observed": "Chưa ghi nhận yêu cầu đăng nhập",
+            "request_body_unavailable": "Không đủ thông tin để kiểm tra yêu cầu đăng nhập",
+            "request_rejected": "Yêu cầu đăng nhập bị chặn ở bước kiểm tra an toàn",
+            "request_send_failed": "Không gửi được yêu cầu đăng nhập",
+            "wait_timeout": "Hết thời gian chờ đăng nhập",
+            "post_login_page_failed": "Không đọc được trang sau bước đăng nhập",
+            "post_login_still_login": "Trang vẫn yêu cầu đăng nhập",
+            "not_observed": "Chưa xác định được bước đăng nhập bị lỗi",
+        }[str(detail)]
+        # Reporting is optional; the failed job has already been finalized.
+        with suppress(OSError, ValueError):
+            with Path(summary_path).open("a", encoding="utf-8") as report:
+                report.write(
+                    "### Kết quả đọc Teaching\n\n"
+                    "- Đăng nhập chưa thành công.\n"
+                    "- Số buổi đọc được: **0**.\n"
+                    f"- Bước gặp lỗi: **{label}**.\n"
+                )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     environment = dict(os.environ)
@@ -657,6 +692,6 @@ def main(argv: Sequence[str] | None = None) -> int:
         summary = asyncio.run(run_job(args.job_id, environment, adapter=adapter))
         _report_success(summary, environment, config.job_type)
     except Exception as error:
-        print(json.dumps({"status": "failed", "error_code": safe_error_code(error)}))
+        _report_failure(error, environment)
         return 1
     return 0
