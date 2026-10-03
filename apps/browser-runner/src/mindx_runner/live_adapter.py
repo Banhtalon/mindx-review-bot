@@ -425,11 +425,11 @@ async def readonly_site_adapter(config: object, claimed: object, browser: object
                 raise RunnerError("AUTH_INTERACTION_REQUIRED")
             if auth_state != "none":
                 detail = getattr(browser, "teaching_login_failure", None)
+                if detail is None and auth_state == "login":
+                    detail = "post_login_still_login"
                 raise RunnerError(
                     "AUTH_FAILED",
-                    teaching_login_failure=(
-                        "post_login_still_login" if detail is None else detail
-                    ),
+                    teaching_login_failure=detail,
                 )
             auth_mode = "password_login"
 

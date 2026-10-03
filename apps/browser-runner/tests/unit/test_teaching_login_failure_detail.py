@@ -197,3 +197,23 @@ async def test_success_clears_old_failure_and_preserves_auth_mode(login: bool) -
     assert browser.teaching_login_failure is None
     assert browser.teaching_auth_mode == ("password_login" if login else "saved_session")
     assert browser.login_calls == int(login)
+
+
+@pytest.mark.asyncio
+async def test_unrecognized_post_login_form_cannot_claim_login_is_still_required(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    class UnknownFormBrowser(FakeBrowser):
+        async def login_teaching(self, page: ContentPage, *_: object) -> None:
+            page.html = '<form method="GET" action="/unrelated"><input type="password"></form>'
+
+    browser = UnknownFormBrowser(ContentPage(LOGIN_HTML))
+    with pytest.raises(cli.RunnerError, match="^AUTH_FAILED$") as caught:
+        await readonly_site_adapter(CONFIG, claimed(PAYLOAD), browser)
+    report = tmp_path / "summary.md"
+    cli._report_failure(
+        caught.value, {"JOB_TYPE": "sync_teaching", "GITHUB_STEP_SUMMARY": str(report)},
+    )
+    assert json.loads(capsys.readouterr().out)["teaching_login_failure"] == "not_observed"
+    assert "Trang vẫn yêu cầu đăng nhập" not in report.read_text(encoding="utf-8")
+    assert "Chưa xác định được bước đăng nhập bị lỗi" in report.read_text(encoding="utf-8")
