@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from mindx_runner.browser_driver import (
+    BrowserGuardError,
     BrowserNavigationError,
     BrowserStartupError,
     ReadonlyBrowserSession,
@@ -44,10 +45,78 @@ class FakeSession:
         return self.page
 
     async def get_or_create_cdp_session(self, target_id: str, *, focus: bool = False) -> Any:
-        return type("TargetSession", (), {"cdp_client": self.cdp_client, "session_id": target_id})()
+        return type("TargetSession", (), {
+            "cdp_client": self.cdp_client, "session_id": target_id, "target_id": target_id,
+        })()
 
     async def stop(self) -> None:
         self.stopped = True
+
+
+class ManagedActorPage:
+    """SDK actor behavior: first access attaches again unless a session is supplied."""
+
+    def __init__(self) -> None:
+        self.navigated = []
+        self._target_id = "target-existing"
+        self._session_id: str | None = None
+        self.extra_attachments = 0
+
+    async def goto(self, url: str) -> None:
+        self.navigated.append(url)
+
+    @property
+    async def session_id(self) -> str:
+        if self._session_id is None:
+            self.extra_attachments += 1
+            self._session_id = "actor-extra-session"
+        return self._session_id
+
+
+@pytest.mark.asyncio
+async def test_actor_reuses_guarded_managed_session_before_navigation() -> None:
+    session = FakeSession({})
+    page = ManagedActorPage()
+    session.page = page
+    browser = ReadonlyBrowserSession(session_factory=lambda **_: session)
+    try:
+        opened = await browser.open("https://teachingmindx.top/schedule")
+        assert opened is page
+        assert page.extra_attachments == 0
+        assert await page.session_id == "target-existing"
+        assert len(session.cdp_client.fetch_send.enabled) == 1
+        assert page.navigated == ["https://teachingmindx.top/schedule"]
+    finally:
+        await browser.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["missing", "empty", "invalid", "other-client", "other-target"])
+async def test_actor_invalid_managed_session_fails_before_navigation(failure: str) -> None:
+    class InvalidSession(FakeSession):
+        async def get_or_create_cdp_session(self, target_id: str, *, focus: bool = False) -> Any:
+            if target_id == "target-existing":
+                return await super().get_or_create_cdp_session(target_id, focus=focus)
+            if failure == "missing":
+                raise ValueError("synthetic-session-unavailable")
+            return type("ManagedSession", (), {
+                "session_id": "" if failure == "empty" else 42 if failure == "invalid" else "ok",
+                "cdp_client": object() if failure == "other-client" else self.cdp_client,
+                "target_id": "other" if failure == "other-target" else target_id,
+            })()
+
+    session = InvalidSession({})
+    page = ManagedActorPage()
+    page._target_id = "new-actor-target"
+    session.page = page
+    browser = ReadonlyBrowserSession(session_factory=lambda **_: session)
+    try:
+        with pytest.raises(BrowserGuardError):
+            await browser.open("https://teachingmindx.top/schedule")
+        assert page.navigated == []
+        assert page.extra_attachments == 0
+    finally:
+        await browser.close()
 
 
 def test_default_session_factory_disables_chromium_sandbox_on_github_actions(

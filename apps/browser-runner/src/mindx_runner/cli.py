@@ -643,6 +643,12 @@ def _report_failure(error: Exception, environment: Mapping[str, str]) -> None:
             "request_not_observed": "Chưa ghi nhận yêu cầu đăng nhập",
             "request_body_unavailable": "Không đủ thông tin để kiểm tra yêu cầu đăng nhập",
             "request_rejected": "Yêu cầu đăng nhập bị chặn ở bước kiểm tra an toàn",
+            "request_form_invalid": "Dữ liệu biểu mẫu đăng nhập không hợp lệ",
+            "request_credentials_mismatch": (
+                "Thông tin đăng nhập trong yêu cầu không khớp dữ liệu đang chờ"
+            ),
+            "request_content_type_invalid": "Yêu cầu đăng nhập có kiểu dữ liệu không phù hợp",
+            "request_permission_unavailable": "Quyền gửi đăng nhập một lần không còn hiệu lực",
             "request_send_failed": "Không gửi được yêu cầu đăng nhập",
             "wait_timeout": "Hết thời gian chờ đăng nhập",
             "post_login_page_failed": "Không đọc được trang sau bước đăng nhập",
