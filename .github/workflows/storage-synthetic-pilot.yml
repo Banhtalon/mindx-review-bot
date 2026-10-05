@@ -1,0 +1,60 @@
+name: storage-synthetic-pilot
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mindx-storage-synthetic-e4741700
+  cancel-in-progress: false
+
+jobs:
+  storage:
+    # Lead records Owner approval and exact SQL preflight before setting this variable.
+    if: github.repository == 'Banhtalon/mindx-review-bot' && github.run_attempt == 1 && vars.MINDX_STORAGE_PILOT_APPROVAL_SHA == github.sha
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout approved code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.12"
+
+      - name: Install Python
+        run: uv python install 3.12
+
+      - name: Install locked runner libraries
+        run: uv sync --locked --project apps/browser-runner
+
+      - name: Verify first dispatch without Supabase credentials
+        env:
+          MINDX_STORAGE_PILOT_APPROVAL_SHA: ${{ vars.MINDX_STORAGE_PILOT_APPROVAL_SHA }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run --project apps/browser-runner python scripts/storage_synthetic_pilot.py --preflight
+
+      - name: Run fixed synthetic Storage lifecycle after verified preflight
+        env:
+          MINDX_STORAGE_PILOT_APPROVAL_SHA: ${{ vars.MINDX_STORAGE_PILOT_APPROVAL_SHA }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: uv run --project apps/browser-runner python scripts/storage_synthetic_pilot.py
+
+      - name: Preserve safe attempted-operation receipt
+        if: always()
+        run: |
+          if [ -f storage-pilot-receipt.json ]; then
+            echo '### Synthetic Storage attempted-operation receipt' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat storage-pilot-receipt.json >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'PILOT_RECEIPT_MISSING: attempt may have started; reconcile before any further action.' >> "$GITHUB_STEP_SUMMARY"
+          fi
