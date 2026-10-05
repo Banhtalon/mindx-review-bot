@@ -33,6 +33,15 @@ def environment():
     }
 
 
+def run_pilot(env, report, transport):
+    preflight_env = {key: value for key, value in env.items() if key != "SUPABASE_SECRET_KEY"}
+    result = pilot.execute(preflight_env, report, transport, preflight_only=True)
+    if result["status"] != "PREFLIGHT_PASS":
+        return result
+    api_env = {key: value for key, value in env.items() if key != "GITHUB_TOKEN"}
+    return pilot.execute(api_env, report, transport)
+
+
 class SyntheticServer:
     def __init__(self):
         self.calls = []
@@ -147,7 +156,7 @@ class SyntheticServer:
 
 def test_storage_synthetic_exact_lifecycle(tmp_path):
     server = SyntheticServer()
-    result = pilot.execute(environment(), tmp_path / "receipt.json", server)
+    result = run_pilot(environment(), tmp_path / "receipt.json", server)
     assert result["status"] == "PASS"
     assert result["counts"] == {
         "github_read": 1,
@@ -170,6 +179,45 @@ def test_storage_synthetic_exact_lifecycle(tmp_path):
     assert "ciphertext" not in receipt and "untrusted-private-error-text" not in receipt
 
 
+def test_storage_synthetic_preflight_rejects_supabase_key(tmp_path):
+    server = SyntheticServer()
+    result = pilot.execute(environment(), tmp_path / "receipt.json", server, preflight_only=True)
+    assert result["error_code"] == "PILOT_PREFLIGHT_CREDENTIAL_SCOPE"
+    assert not server.calls
+
+
+def test_storage_synthetic_separate_phases_and_api_replay(tmp_path):
+    server = SyntheticServer()
+    path = tmp_path / "receipt.json"
+    env = environment()
+    preflight_env = {key: value for key, value in env.items() if not key.startswith("SUPABASE_")}
+    result = pilot.execute(preflight_env, path, server, preflight_only=True)
+    assert result["status"] == "PREFLIGHT_PASS" and len(server.calls) == 1
+    assert server.calls[0][1].startswith("https://api.github.com/")
+    api_env = {key: value for key, value in env.items() if key != "GITHUB_TOKEN"}
+    assert pilot.execute(api_env, path, server)["status"] == "PASS"
+    before, count = path.read_bytes(), len(server.calls)
+    assert pilot.execute(api_env, path, server)["error_code"] == "PILOT_PREFLIGHT_REQUIRED"
+    assert path.read_bytes() == before and len(server.calls) == count
+
+
+@pytest.mark.parametrize("problem", ["missing", "head", "run_id", "counts", "intents"])
+def test_storage_synthetic_api_requires_bound_preflight(tmp_path, problem):
+    server = SyntheticServer()
+    path = tmp_path / "receipt.json"
+    env = environment()
+    if problem != "missing":
+        preflight_env = {key: value for key, value in env.items() if key != "SUPABASE_SECRET_KEY"}
+        receipt = pilot.execute(preflight_env, path, server, preflight_only=True)
+        receipt[problem] = {"counts": {}, "intents": []}.get(problem, "other")
+        path.write_text(json.dumps(receipt))
+    before = path.read_bytes() if path.exists() else None
+    count = len(server.calls)
+    assert pilot.execute(env, path, server)["error_code"] == "PILOT_PREFLIGHT_REQUIRED"
+    assert len(server.calls) == count
+    assert (path.read_bytes() if path.exists() else None) == before
+
+
 @pytest.mark.parametrize(
     "field,value",
     [
@@ -183,7 +231,7 @@ def test_storage_synthetic_wrong_context_blocks_before_requests(tmp_path, field,
     env = environment()
     env[field] = value
     server = SyntheticServer()
-    assert pilot.execute(env, tmp_path / "receipt.json", server)["status"] == "FAILED"
+    assert run_pilot(env, tmp_path / "receipt.json", server)["status"] == "FAILED"
     assert not server.calls
 
 
@@ -198,7 +246,7 @@ def test_storage_synthetic_wrong_context_blocks_before_requests(tmp_path, field,
 def test_storage_synthetic_prior_or_ambiguous_dispatch_blocks_supabase(tmp_path, history):
     server = SyntheticServer()
     server.history = history
-    assert pilot.execute(environment(), tmp_path / "receipt.json", server)["status"] == "FAILED"
+    assert run_pilot(environment(), tmp_path / "receipt.json", server)["status"] == "FAILED"
     assert len(server.calls) == 1
 
 
@@ -206,7 +254,7 @@ def test_storage_synthetic_prior_or_ambiguous_dispatch_blocks_supabase(tmp_path,
 def test_storage_synthetic_scope_drift_preserved(tmp_path, problem):
     server = SyntheticServer()
     setattr(server, problem, [{"user_id": "foreign-member"}] if problem == "members" else True)
-    result = pilot.execute(environment(), tmp_path / "receipt.json", server)
+    result = run_pilot(environment(), tmp_path / "receipt.json", server)
     assert result["status"] == "FAILED"
     assert result["counts"]["upload"] == result["counts"]["rpc"] == result["counts"]["delete"] == 0
 
@@ -214,7 +262,7 @@ def test_storage_synthetic_scope_drift_preserved(tmp_path, problem):
 def test_storage_synthetic_corrupt_download_stops_before_activation(tmp_path):
     server = SyntheticServer()
     server.corrupt_download = True
-    result = pilot.execute(environment(), tmp_path / "receipt.json", server)
+    result = run_pilot(environment(), tmp_path / "receipt.json", server)
     assert result["status"] == "FAILED"
     assert len(server.objects) == 1 and not server.versions
     assert result["counts"]["rpc"] == result["counts"]["delete"] == 0
@@ -232,7 +280,7 @@ def test_storage_synthetic_corrupt_download_stops_before_activation(tmp_path):
 def test_storage_synthetic_uncertain_write_not_retried_or_auto_cleaned(tmp_path, route):
     server = SyntheticServer()
     server.fail_on = route
-    result = pilot.execute(environment(), tmp_path / "receipt.json", server)
+    result = run_pilot(environment(), tmp_path / "receipt.json", server)
     assert result["status"] == "FAILED"
     assert len(server.failed_calls) == 1
     assert result["intents"][-1]["outcome"] == "UNKNOWN"
@@ -242,9 +290,9 @@ def test_storage_synthetic_uncertain_write_not_retried_or_auto_cleaned(tmp_path,
 def test_storage_synthetic_same_receipt_cannot_execute_twice(tmp_path):
     server = SyntheticServer()
     path = tmp_path / "receipt.json"
-    pilot.execute(environment(), path, server)
+    run_pilot(environment(), path, server)
     before, count = path.read_bytes(), len(server.calls)
-    assert pilot.execute(environment(), path, server)["status"] == "FAILED"
+    assert run_pilot(environment(), path, server)["status"] == "FAILED"
     assert path.read_bytes() == before and len(server.calls) == count
 
 
@@ -257,7 +305,7 @@ def test_storage_synthetic_unknown_upload_can_exist_and_is_preserved(tmp_path):
             raise OSError("untrusted-private-error-text")
         return response
 
-    result = pilot.execute(environment(), tmp_path / "receipt.json", uncertain_after_apply)
+    result = run_pilot(environment(), tmp_path / "receipt.json", uncertain_after_apply)
     assert result["status"] == "FAILED" and len(server.objects) == 1
     assert result["counts"]["upload"] == 1
     assert result["counts"]["rpc"] == result["counts"]["delete"] == 0
@@ -273,7 +321,7 @@ def test_storage_synthetic_foreign_object_after_reset_blocks_delete(tmp_path):
             server.foreign_object = True
         return response
 
-    result = pilot.execute(environment(), tmp_path / "receipt.json", drift_after_reset)
+    result = run_pilot(environment(), tmp_path / "receipt.json", drift_after_reset)
     assert result["status"] == "FAILED" and len(server.objects) == 2
     assert [version["status"] for version in server.versions] == ["revoked", "revoked"]
     assert result["counts"]["delete"] == 0

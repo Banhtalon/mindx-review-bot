@@ -98,7 +98,7 @@ def verify_fixture(raw, index):
     require(json.loads(state) == expected, "PILOT_FIXTURE_MISMATCH")
 
 
-def execute(environment, report, transport=None):
+def execute(environment, report, transport=None, *, preflight_only=False):
     receipt = {
         "status": "STARTED",
         "workspace": WORKSPACE,
@@ -106,17 +106,39 @@ def execute(environment, report, transport=None):
         "intents": [],
         "checks": [],
     }
-    try:
-        with report.open("x", encoding="utf-8") as stream:
-            json.dump(receipt, stream)
-    except FileExistsError:
-        return {"status": "FAILED", "error_code": "PILOT_ALREADY_ATTEMPTED"}
+    if preflight_only:
+        try:
+            with report.open("x", encoding="utf-8") as stream:
+                json.dump(receipt, stream)
+        except FileExistsError:
+            return {"status": "FAILED", "error_code": "PILOT_ALREADY_ATTEMPTED"}
+    else:
+        try:
+            receipt = json.loads(report.read_text(encoding="utf-8"))
+            require(
+                receipt.get("status") == "PREFLIGHT_PASS"
+                and receipt.get("workspace") == WORKSPACE
+                and receipt.get("head") == environment.get("GITHUB_SHA")
+                and receipt.get("run_id") == environment.get("GITHUB_RUN_ID")
+                and receipt.get("counts")
+                == {**dict.fromkeys(LIMITS, 0), "github_read": 1}
+                and receipt.get("checks") == ["FIRST_DISPATCH_CONFIRMED"]
+                and receipt.get("intents")
+                == [{"kind": "github_read", "ordinal": 1, "outcome": "HTTP_2XX"}],
+                "PILOT_PREFLIGHT_REQUIRED",
+            )
+        except Exception:
+            return {"status": "FAILED", "error_code": "PILOT_PREFLIGHT_REQUIRED"}
 
     def persist():
         with report.open("w", encoding="utf-8") as stream:
             json.dump(receipt, stream, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
+
+    if not preflight_only:
+        receipt["status"] = "STARTED"  # Consume the API phase before any API request.
+        persist()
 
     def send(kind, method, url, headers, body):
         require(receipt["counts"][kind] < LIMITS[kind], "PILOT_BUDGET_EXHAUSTED")
@@ -156,8 +178,7 @@ def execute(environment, report, transport=None):
             "PILOT_APPROVAL_REQUIRED",
         )
         require(
-            environment.get("SUPABASE_URL") == BASE_URL
-            and environment.get("GITHUB_TOKEN"),
+            environment.get("SUPABASE_URL", BASE_URL) == BASE_URL,
             "PILOT_CONTEXT_INVALID",
         )
         fixtures = [
@@ -167,32 +188,46 @@ def execute(environment, report, transport=None):
         for index, raw in enumerate(fixtures):
             verify_fixture(raw, index)
 
-        history_url = "https://api.github.com/repos/Banhtalon/mindx-review-bot/actions/workflows/storage-synthetic-pilot.yml/runs?event=workflow_dispatch&per_page=100"
-        history_response = send(
-            "github_read",
-            "GET",
-            history_url,
-            {
-                "Authorization": "Bearer " + environment["GITHUB_TOKEN"],
-                "Accept": "application/vnd.github+json",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
-            None,
-        )
-        history = json.loads(history_response.body)
-        runs = history["workflow_runs"]
+        if preflight_only:
+            require(
+                "SUPABASE_SECRET_KEY" not in environment
+                and environment.get("GITHUB_TOKEN"),
+                "PILOT_PREFLIGHT_CREDENTIAL_SCOPE",
+            )
+            history_url = "https://api.github.com/repos/Banhtalon/mindx-review-bot/actions/workflows/storage-synthetic-pilot.yml/runs?event=workflow_dispatch&per_page=100"
+            history_response = send(
+                "github_read",
+                "GET",
+                history_url,
+                {
+                    "Authorization": "Bearer " + environment["GITHUB_TOKEN"],
+                    "Accept": "application/vnd.github+json",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+                None,
+            )
+            history = json.loads(history_response.body)
+            runs = history["workflow_runs"]
+            require(
+                isinstance(runs, list)
+                and 0 < history["total_count"] <= 100
+                and history["total_count"] == len(runs)
+                and sum(run["id"] == int(run_id) for run in runs) == 1
+                and all(
+                    isinstance(run["id"], int) and run["id"] >= int(run_id)
+                    for run in runs
+                ),
+                "PILOT_PRIOR_OR_AMBIGUOUS_DISPATCH",
+            )
+            receipt.update(status="PREFLIGHT_PASS", head=sha, run_id=run_id)
+            receipt["checks"].append("FIRST_DISPATCH_CONFIRMED")
+            persist()
+            return receipt
         require(
-            isinstance(runs, list)
-            and 0 < history["total_count"] <= 100
-            and history["total_count"] == len(runs)
-            and sum(run["id"] == int(run_id) for run in runs) == 1
-            and all(
-                isinstance(run["id"], int) and run["id"] >= int(run_id) for run in runs
-            ),
-            "PILOT_PRIOR_OR_AMBIGUOUS_DISPATCH",
+            environment.get("SUPABASE_URL") == BASE_URL
+            and environment.get("SUPABASE_SECRET_KEY"),
+            "PILOT_CONTEXT_INVALID",
         )
-        receipt["checks"].append("FIRST_DISPATCH_CONFIRMED")
-        require(environment.get("SUPABASE_SECRET_KEY"), "PILOT_CONTEXT_INVALID")
 
         kind = "read"
         client = SupabaseRunnerClient(
@@ -359,7 +394,12 @@ def execute(environment, report, transport=None):
 
 if __name__ == "__main__":
     try:
-        result = execute(os.environ, Path("storage-pilot-receipt.json"))
+        require(sys.argv[1:] in ([], ["--preflight"]), "PILOT_CONTEXT_INVALID")
+        result = execute(
+            os.environ,
+            Path("storage-pilot-receipt.json"),
+            preflight_only=sys.argv[1:] == ["--preflight"],
+        )
         print(
             json.dumps(
                 {
@@ -369,7 +409,7 @@ if __name__ == "__main__":
                 }
             )
         )
-        sys.exit(0 if result["status"] == "PASS" else 1)
+        sys.exit(0 if result["status"] in {"PASS", "PREFLIGHT_PASS"} else 1)
     except Exception:
         print("PILOT_RECEIPT_UNAVAILABLE")
         sys.exit(1)

@@ -34,10 +34,15 @@ jobs:
       - name: Install locked runner libraries
         run: uv sync --locked --project apps/browser-runner
 
-      - name: Run fixed synthetic Storage lifecycle once
+      - name: Verify first dispatch without Supabase credentials
         env:
           MINDX_STORAGE_PILOT_APPROVAL_SHA: ${{ vars.MINDX_STORAGE_PILOT_APPROVAL_SHA }}
           GITHUB_TOKEN: ${{ github.token }}
+        run: uv run --project apps/browser-runner python scripts/storage_synthetic_pilot.py --preflight
+
+      - name: Run fixed synthetic Storage lifecycle after verified preflight
+        env:
+          MINDX_STORAGE_PILOT_APPROVAL_SHA: ${{ vars.MINDX_STORAGE_PILOT_APPROVAL_SHA }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
         run: uv run --project apps/browser-runner python scripts/storage_synthetic_pilot.py
@@ -51,5 +56,5 @@ jobs:
             cat storage-pilot-receipt.json >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
           else
-            echo 'PILOT_NOT_STARTED: no receipt; reconcile before any further action.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'PILOT_RECEIPT_MISSING: attempt may have started; reconcile before any further action.' >> "$GITHUB_STEP_SUMMARY"
           fi
