@@ -127,7 +127,7 @@ function verifiedPrincipal(session, user, now) {
   const issuer = `${APP_PROJECT_URL}/auth/v1`;
   // JWT claims are consistency checks only; getUser above is the server-side identity confirmation.
   if (!claims || claims.iss !== issuer || !UUID.test(userUUID ?? '') || claims.sub !== userUUID ||
-      claims.role !== 'authenticated' || claims.aud !== 'authenticated' || claims.is_anonymous === true ||
+      claims.role !== 'authenticated' || claims.aud !== 'authenticated' || claims.is_anonymous !== false ||
       session.token_type?.toLowerCase() !== 'bearer' || !Number.isFinite(exp) ||
       !Number.isFinite(sessionExp) || Math.abs(exp - sessionExp) > 60 ||
       exp * 1000 < now + MIN_REMAINING_MS) {
@@ -195,7 +195,7 @@ export function createAppSession({
         } finally {
           fetch.setExpectedToken(null);
         }
-        if (userError || !confirmed?.user || confirmed.user.id !== signedIn.user?.id || confirmed.user.is_anonymous === true) {
+        if (userError || !confirmed?.user || confirmed.user.id !== signedIn.user?.id || confirmed.user.is_anonymous !== false) {
           throw safeError('USER_UNCONFIRMED');
         }
         const principal = verifiedPrincipal({...session, publicKey}, confirmed.user, now());

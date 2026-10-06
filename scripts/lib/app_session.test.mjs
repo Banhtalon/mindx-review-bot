@@ -13,7 +13,7 @@ const accessToken = (claims = {}) => {
   const now = Math.floor(Date.now() / 1000);
   return `eyJhbGciOiJub25lIn0.${Buffer.from(JSON.stringify({
     iss: `${projectUrl}/auth/v1`, sub: userUUID, role: 'authenticated',
-    aud: 'authenticated', exp: now + 1800, ...claims,
+    aud: 'authenticated', exp: now + 1800, is_anonymous: false, ...claims,
   })).toString('base64url')}.synthetic-signature`;
 };
 const json = (value, status = 200) => new Response(JSON.stringify(value), {
@@ -37,7 +37,8 @@ async function safeRejects(promise, expectedCode, failureCode, privateValues = [
   safeCheck(error?.code === expectedCode && privateValues.every(value => !message.includes(value)), failureCode);
 }
 
-function authFixture({token = accessToken(), userId = userUUID, transport} = {}) {
+function authFixture({token = accessToken(), userId = userUUID, userAnonymous = false,
+  omitAnonymousFlag = false, transport} = {}) {
   const calls = [];
   const fetchImpl = transport ?? (async (input) => {
     const request = input instanceof Request ? input : new Request(input);
@@ -48,7 +49,11 @@ function authFixture({token = accessToken(), userId = userUUID, transport} = {})
       expires_at: JSON.parse(Buffer.from(token.split('.')[1], 'base64url')).exp,
       refresh_token: 'synthetic-refresh-token', user: {id: userId},
     });
-    if (url.pathname === '/auth/v1/user') return json({id: userId, is_anonymous: false});
+    if (url.pathname === '/auth/v1/user') {
+      const user = {id: userId};
+      if (!omitAnonymousFlag) user.is_anonymous = userAnonymous;
+      return json(user);
+    }
     return json({message: 'unexpected fake request'}, 404);
   });
   return {
@@ -112,9 +117,28 @@ test('getUser confirmation, matching nonanonymous identity, JWT audience and exp
     {token: accessToken({aud: 'anon'}), userId: userUUID},
     {token: accessToken({exp: Math.floor(Date.now() / 1000) + 5}), userId: userUUID},
     {token: accessToken(), userId: '2d7ad7e5-e496-44dc-86ed-9a161a86a350'},
+    {token: accessToken({is_anonymous: undefined}), userId: userUUID},
+    {token: accessToken({is_anonymous: null}), userId: userUUID},
+    {token: accessToken({is_anonymous: 'false'}), userId: userUUID},
+    {token: accessToken({is_anonymous: true}), userId: userUUID},
   ]) {
     const {client} = authFixture(fixture);
     await safeRejects(client.login({email: 'user@example.invalid', password: 'synthetic-password'}), 'SESSION_INVALID', 'SAFE_INVALID_SESSION_REJECTED');
+  }
+});
+
+test('getUser must explicitly confirm the user is nonanonymous', async () => {
+  for (const fixture of [
+    {omitAnonymousFlag: true},
+    {userAnonymous: null},
+    {userAnonymous: 'false'},
+    {userAnonymous: true},
+  ]) {
+    const {client} = authFixture(fixture);
+    await safeRejects(
+      client.login({email: 'user@example.invalid', password: 'synthetic-password'}),
+      'USER_UNCONFIRMED', 'SAFE_GETUSER_ANON_FLAG_REJECTED',
+    );
   }
 });
 

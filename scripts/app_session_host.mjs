@@ -30,7 +30,7 @@ function write(res, status, body, contentType = 'text/html; charset=utf-8') {
     'content-type': contentType,
     'cache-control': 'no-store, max-age=0',
     'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'; connect-src 'none'; img-src 'none'; script-src 'none'",
-    'referrer-policy': 'no-referrer',
+    'referrer-policy': 'same-origin',
     'x-content-type-options': 'nosniff',
     'x-frame-options': 'DENY',
   });

@@ -90,7 +90,7 @@ def process_input(raw: bytes, *, now: int | None = None) -> dict[str, str]:
         or claims.get("sub") != context["user_uuid"]
         or claims.get("role") != "authenticated"
         or claims.get("aud") != "authenticated"
-        or claims.get("is_anonymous") is True
+        or claims.get("is_anonymous") is not False
         or isinstance(expiry, bool)
         or not isinstance(expiry, int)
         or isinstance(expires_at, bool)

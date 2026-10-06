@@ -23,7 +23,7 @@ def _check(condition: bool, code: str) -> None:
         raise AssertionError(code)
 
 
-def _token(**changes: object) -> str:
+def _token(*, omit: tuple[str, ...] = (), **changes: object) -> str:
     now = int(time.time())
     claims = {
         "iss": f"https://{PROJECT_REF}.supabase.co/auth/v1",
@@ -31,8 +31,11 @@ def _token(**changes: object) -> str:
         "role": "authenticated",
         "aud": "authenticated",
         "exp": now + 1800,
+        "is_anonymous": False,
     }
     claims.update(changes)
+    for field in omit:
+        claims.pop(field, None)
     payload = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
     return f"eyJhbGciOiJub25lIn0.{payload}.synthetic-signature"
 
@@ -81,16 +84,20 @@ def test_unverified_or_mismatched_context_fails_closed_without_echo(mutate) -> N
 
 
 @pytest.mark.parametrize(
-    "claims",
+    ("claims", "omit"),
     [
-        {"role": "anon"},
-        {"aud": "anon"},
-        {"iss": "https://other.supabase.co/auth/v1"},
-        {"exp": int(time.time()) + 5},
+        ({"role": "anon"}, ()),
+        ({"aud": "anon"}, ()),
+        ({"iss": "https://other.supabase.co/auth/v1"}, ()),
+        ({"exp": int(time.time()) + 5}, ()),
+        ({}, ("is_anonymous",)),
+        ({"is_anonymous": None}, ()),
+        ({"is_anonymous": "false"}, ()),
+        ({"is_anonymous": True}, ()),
     ],
 )
-def test_jwt_claims_are_consistency_checked_against_confirmed_context(claims) -> None:
-    output = receiver.process_input(json.dumps(_context(_token(**claims))).encode())
+def test_jwt_claims_are_consistency_checked_against_confirmed_context(claims, omit) -> None:
+    output = receiver.process_input(json.dumps(_context(_token(**claims, omit=omit))).encode())
     _check(output == {"status": "WAITING_AUTH_CAPABILITY"}, "SAFE_JWT_REJECTED_STATUS")
 
 
