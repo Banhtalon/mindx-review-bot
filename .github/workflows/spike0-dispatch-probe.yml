@@ -1,4 +1,5 @@
 name: spike0-dispatch-probe
+run-name: spike0 synthetic ${{ inputs.job_id }}
 
 on:
   workflow_dispatch:
@@ -54,3 +55,65 @@ jobs:
 
           print("Spike 0 dispatch probe accepted", job_id, job_type)
           PY
+
+  runtime:
+    needs: validate
+    if: github.repository == 'Banhtalon/mindx-review-bot' && github.workflow_ref == 'Banhtalon/mindx-review-bot/.github/workflows/spike0-dispatch-probe.yml@refs/heads/main' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && inputs.job_id == 'a3fed449-7fac-422f-a3a7-9b22be678c12' && inputs.job_type == 'sync_teaching' && vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA == github.sha
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Checkout approved source without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          version: "0.11.12"
+
+      - name: Install the locked Python runner
+        run: |
+          uv python install 3.12
+          uv sync --locked --project apps/browser-runner
+
+      - name: Verify exact fixed-job dispatch history
+        env:
+          MINDX_API_CHAIN_PILOT_APPROVAL_SHA: ${{ vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA }}
+          GITHUB_TOKEN: ${{ github.token }}
+          JOB_ID: ${{ inputs.job_id }}
+          JOB_TYPE: ${{ inputs.job_type }}
+        run: >-
+          uv run --project apps/browser-runner python scripts/api_chain_synthetic_pilot.py
+          --preflight --receipt .workflow-local/api-chain-synthetic/receipt.json
+
+      - name: Run one fixed synthetic API lease chain
+        env:
+          MINDX_API_CHAIN_PILOT_APPROVAL_SHA: ${{ vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA }}
+          JOB_ID: ${{ inputs.job_id }}
+          JOB_TYPE: ${{ inputs.job_type }}
+          SUPABASE_URL: https://gnvzjvgfsxfjgldatbwt.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          chromium="$(command -v google-chrome || command -v chromium || true)"
+          test -n "$chromium" || { echo "PILOT_CHROMIUM_REQUIRED"; exit 1; }
+          uv run --project apps/browser-runner python scripts/api_chain_synthetic_pilot.py \
+            --run --receipt .workflow-local/api-chain-synthetic/receipt.json --chromium "$chromium"
+
+      - name: Preserve the safe attempted-operation receipt
+        if: always()
+        run: |
+          receipt=".workflow-local/api-chain-synthetic/receipt.json"
+          if [ -f "$receipt" ]; then
+            echo '### Synthetic API-chain receipt' >> "$GITHUB_STEP_SUMMARY"
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$receipt" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'PILOT_RECEIPT_MISSING: reconcile before any further attempt.' >> "$GITHUB_STEP_SUMMARY"
+          fi
