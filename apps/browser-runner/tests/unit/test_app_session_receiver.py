@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 RECEIVER_PATH = Path(__file__).resolve().parents[4] / "scripts" / "app_session_receiver.py"
 SPEC = importlib.util.spec_from_file_location("app_session_receiver", RECEIVER_PATH)
 receiver = importlib.util.module_from_spec(SPEC)
@@ -96,7 +95,10 @@ def test_jwt_claims_are_consistency_checked_against_confirmed_context(claims) ->
 
 
 def test_malformed_oversized_and_extra_pipe_data_are_safe() -> None:
-    _check(receiver.process_input(b"not json") == {"status": "WAITING_AUTH_CAPABILITY"}, "SAFE_MALFORMED_INPUT")
+    _check(
+        receiver.process_input(b"not json") == {"status": "WAITING_AUTH_CAPABILITY"},
+        "SAFE_MALFORMED_INPUT",
+    )
     _check(
         receiver.process_input(b"x" * (receiver.MAX_INPUT_BYTES + 1))
         == {"status": "WAITING_AUTH_CAPABILITY"},
