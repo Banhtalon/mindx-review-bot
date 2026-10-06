@@ -208,16 +208,20 @@ export async function startAppSessionHost({mode = 'preview', liveConfig} = {}) {
     let password = fields.password;
     if (!email || email.length > 254 || !password || password.length > 1024) {
       status = mode === 'preview' ? 'PREVIEW_COMPLETE' : 'WAITING_AUTH_CAPABILITY';
+      /* eslint-disable no-useless-assignment -- Preserve best-effort release of local credential references. */
       email = '';
       password = '';
+      /* eslint-enable no-useless-assignment */
       fields.email = '';
       fields.password = '';
       return write(res, 400, html({title: 'Thông tin chưa hợp lệ', note: 'Email hoặc mật khẩu trống hay quá dài.', csrf, showLogin: false}));
     }
     if (mode === 'preview') {
       status = 'PREVIEW_COMPLETE';
+      /* eslint-disable no-useless-assignment -- Preserve best-effort release of local credential references. */
       email = '';
       password = '';
+      /* eslint-enable no-useless-assignment */
       fields.email = '';
       fields.password = '';
       return write(res, 200, html({title: 'Mô phỏng hoàn tất', note: resultText(mode, status), csrf, showLogin: false}));
@@ -239,8 +243,10 @@ export async function startAppSessionHost({mode = 'preview', liveConfig} = {}) {
       status = 'WAITING_AUTH_CAPABILITY';
       principal = null;
     } finally {
+      /* eslint-disable no-useless-assignment -- Preserve best-effort release of local credential references. */
       email = '';
       password = '';
+      /* eslint-enable no-useless-assignment */
       fields.email = '';
       fields.password = '';
     }
