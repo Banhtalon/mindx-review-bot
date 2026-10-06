@@ -805,3 +805,127 @@ def test_supervise_blocks_and_keeps_profile_when_final_cleanup_is_unconfirmed(
         assert persisted["zombie_pids"] == [4343]
     assert profile.exists()
     assert (profile / "synthetic-owned.txt").read_text(encoding="utf-8") == "worker-owned"
+
+
+@pytest.mark.parametrize("corruption", ["unreadable", "nonobject"])
+def test_supervise_keeps_verified_worker_audit_if_receipt_file_changes_during_cleanup(
+    tmp_path, monkeypatch, corruption
+):
+    from types import SimpleNamespace
+
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    receipt_file = tmp_path / "receipt.json"
+    preflight = pilot.preflight(
+        workflow_environment(),
+        receipt_file,
+        lambda _token: history_bytes(current_run()),
+    )
+    assert preflight["status"] == "PREFLIGHT_PASS"
+
+    run_environment = dict(workflow_environment())
+    run_environment.pop("GITHUB_TOKEN")
+    run_environment["SUPABASE_SECRET_KEY"] = "synthetic-runner-key"
+    chromium = tmp_path / "chrome.exe"
+    chromium.write_bytes(b"synthetic executable marker")
+    profile = tmp_path / "profile"
+    lease = "2030-01-01T00:10:00Z"
+    worker_receipt = pilot.new_worker_receipt(HEAD, "42")
+    claim = {
+        "kind": "claim",
+        "run_id": RUN_ID,
+        "job_id": JOB_ID,
+        "workspace_id": WORKSPACE_ID,
+        "runner_id": RUNNER_ID,
+        "attempt": 1,
+        "lease_expires_at": lease,
+    }
+    heartbeats = [
+        {
+            "kind": "heartbeat",
+            "run_id": RUN_ID,
+            "job_id": JOB_ID,
+            "workspace_id": WORKSPACE_ID,
+            "runner_id": RUNNER_ID,
+            "lease_expires_at": lease,
+        }
+        for _ in range(20)
+    ]
+    worker_receipt.update(
+        status="WORKER_RETURNED",
+        request_count=24,
+        counts={
+            "job_preflight": 1,
+            "state_preflight": 1,
+            "claim": 1,
+            "heartbeat": 20,
+            "finish": 1,
+        },
+        intents=[
+            {"kind": "heartbeat", "elapsed_seconds": index * 30}
+            for index in range(1, 21)
+        ],
+        server_snapshots=[
+            claim,
+            *heartbeats,
+            {"kind": "finish", "run_id": RUN_ID, "status": "succeeded"},
+        ],
+        finish_result="succeeded",
+        cli_outcome={"status": "succeeded", "records_read": 0, "duration_ms": 650000},
+    )
+
+    class FakeProcess:
+        pid = 4242
+        returncode = 0
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout=None):
+            del timeout
+            return self.returncode
+
+        def kill(self):
+            raise AssertionError("already exited synthetic worker must not be killed")
+
+    process = FakeProcess()
+    verified = []
+    verify_worker = pilot._verify_worker
+
+    def launch_worker(*_args, **_kwargs):
+        profile.mkdir()
+        pilot.persist(receipt_file, worker_receipt)
+        return process
+
+    def verify_and_record(receipt, exit_code):
+        verify_worker(receipt, exit_code)
+        verified.append(dict(receipt))
+
+    def final_cleanup(_parent, _owned, _process):
+        assert verified
+        if corruption == "unreadable":
+            receipt_file.write_text("{invalid", encoding="utf-8")
+        else:
+            receipt_file.write_text("[]", encoding="utf-8")
+        return [], []
+
+    monkeypatch.setattr(pilot.importlib.metadata, "version", lambda _name: "0.13.6")
+    monkeypatch.setattr(pilot.subprocess, "Popen", launch_worker)
+    monkeypatch.setattr(pilot, "_verify_worker", verify_and_record)
+    monkeypatch.setattr(pilot, "_stop_owned_processes", final_cleanup)
+    monkeypatch.setitem(
+        sys.modules,
+        "psutil",
+        SimpleNamespace(Process=lambda _pid: SimpleNamespace(create_time=lambda: 1.0)),
+    )
+
+    result = pilot.supervise(run_environment, receipt_file, str(chromium))
+    persisted = json.loads(receipt_file.read_text(encoding="utf-8"))
+
+    assert result["status"] == "PASS"
+    assert persisted["status"] == "PASS"
+    for field in ("counts", "intents", "server_snapshots", "finish_result", "cli_outcome"):
+        assert result.get(field) == verified[0][field]
+        assert persisted.get(field) == verified[0][field]
+    assert result == persisted
+    assert persisted["owned_profile_removed"] is True
+    assert not profile.exists()

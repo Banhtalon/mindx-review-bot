@@ -841,6 +841,7 @@ def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[st
     profile_owned = False
     worker_error: str | None = None
     worker_verified = False
+    verified_worker_receipt: dict[str, object] | None = None
     final_receipt: dict[str, object] | None = None
     try:
         process = subprocess.Popen(
@@ -874,6 +875,7 @@ def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[st
         worker_receipt["wall_elapsed_seconds"] = time.monotonic() - started
         persist(file, worker_receipt)
         _verify_worker(worker_receipt, process.returncode)
+        verified_worker_receipt = worker_receipt
         worker_verified = True
     except PilotBlocked as error:
         worker_error = str(error)
@@ -897,11 +899,19 @@ def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[st
                 residual = list(owned.values())
                 zombies = []
 
-        try:
-            persisted = json.loads(file.read_text(encoding="utf-8"))
-            final_receipt = persisted if isinstance(persisted, dict) else dict(receipt)
-        except Exception:
-            final_receipt = dict(receipt)
+        if verified_worker_receipt is not None:
+            final_receipt = dict(verified_worker_receipt)
+        else:
+            try:
+                persisted = json.loads(file.read_text(encoding="utf-8"))
+                if isinstance(persisted, dict):
+                    final_receipt = persisted
+                else:
+                    final_receipt = dict(receipt)
+                    worker_error = worker_error or "PILOT_RECEIPT_INVALID"
+            except Exception:
+                final_receipt = dict(receipt)
+                worker_error = worker_error or "PILOT_RECEIPT_INVALID"
         final_receipt["worker_exit_code"] = process.returncode if process is not None else None
         final_receipt["worker_killed"] = killed
         final_receipt["owned_processes"] = list(owned.values())
@@ -923,7 +933,7 @@ def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[st
                 profile_error = "PILOT_PROFILE_CLEANUP_FAILED"
 
         failure = cleanup_error or profile_error or worker_error
-        if failure is None and worker_verified:
+        if failure is None and worker_verified and verified_worker_receipt is not None:
             final_receipt["status"] = "PASS"
             final_receipt.pop("error_code", None)
         else:
