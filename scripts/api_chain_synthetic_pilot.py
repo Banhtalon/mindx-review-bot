@@ -839,8 +839,10 @@ def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[st
     parent: dict[str, object] | None = None
     killed = False
     profile_owned = False
+    worker_error: str | None = None
+    worker_verified = False
+    final_receipt: dict[str, object] | None = None
     try:
-        profile_owned = True
         process = subprocess.Popen(
             command,
             env=env,
@@ -850,6 +852,7 @@ def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[st
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             start_new_session=os.name == "posix",
         )
+        profile_owned = True
         import psutil
 
         parent = {"pid": process.pid, "created": psutil.Process(process.pid).create_time()}
@@ -862,65 +865,73 @@ def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[st
                 break
             time.sleep(0.1)
         process.wait(timeout=5)
-        if parent is not None:
-            residual, zombies = _stop_owned_processes(parent, owned, process)
-        else:
-            residual, zombies = [], []
-        latest = json.loads(file.read_text(encoding="utf-8"))
-        latest["worker_exit_code"] = process.returncode
-        latest["worker_killed"] = killed
-        latest["owned_processes"] = list(owned.values())
-        latest["residual_processes"] = residual
-        latest["zombie_pids"] = zombies
-        latest["wall_elapsed_seconds"] = time.monotonic() - started
-        persist(file, latest)
-        require(not residual and not zombies, "PILOT_CLEANUP_UNCONFIRMED")
         require(not killed, "PILOT_WORKER_WALL_EXCEEDED")
-        _verify_worker(latest, process.returncode)
-        latest["status"] = "PASS"
-        latest["owned_profile_removed"] = remove_profile(profile, folder, folder)
-        require(latest["owned_profile_removed"], "PILOT_PROFILE_CLEANUP_FAILED")
-        persist(file, latest)
-        return latest
+        worker_receipt = json.loads(file.read_text(encoding="utf-8"))
+        require(isinstance(worker_receipt, dict), "PILOT_RECEIPT_INVALID")
+        worker_receipt["worker_exit_code"] = process.returncode
+        worker_receipt["worker_killed"] = killed
+        worker_receipt["owned_processes"] = list(owned.values())
+        worker_receipt["wall_elapsed_seconds"] = time.monotonic() - started
+        persist(file, worker_receipt)
+        _verify_worker(worker_receipt, process.returncode)
+        worker_verified = True
     except PilotBlocked as error:
-        receipt["status"] = "BLOCKED"
-        receipt["error_code"] = str(error)
+        worker_error = str(error)
     except Exception:
-        receipt["status"] = "BLOCKED"
-        receipt["error_code"] = "PILOT_WORKER_UNKNOWN"
+        worker_error = "PILOT_WORKER_UNKNOWN"
     finally:
         cleanup_error = None
-        if parent is not None:
+        profile_error = None
+        residual = []
+        zombies = []
+        if process is not None and parent is None:
+            cleanup_error = "PILOT_CLEANUP_UNCONFIRMED"
+            residual = list(owned.values())
+        elif parent is not None:
             try:
                 residual, zombies = _stop_owned_processes(parent, owned, process)
-                receipt["residual_processes"] = residual
-                receipt["zombie_pids"] = zombies
+                if residual or zombies:
+                    cleanup_error = "PILOT_CLEANUP_UNCONFIRMED"
             except Exception:
                 cleanup_error = "PILOT_CLEANUP_UNCONFIRMED"
-        if not file.exists():
-            persist(file, receipt)
-        else:
+                residual = list(owned.values())
+                zombies = []
+
+        try:
             persisted = json.loads(file.read_text(encoding="utf-8"))
-            if persisted.get("status") != "PASS":
-                persisted["status"] = receipt.get("status", "BLOCKED")
-                persisted["error_code"] = cleanup_error or receipt.get(
-                    "error_code", "PILOT_WORKER_UNKNOWN"
-                )
-                if parent is not None:
-                    if cleanup_error:
-                        residual, zombies = list(owned.values()), []
-                    persisted["residual_processes"] = residual
-                    persisted["zombie_pids"] = zombies
-                if profile_owned and not cleanup_error:
-                    try:
-                        persisted["owned_profile_removed"] = remove_profile(profile, folder, folder)
-                    except Exception:
-                        persisted["owned_profile_removed"] = False
-                        persisted["status"] = "BLOCKED"
-                        persisted["error_code"] = "PILOT_PROFILE_CLEANUP_FAILED"
-                persist(file, persisted)
-                receipt = persisted
-    return receipt
+            final_receipt = persisted if isinstance(persisted, dict) else dict(receipt)
+        except Exception:
+            final_receipt = dict(receipt)
+        final_receipt["worker_exit_code"] = process.returncode if process is not None else None
+        final_receipt["worker_killed"] = killed
+        final_receipt["owned_processes"] = list(owned.values())
+        final_receipt["residual_processes"] = residual
+        final_receipt["zombie_pids"] = zombies
+        final_receipt["wall_elapsed_seconds"] = time.monotonic() - started
+
+        if profile_owned:
+            if cleanup_error is None:
+                try:
+                    final_receipt["owned_profile_removed"] = remove_profile(
+                        profile, folder, folder
+                    )
+                except Exception:
+                    final_receipt["owned_profile_removed"] = False
+            else:
+                final_receipt["owned_profile_removed"] = False
+            if final_receipt.get("owned_profile_removed") is not True:
+                profile_error = "PILOT_PROFILE_CLEANUP_FAILED"
+
+        failure = cleanup_error or profile_error or worker_error
+        if failure is None and worker_verified:
+            final_receipt["status"] = "PASS"
+            final_receipt.pop("error_code", None)
+        else:
+            final_receipt["status"] = "BLOCKED"
+            final_receipt["error_code"] = failure or "PILOT_WORKER_RESULT_UNCONFIRMED"
+        persist(file, final_receipt)
+    assert final_receipt is not None
+    return final_receipt
 
 
 def main(argv: list[str] | None = None) -> int:

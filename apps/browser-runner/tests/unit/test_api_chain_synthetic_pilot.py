@@ -676,3 +676,132 @@ def test_owned_chromium_is_killed_even_after_worker_parent_exits(monkeypatch):
 
     child.kill.assert_called_once()
     assert residual == [] and zombies == []
+
+
+def test_cleanup_sql_locks_exact_rows_and_rejects_nonterminal_jobs_before_delete():
+    import re
+
+    operator = load_script("api_chain_operator.py")
+    cleanup = operator.SQL_TEMPLATES["cleanup"].lower()
+    first_delete = cleanup.index("delete from public.automation_jobs")
+    workspace_delete = cleanup.index("delete from public.workspaces")
+
+    workspace_lock = re.search(
+        r"select\s+\*\s+into\s+target_workspace\s+from\s+public\.workspaces"
+        r"\s+where\s+id\s*=.*?for\s+update",
+        cleanup,
+        re.S,
+    )
+    job_lock = re.search(
+        r"select\s+\*\s+into\s+target_job\s+from\s+public\.automation_jobs"
+        r"\s+where\s+id\s*=.*?for\s+update",
+        cleanup,
+        re.S,
+    )
+    terminal_gate = re.search(
+        r"if\s+target_job\.status\s+not\s+in\s*\(\s*'succeeded'\s*,\s*'cancelled'\s*\)"
+        r"\s+and\s+not\s*\(\s*target_job\.status\s+in\s*\(\s*'failed'\s*,\s*'partial'\s*\)"
+        r"\s+and\s+target_job\.attempt_count\s*>=\s*target_job\.max_attempts\s*\)",
+        cleanup,
+        re.S,
+    )
+    active_run_gate = re.search(
+        r"from\s+public\.automation_runs\s+run\s+where\s+run\.job_id\s*=\s*target_job\.id"
+        r"\s+and\s*\(\s*run\.status\s*=\s*'running'\s+or\s+run\.finished_at\s+is\s+null\s*\)",
+        cleanup,
+        re.S,
+    )
+
+    assert workspace_lock is not None and workspace_lock.start() < first_delete
+    assert job_lock is not None and job_lock.start() < first_delete
+    assert terminal_gate is not None and terminal_gate.start() < first_delete
+    assert active_run_gate is not None and active_run_gate.start() < first_delete
+    assert "target_job.workspace_id is distinct from" in cleanup[:first_delete]
+    assert "target_job.idempotency_key is distinct from" in cleanup[:first_delete]
+    assert "target_job.payload_json is distinct from" in cleanup[:first_delete]
+    assert "if target_job.id is not null then" in cleanup[:first_delete]
+    assert workspace_delete > first_delete
+
+
+@pytest.mark.parametrize("cleanup_outcome", ["residual", "zombie", "exception"])
+def test_supervise_blocks_and_keeps_profile_when_final_cleanup_is_unconfirmed(
+    tmp_path, monkeypatch, cleanup_outcome
+):
+    from types import SimpleNamespace
+
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    receipt_file = tmp_path / "receipt.json"
+    preflight = pilot.preflight(
+        workflow_environment(),
+        receipt_file,
+        lambda _token: history_bytes(current_run()),
+    )
+    assert preflight["status"] == "PREFLIGHT_PASS"
+
+    run_environment = dict(workflow_environment())
+    run_environment.pop("GITHUB_TOKEN")
+    run_environment["SUPABASE_SECRET_KEY"] = "synthetic-runner-key"
+    chromium = tmp_path / "chrome.exe"
+    chromium.write_bytes(b"synthetic executable marker")
+    profile = tmp_path / "profile"
+    cleanup_calls = []
+
+    class FakeProcess:
+        pid = 4242
+        returncode = 0
+
+        def poll(self):
+            return self.returncode
+
+        def wait(self, timeout=None):
+            del timeout
+            return self.returncode
+
+        def kill(self):
+            raise AssertionError("already exited synthetic worker must not be killed")
+
+    process = FakeProcess()
+
+    def launch_worker(*_args, **_kwargs):
+        profile.mkdir()
+        (profile / "synthetic-owned.txt").write_text("worker-owned", encoding="utf-8")
+        worker_receipt = json.loads(receipt_file.read_text(encoding="utf-8"))
+        worker_receipt.update(
+            status="WORKER_RETURNED",
+            cli_outcome={"status": "succeeded", "records_read": 0, "duration_ms": 650000},
+        )
+        pilot.persist(receipt_file, worker_receipt)
+        return process
+
+    def final_cleanup(_parent, _owned, _process):
+        cleanup_calls.append(True)
+        if cleanup_outcome == "residual":
+            return ([{"pid": 4343, "created": 12.0, "name": "chrome"}], [])
+        if cleanup_outcome == "zombie":
+            return ([], [4343])
+        raise RuntimeError("synthetic process cleanup uncertainty")
+
+    monkeypatch.setattr(pilot.importlib.metadata, "version", lambda _name: "0.13.6")
+    monkeypatch.setattr(pilot.subprocess, "Popen", launch_worker)
+    monkeypatch.setattr(pilot, "_verify_worker", lambda _receipt, _exit: None)
+    monkeypatch.setattr(pilot, "_stop_owned_processes", final_cleanup)
+    monkeypatch.setitem(
+        sys.modules,
+        "psutil",
+        SimpleNamespace(Process=lambda _pid: SimpleNamespace(create_time=lambda: 1.0)),
+    )
+
+    result = pilot.supervise(run_environment, receipt_file, str(chromium))
+    persisted = json.loads(receipt_file.read_text(encoding="utf-8"))
+
+    assert cleanup_calls == [True]
+    assert result["status"] == "BLOCKED"
+    assert persisted["status"] == "BLOCKED"
+    assert result == persisted
+    assert persisted["error_code"] == "PILOT_CLEANUP_UNCONFIRMED"
+    if cleanup_outcome == "residual":
+        assert persisted["residual_processes"] == [{"pid": 4343, "created": 12.0, "name": "chrome"}]
+    elif cleanup_outcome == "zombie":
+        assert persisted["zombie_pids"] == [4343]
+    assert profile.exists()
+    assert (profile / "synthetic-owned.txt").read_text(encoding="utf-8") == "worker-owned"

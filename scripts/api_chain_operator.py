@@ -618,31 +618,62 @@ do $$ begin
   where workspace_id = '{WORKSPACE_ID}'::uuid and user_id = :auth_user_id
     and role = 'reviewer';
 end $$;""",
-    "cleanup": f"""-- Removes only the exact synthetic workspace; do not clean while a run is active.
-do $$ begin
-  if exists (select 1 from public.automation_jobs
-             where id = '{JOB_ID}'::uuid
-               and (workspace_id <> '{WORKSPACE_ID}'::uuid
-                 or idempotency_key <> '{IDEMPOTENCY_KEY}'
-                 or payload_json <> '{json.dumps(PAYLOAD, separators=(",", ":"))}'::jsonb)) then
-    raise exception 'PILOT_JOB_COLLISION';
+    "cleanup": f"""-- Removes only the exact synthetic workspace after its job is terminal.
+do $$
+declare
+  target_workspace public.workspaces;
+  target_job public.automation_jobs;
+begin
+  select * into target_workspace
+  from public.workspaces
+  where id = '{WORKSPACE_ID}'::uuid
+  for update;
+  if target_workspace.id is not null
+     and target_workspace.name is distinct from '{WORKSPACE_NAME}' then
+    raise exception 'PILOT_WORKSPACE_COLLISION';
+  end if;
+
+  perform 1 from public.workspace_members
+  where workspace_id = '{WORKSPACE_ID}'::uuid
+  for update;
+  if exists (select 1 from public.workspace_members
+             where workspace_id = '{WORKSPACE_ID}'::uuid and user_id <> :auth_user_id) then
+    raise exception 'PILOT_MEMBER_COLLISION';
+  end if;
+  if exists (select 1 from public.workspaces
+             where name = '{WORKSPACE_NAME}' and id <> '{WORKSPACE_ID}'::uuid) then
+    raise exception 'PILOT_WORKSPACE_COLLISION';
   end if;
   if exists (select 1 from public.automation_jobs
              where workspace_id = '{WORKSPACE_ID}'::uuid and id <> '{JOB_ID}'::uuid) then
     raise exception 'PILOT_JOB_COLLISION';
   end if;
-  if exists (select 1 from public.workspace_members
-             where workspace_id = '{WORKSPACE_ID}'::uuid and user_id <> :auth_user_id) then
-    raise exception 'PILOT_MEMBER_COLLISION';
-  end if;
-  if exists (select 1 from public.automation_runs run
-             join public.automation_jobs job on job.id = run.job_id
-             where job.workspace_id = '{WORKSPACE_ID}'::uuid and run.status = 'running') then
-    raise exception 'PILOT_RUN_STILL_ACTIVE';
-  end if;
-  if exists (select 1 from public.workspaces
-             where id = '{WORKSPACE_ID}'::uuid and name <> '{WORKSPACE_NAME}') then
-    raise exception 'PILOT_WORKSPACE_COLLISION';
+
+  select * into target_job
+  from public.automation_jobs
+  where id = '{JOB_ID}'::uuid
+  for update;
+  if target_job.id is not null then
+    if target_job.workspace_id is distinct from '{WORKSPACE_ID}'::uuid
+       or target_job.type is distinct from '{JOB_TYPE}'
+       or target_job.idempotency_key is distinct from '{IDEMPOTENCY_KEY}'
+       or target_job.payload_json is distinct from '{json.dumps(PAYLOAD, separators=(",", ":"))}'::jsonb
+       or target_job.requested_by is distinct from :auth_user_id
+       or target_job.max_attempts is distinct from 1 then
+      raise exception 'PILOT_JOB_COLLISION';
+    end if;
+    if target_job.status not in ('succeeded', 'cancelled')
+       and not (
+         target_job.status in ('failed', 'partial')
+         and target_job.attempt_count >= target_job.max_attempts
+       ) then
+      raise exception 'PILOT_JOB_NOT_TERMINAL';
+    end if;
+    if exists (select 1 from public.automation_runs run
+               where run.job_id = target_job.id
+                 and (run.status = 'running' or run.finished_at is null)) then
+      raise exception 'PILOT_RUN_STILL_ACTIVE';
+    end if;
   end if;
   delete from public.automation_jobs
   where id = '{JOB_ID}'::uuid and workspace_id = '{WORKSPACE_ID}'::uuid
