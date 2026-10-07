@@ -134,8 +134,9 @@ function resultText(mode, status) {
   return 'Không thể xác nhận khả năng đăng nhập. Chưa đọc dữ liệu.';
 }
 
-export async function startAppSessionHost({mode = 'preview', liveConfig} = {}) {
+export async function startAppSessionHost({mode = 'preview', liveConfig, capabilityCheck = runCapabilityCheck} = {}) {
   if (!['preview', 'live'].includes(mode)) throw new Error('Invalid local host settings');
+  if (typeof capabilityCheck !== 'function') throw new Error('Invalid capability check');
   if (mode === 'live' && (!liveConfig || liveConfig.url !== APP_PROJECT_URL)) {
     throw new Error('Live configuration unavailable');
   }
@@ -232,12 +233,12 @@ export async function startAppSessionHost({mode = 'preview', liveConfig} = {}) {
       const verified = await auth.login({email: fields.email, password: fields.password});
       if (closed) return write(res, 410, '<!doctype html><title>Đã đóng</title>');
       principal = verified;
-      const capability = await runCapabilityCheck(principal, {children});
+      const capability = await capabilityCheck(principal, {children});
       if (closed) {
         principal = null;
         return write(res, 410, '<!doctype html><title>Đã đóng</title>');
       }
-      status = capability.status;
+      status = SAFE_STATUSES.has(capability?.status) ? capability.status : 'WAITING_AUTH_CAPABILITY';
       clearTimeout(ttl);
       ttl = setTimeout(() => void close(), Math.min(HOST_TTL_MS, principal.expiresAt * 1000 - Date.now()));
       ttl.unref();
