@@ -65,7 +65,10 @@ def request_once(method, url, headers, body, *, max_response_bytes=32_768):
             require(len(raw) <= max_response_bytes, "PILOT_RESPONSE_TOO_LARGE")
             return HttpResponse(response.status, raw)
     except HTTPError as error:
-        return HttpResponse(error.code, b"")
+        with error:
+            raw = error.read(max_response_bytes + 1)
+            require(len(raw) <= max_response_bytes, "PILOT_RESPONSE_TOO_LARGE")
+            return HttpResponse(error.code, raw)
 
 
 def verify_fixture(raw, index):

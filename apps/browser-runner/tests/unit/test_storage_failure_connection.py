@@ -10,6 +10,7 @@ import sys
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
+from urllib.error import HTTPError
 
 import pytest
 import test_storage_failure_pilot as cases
@@ -192,7 +193,7 @@ def test_connection_scope_rejects_missing_connection_binding(setup, monkeypatch)
         connection.connection_scope(folder)
 
 
-@pytest.mark.parametrize("status", [302, 200])
+@pytest.mark.parametrize("status", [302, 200, 403])
 def test_reused_transport_redirect_and_response_bound_on_localhost(status):
     calls = []
 
@@ -203,7 +204,7 @@ def test_reused_transport_redirect_and_response_bound_on_localhost(status):
             if status == 302:
                 self.send_header("Location", "/must-not-follow")
             self.end_headers()
-            if status == 200:
+            if status in {200, 403}:
                 self.wfile.write(b"x" * 32769)
 
         def log_message(self, *args):
@@ -238,3 +239,93 @@ def test_reused_transport_timeout_is_bounded_and_not_retried(monkeypatch):
     with pytest.raises(TimeoutError):
         connection.pilot.previous.request_once("GET", "http://127.0.0.1/original", {}, None)
     assert calls == [30]
+
+
+@pytest.mark.parametrize("malformed", [False, True])
+def test_private_connection_default_transport_keeps_http_error_denial_body(
+    setup, monkeypatch, malformed
+):
+    folder, server, _, transport, validate = setup
+    payload = private_payload()
+    actor_hash = hashlib.sha256(payload["application"]["user_uuid"].encode()).hexdigest()
+    errors = []
+
+    class Opener:
+        def open(self, request, timeout):
+            assert timeout == 30
+            headers = {key.lower(): value for key, value in request.header_items()}
+            if headers["apikey"].startswith("sb_secret_"):
+                role = "service"
+            elif "authorization" not in headers:
+                role = "anon"
+            else:
+                role = "authenticated"
+            response = transport(
+                request.get_method(),
+                request.full_url,
+                {**headers, "apikey": "public-synthetic-" + role},
+                request.data,
+            )
+            body = io.BytesIO(response.body)
+            if response.status >= 400:
+                if malformed:
+                    body = io.BytesIO(b"untrusted-private-malformed-body")
+                errors.append(body)
+                raise HTTPError(request.full_url, response.status, "synthetic", None, body)
+            body.status = response.status
+            return body
+
+    monkeypatch.setattr(connection.pilot.previous, "build_opener", lambda *args: Opener())
+    raw = json.dumps(payload).encode()
+    for phase, status in [
+        ("exercise", "WAITING_RECONCILE"),
+        ("reconcile", "READY_CLEANUP"),
+        ("cleanup", "STORAGE_CLEAN_SQL_PENDING"),
+    ]:
+        result = connection.run_private_input(
+            folder, phase, raw, validate_scope=lambda f: (validate(f), actor_hash)
+        )
+        if malformed and phase == "reconcile":
+            assert result["status"] == "FAILED_STOPPED" and result["counts"]["delete"] == 0
+            assert len(errors) == 1 and errors[0].closed
+            assert "untrusted-private-malformed-body" not in (folder / "receipt.json").read_text()
+            count = len(server.calls)
+            assert (
+                connection.run_private_input(
+                    folder, "cleanup", raw, validate_scope=lambda f: (validate(f), actor_hash)
+                )["status"]
+                == "BLOCKED"
+            )
+            assert len(server.calls) == count
+            return
+        assert result["status"] == status
+    assert len(errors) == 2 and all(body.closed for body in errors)
+    assert not server.objects
+
+
+def test_localhost_permission_error_preserves_only_bounded_body():
+    calls = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            calls.append(self.path)
+            self.send_response(403)
+            self.end_headers()
+            self.wfile.write(b'{"code":"42501"}')
+
+        def log_message(self, *args):
+            pass
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        response = connection.pilot.previous.request_once(
+            "POST", f"http://127.0.0.1:{server.server_port}/reset", {}, b"{}"
+        )
+        assert response.status == 403 and json.loads(response.body) == {"code": "42501"}
+        assert calls == ["/reset"]
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=2)

@@ -163,4 +163,3 @@ Bản sửa chốt được lưu bằng commit riêng. Hoàn tác riêng commit 
 không đặt lại dự án, không ghi đè nhánh/hồ sơ cũ hoặc xóa dữ liệu máy chủ.
 Lượt hosted tương lai phải có allowlist/dấu trước-sau và quy tắc dọn riêng,
 không có quyền khôi phục dữ liệu thật từ tài liệu này.
-
