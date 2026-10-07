@@ -130,20 +130,27 @@ with tempfile.TemporaryDirectory() as name:
         assert context['access_token'] not in receipt.read_text()
     del approval['revision']
     (folder/'approval.json').write_text(json.dumps(approval))
-    # Source becomes dirty after a successful request; every subsequent send must stop.
-    guarded=o.OperatorLedger(folder/'mid-send.json')
-    original_sender=by_role
-    def change_after_send(method,url,headers,body):
-        response=original_sender(method,url,headers,body)
-        (repo/'tracked.txt').write_text('dirty after first send')
-        return response
-    blocked(lambda:s.execute_phase('nonmember',context,guarded,change_after_send,
-                                  validate_scope=validator,scope_digest=frozen))
-    assert len(sent)==20 and guarded.data['stop_forward'] is True
-    assert guarded.data['counts']['total']==2  # A blocked reserved slot stays consumed.
-    blocked(lambda:s.execute_phase('nonmember',context,guarded,change_after_send,
-                                  validate_scope=validator,scope_digest=frozen))
-    assert len(sent)==20
+    # Dirty source or an otherwise-valid replacement approval between sends must stop.
+    for mode in ('dirty','approval'):
+        (repo/'tracked.txt').write_text('before')
+        before=len(sent)
+        guarded=o.OperatorLedger(folder/(mode+'-mid-send.json'))
+        def change_after_send(method,url,headers,body):
+            response=by_role(method,url,headers,body)
+            if mode=='dirty':
+                (repo/'tracked.txt').write_text('dirty after first send')
+            else:
+                approval['revision']='changed between sends'
+                (folder/'approval.json').write_text(json.dumps(approval))
+                assert validator()!=frozen  # Replacement is valid but not the pinned approval.
+            return response
+        blocked(lambda:s.execute_phase('nonmember',context,guarded,change_after_send,
+                                      validate_scope=validator,scope_digest=frozen))
+        assert len(sent)==before+1 and guarded.data['stop_forward'] is True
+        assert guarded.data['counts']['total']==2  # Blocked reserved slot stays consumed.
+        blocked(lambda:s.execute_phase('nonmember',context,guarded,change_after_send,
+                                      validate_scope=validator,scope_digest=frozen))
+        assert len(sent)==before+1
 print('SYNTHETIC_CONNECTION_CHECKS_PASS')
 `], {cwd:resolve('scripts'), encoding:'utf8', timeout:30_000, windowsHide:true,
       env:Object.fromEntries(['SystemRoot','WINDIR'].filter(name => process.env[name]).map(name => [name,process.env[name]]))});
