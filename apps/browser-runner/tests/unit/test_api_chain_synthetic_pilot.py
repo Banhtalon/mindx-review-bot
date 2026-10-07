@@ -59,8 +59,8 @@ def history_bytes(*runs, total=None):
 def current_run(**changes):
     run = {
         "id": 42,
-        "display_title": f"API chain synthetic {JOB_ID}",
-        "name": "spike0-dispatch-probe",
+        "display_title": f"spike0 synthetic {JOB_ID}",
+        "name": f"spike0 synthetic {JOB_ID}",
         "path": ".github/workflows/spike0-dispatch-probe.yml",
         "head_sha": HEAD,
         "head_branch": "main",
@@ -88,6 +88,267 @@ def job_row(**changes):
     }
     row.update(changes)
     return row
+
+
+def recovery_history(pilot):
+    return history_bytes(dict(pilot.RECOVERY_OLD_RUN), current_run(workflow_id=pilot.WORKFLOW_ID))
+
+
+def old_jobs_bytes(pilot):
+    # Synthetic responses stay runnable without the local evidence directory.
+    jobs = []
+    for name, job_id, conclusion, steps in [
+        ("validate", 112653943973, "success", [
+            (1, "Set up job", "success"),
+            (2, "Validate synthetic dispatch input", "success"),
+            (3, "Complete job", "success"),
+        ]),
+        ("runtime", 112653972649, "failure", pilot.RECOVERY_RUNTIME_STEPS),
+    ]:
+        jobs.append({
+            "id": job_id, "name": name, "conclusion": conclusion, "status": "completed",
+            "run_id": pilot.RECOVERY_RUN_ID, "head_sha": pilot.RECOVERY_OLD_RUN["head_sha"],
+            "steps": [{"number": n, "name": title, "status": "completed", "conclusion": result}
+                      for n, title, result in steps],
+        })
+    return json.dumps({"total_count": 2, "jobs": jobs}).encode()
+
+
+def prepare_recovery(pilot, path, *, history=None, jobs=None):
+    return pilot.preflight(
+        workflow_environment(), path,
+        lambda _: recovery_history(pilot) if history is None else history,
+        recover_from_run=str(pilot.RECOVERY_RUN_ID),
+        jobs_transport=lambda _: old_jobs_bytes(pilot) if jobs is None else jobs,
+    )
+
+
+def worker_environment():
+    env = workflow_environment()
+    env.pop("GITHUB_TOKEN")
+    env["SUPABASE_SECRET_KEY"] = "synthetic-runner-key"
+    return env
+
+
+def test_exact_pinned_recovery_consumes_two_reads_and_hands_receipt_to_worker(tmp_path):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    path = tmp_path / "receipt.json"
+    calls = []
+
+    def send_history(_token):
+        assert json.loads(path.read_text())["history_reads"] == 1
+        calls.append("history")
+        return recovery_history(pilot)
+
+    def send_jobs(_token):
+        assert json.loads(path.read_text())["history_reads"] == 2
+        calls.append("jobs")
+        return old_jobs_bytes(pilot)
+
+    receipt = pilot.preflight(workflow_environment(), path, send_history,
+                              recover_from_run=str(pilot.RECOVERY_RUN_ID), jobs_transport=send_jobs)
+    assert receipt["status"] == "PREFLIGHT_PASS" and calls == ["history", "jobs"]
+    consumed = pilot.consume_preflight(worker_environment(), path)
+    assert consumed["status"] == "WORKER_STARTED" and consumed["request_count"] == 0
+    pilot.validate_preflight_receipt(worker_environment(), consumed, status="WORKER_STARTED")
+    before = path.read_bytes()
+    with pytest.raises(pilot.PilotBlocked):
+        pilot.consume_preflight(worker_environment(), path)
+    assert path.read_bytes() == before
+    assert pilot.preflight(workflow_environment(), path, send_history,
+                           recover_from_run=str(pilot.RECOVERY_RUN_ID), jobs_transport=send_jobs)[
+                               "error_code"] == "PILOT_ALREADY_ATTEMPTED"
+    assert calls == ["history", "jobs"]
+
+
+@pytest.mark.parametrize("case", [
+    "old_id", "old_sha", "old_attempt", "old_workflow", "old_title", "old_number",
+    "old_status", "old_conclusion", "current_workflow", "current_sha", "current_attempt",
+    "current_title", "third", "missing", "incomplete", "same_current", "current_number",
+])
+def test_recovery_rejects_ambiguous_or_unpinned_history_before_second_read(tmp_path, case):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    old = dict(pilot.RECOVERY_OLD_RUN)
+    current = current_run(workflow_id=pilot.WORKFLOW_ID)
+    changes = {
+        "old_id": (old, "id", 41), "old_sha": (old, "head_sha", "b" * 40),
+        "old_attempt": (old, "run_attempt", 2), "old_workflow": (old, "workflow_id", 1),
+        "old_title": (old, "display_title", "unknown"), "old_number": (old, "run_number", 3),
+        "old_status": (old, "status", "in_progress"),
+        "old_conclusion": (old, "conclusion", "success"),
+        "current_workflow": (current, "workflow_id", 1),
+        "current_sha": (current, "head_sha", "b" * 40),
+        "current_attempt": (current, "run_attempt", 2),
+        "current_title": (current, "display_title", "unknown"),
+        "same_current": (current, "id", pilot.RECOVERY_RUN_ID),
+        "current_number": (current, "run_number", 2),
+    }
+    if case in changes:
+        target, key, value = changes[case]
+        target[key] = value
+    runs = [old, current]
+    if case == "third":
+        runs.append(current_run(id=43))
+    if case == "missing":
+        runs.pop(0)
+    second = Mock(side_effect=AssertionError("must stop before second read"))
+    raw = history_bytes(*runs, total=3 if case == "incomplete" else None)
+    result = pilot.preflight(workflow_environment(), tmp_path / "receipt.json", lambda _: raw,
+                            recover_from_run=str(pilot.RECOVERY_RUN_ID), jobs_transport=second)
+    assert result["status"] == "BLOCKED" and result["history_reads"] == 1
+    second.assert_not_called()
+
+
+@pytest.mark.parametrize("case", [
+    "worker_ran", "worker_unknown", "missing_worker", "extra_step", "extra_job",
+    "missing_runtime", "runtime_id", "runtime_sha", "runtime_run", "runtime_status",
+    "history_success", "duplicate_runtime", "incomplete", "bad_json", "http_denied", "unknown",
+])
+def test_recovery_requires_fresh_exact_old_jobs_and_no_worker_execution(tmp_path, case):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    value = json.loads(old_jobs_bytes(pilot))
+    runtime = value["jobs"][1]
+    if case in {"worker_ran", "worker_unknown"}:
+        runtime["steps"][5]["conclusion"] = "success" if case == "worker_ran" else None
+    elif case == "missing_worker":
+        runtime["steps"].pop(5)
+    elif case == "extra_step":
+        runtime["steps"].append({"name": "claim", "number": 16})
+    elif case == "extra_job":
+        value["jobs"].append({"name": "claim"})
+        value["total_count"] = 3
+    elif case == "missing_runtime":
+        value["jobs"].pop()
+    elif case in {"runtime_id", "runtime_run", "runtime_sha", "runtime_status"}:
+        key = {"runtime_id": "id", "runtime_run": "run_id",
+               "runtime_sha": "head_sha", "runtime_status": "status"}[case]
+        runtime[key] = "unknown"
+    elif case == "history_success":
+        runtime["steps"][4]["conclusion"] = "success"
+    elif case == "duplicate_runtime":
+        value["jobs"][0] = runtime
+    elif case == "incomplete":
+        value["total_count"] = 3
+    response = json.dumps(value).encode()
+    if case == "bad_json":
+        response = b"{invalid"
+    if case == "http_denied":
+        from mindx_runner.supabase_client import HttpResponse
+        response = HttpResponse(403, b"")
+    calls = []
+
+    def second(_token):
+        calls.append(1)
+        if case == "unknown":
+            raise OSError("private response must not leak")
+        return response
+
+    result = pilot.preflight(workflow_environment(), tmp_path / "receipt.json",
+                            lambda _: recovery_history(pilot),
+                            recover_from_run=str(pilot.RECOVERY_RUN_ID), jobs_transport=second)
+    assert result["status"] == "BLOCKED" and result["history_reads"] == 2 and calls == [1]
+    assert "private response" not in json.dumps(result)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("mode", None), ("mode", "unknown"), ("history_reads", 1), ("history_reads", True),
+    ("history_outcome", "ONE_FIXED_JOB_RUN_CONFIRMED"), ("recover_from_run", 41),
+    ("contract_sha256", "b" * 64), ("recovery_proof_sha256", "b" * 64),
+    ("recovery_proof", {}), ("head", "b" * 40), ("run_id", "43"),
+    ("job_id", "unknown"), ("job_type", "read_lms_pending"), ("run_number", 2),
+])
+def test_recovery_consumer_rejects_changed_receipt_before_launch(
+    tmp_path, monkeypatch, field, value
+):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    path = tmp_path / "receipt.json"
+    receipt = prepare_recovery(pilot, path)
+    receipt[field] = value
+    pilot.persist(path, receipt)
+    chromium = tmp_path / "chrome.exe"
+    chromium.touch()
+    monkeypatch.setattr(pilot.importlib.metadata, "version", lambda _: "0.13.6")
+    launch = Mock(side_effect=AssertionError("invalid receipt must not launch"))
+    monkeypatch.setattr(pilot.subprocess, "Popen", launch)
+    with pytest.raises(pilot.PilotBlocked):
+        pilot.supervise(worker_environment(), path, str(chromium))
+    launch.assert_not_called()
+
+
+def test_recovery_large_history_is_scoped_and_http_helper_reads_cap_plus_one(tmp_path, monkeypatch):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    history = recovery_history(pilot) + b" " * 33000
+    assert 32768 < len(history) <= 65536
+    large = prepare_recovery(pilot, tmp_path / "large.json", history=history)
+    assert large["status"] == "PREFLIGHT_PASS"
+    assert prepare_recovery(pilot, tmp_path / "oversize.json", history=history+b" "*65536)[
+        "status"] == "BLOCKED"
+    assert prepare_recovery(pilot, tmp_path / "jobs-large.json",
+                            jobs=old_jobs_bytes(pilot)+b" "*33000)["status"] == "PREFLIGHT_PASS"
+    assert prepare_recovery(pilot, tmp_path / "jobs-oversize.json", jobs=b" "*65537)[
+        "status"] == "BLOCKED"
+    normal = history_bytes(current_run()) + b" " * 33000
+    assert pilot.preflight(workflow_environment(), tmp_path / "normal.json", lambda _: normal)[
+        "status"] == "BLOCKED"
+    helper = sys.modules["storage_synthetic_pilot"]
+    response = Mock(status=200)
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
+    opener = Mock()
+    opener.open.return_value = response
+    monkeypatch.setattr(helper, "build_opener", lambda *_: opener)
+    response.read.return_value = b" "*32769
+    with pytest.raises(helper.PilotBlocked, match="TOO_LARGE"):
+        helper.request_once("GET", "https://example.invalid/", {}, None)
+    response.read.assert_called_with(32769)
+    response.read.return_value = b" "*40000
+    assert helper.request_once("GET", "https://example.invalid/", {}, None,
+                               max_response_bytes=65536).status == 200
+    response.read.assert_called_with(65537)
+    response.read.return_value = b" "*65537
+    with pytest.raises(helper.PilotBlocked, match="TOO_LARGE"):
+        helper.request_once("GET", "https://example.invalid/", {}, None, max_response_bytes=65536)
+    sender = Mock(return_value=object())
+    monkeypatch.setattr(pilot, "request_once", sender)
+    pilot.history_once("synthetic", recovery=True)
+    pilot.jobs_once("synthetic")
+    pilot.history_once("synthetic")
+    assert [call.kwargs["max_response_bytes"] for call in sender.call_args_list] == [
+        65536, 65536, 32768]
+    assert [call.args[1] for call in sender.call_args_list] == [
+        pilot.HISTORY_URL, pilot.RECOVERY_JOBS_URL, pilot.HISTORY_URL]
+
+
+def test_recovery_flag_only_accepts_pinned_id_and_preflight_mode(tmp_path):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    sender = Mock(side_effect=AssertionError("wrong id must not read"))
+    result = pilot.preflight(workflow_environment(), tmp_path / "receipt.json", sender,
+                            recover_from_run="41")
+    assert result["status"] == "BLOCKED" and result["history_reads"] == 0
+    sender.assert_not_called()
+    with pytest.raises(SystemExit):
+        pilot.main(["--run", "--receipt", str(tmp_path/"other.json"),
+                    "--recover-from-run", str(pilot.RECOVERY_RUN_ID)])
+
+
+def test_worker_revalidates_proof_and_keeps_default_response_and_claim_budgets(tmp_path):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    path = tmp_path / "receipt.json"
+    prepare_recovery(pilot, path)
+    consumed = pilot.consume_preflight(worker_environment(), path)
+    env = pilot._worker_environment(worker_environment())
+    assert "GITHUB_TOKEN" not in env
+    pilot.validate_preflight_receipt(env, consumed, status="WORKER_STARTED")
+    changed = json.loads(path.read_text())
+    changed["recovery_proof"]["old_run"]["run_attempt"] = True
+    with pytest.raises(pilot.PilotBlocked, match="RECOVERY_RECEIPT"):
+        pilot.validate_preflight_receipt(env, changed, status="WORKER_STARTED")
+    changed["recovery_proof_sha256"] = pilot.proof_digest(changed["recovery_proof"])
+    with pytest.raises(pilot.PilotBlocked, match="RECOVERY_RECEIPT"):
+        pilot.validate_preflight_receipt(env, changed, status="WORKER_STARTED")
+    assert pilot.MAX_RESPONSE_BYTES == 32768
+    assert pilot.MAX_REQUESTS == 26 and pilot.REQUEST_CAPS["claim"] == 1
+    assert pilot.MAX_HEARTBEATS == 22 and pilot.HOLD_SECONDS == 650
 
 
 def test_pilot_api_client_delegates_only_the_three_real_rpc_methods():
@@ -136,6 +397,42 @@ def test_history_guard_requires_a_complete_single_fixed_job_dispatch_not_run_num
     )
     assert blocked["status"] == "BLOCKED"
     assert blocked["history_reads"] == 1
+
+
+@pytest.mark.parametrize("changes", [
+    {"name": "spike0-dispatch-probe"},
+    {"display_title": f"unexpected {JOB_ID}"},
+    {"id": 43},
+    {"head_sha": "b" * 40},
+    {"head_branch": "other"},
+    {"event": "push"},
+    {"run_attempt": 2},
+    {"path": ".github/workflows/other.yml"},
+])
+def test_history_rejects_wrong_run_name_title_or_context(tmp_path, changes):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    result = pilot.preflight(
+        workflow_environment(), tmp_path / "receipt.json",
+        lambda _: history_bytes(current_run(**changes)),
+    )
+    assert result["status"] == "BLOCKED"
+    assert result["error_code"] == "PILOT_HISTORY_CONTEXT_MISMATCH"
+    assert result["history_reads"] == 1
+
+
+def test_history_still_blocks_duplicate_job_runs_and_receipt_reuse(tmp_path):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    sender = Mock(return_value=history_bytes(
+        current_run(id=41, status="completed", conclusion="failure"), current_run(),
+    ))
+    path = tmp_path / "receipt.json"
+    result = pilot.preflight(workflow_environment(), path, sender)
+    assert result["error_code"] == "PILOT_HISTORY_AMBIGUOUS"
+    original = path.read_bytes()
+    repeated = pilot.preflight(workflow_environment(), path, sender)
+    assert repeated["error_code"] == "PILOT_ALREADY_ATTEMPTED"
+    sender.assert_called_once()
+    assert path.read_bytes() == original
 
 
 def test_context_rejects_wrong_scope_before_history_send(tmp_path):
@@ -724,18 +1021,20 @@ def test_cleanup_sql_locks_exact_rows_and_rejects_nonterminal_jobs_before_delete
 
 
 @pytest.mark.parametrize("cleanup_outcome", ["residual", "zombie", "exception"])
+@pytest.mark.parametrize("mode", ["normal", "recovery"])
 def test_supervise_blocks_and_keeps_profile_when_final_cleanup_is_unconfirmed(
-    tmp_path, monkeypatch, cleanup_outcome
+    tmp_path, monkeypatch, cleanup_outcome, mode
 ):
     from types import SimpleNamespace
 
     pilot = load_script("api_chain_synthetic_pilot.py")
     receipt_file = tmp_path / "receipt.json"
-    preflight = pilot.preflight(
-        workflow_environment(),
-        receipt_file,
-        lambda _token: history_bytes(current_run()),
-    )
+    if mode == "recovery":
+        preflight = prepare_recovery(pilot, receipt_file)
+    else:
+        preflight = pilot.preflight(
+            workflow_environment(), receipt_file, lambda _token: history_bytes(current_run())
+        )
     assert preflight["status"] == "PREFLIGHT_PASS"
 
     run_environment = dict(workflow_environment())

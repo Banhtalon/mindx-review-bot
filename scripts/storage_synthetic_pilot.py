@@ -54,13 +54,15 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
-def request_once(method, url, headers, body):
+def request_once(method, url, headers, body, *, max_response_bytes=32_768):
     """No redirects/retries; bounded response; auth stays on its original host."""
+    require(type(max_response_bytes) is int and max_response_bytes in {32_768, 65_536},
+            "PILOT_RESPONSE_LIMIT_BLOCKED")
     request = Request(url, data=body, headers=dict(headers), method=method)
     try:
         with build_opener(NoRedirect()).open(request, timeout=30) as response:
-            raw = response.read(32_769)
-            require(len(raw) <= 32_768, "PILOT_RESPONSE_TOO_LARGE")
+            raw = response.read(max_response_bytes + 1)
+            require(len(raw) <= max_response_bytes, "PILOT_RESPONSE_TOO_LARGE")
             return HttpResponse(response.status, raw)
     except HTTPError as error:
         return HttpResponse(error.code, b"")

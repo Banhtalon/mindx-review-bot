@@ -19,10 +19,11 @@ import socket
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
-from urllib.request import ProxyHandler, build_opener
+from uuid import UUID
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "apps/browser-runner/src"))
@@ -33,6 +34,36 @@ FORM = (
     '<button type="submit">Synthetic</button></form></body></html>'
 )
 SUCCESS = '<html><body><div id="synthetic-success">Synthetic response</div></body></html>'
+
+
+class ChromiumStartupError(RuntimeError):
+    def __init__(self, exit_code: int | None = None) -> None:
+        self.code = "CHROMIUM_START_TIMEOUT" if exit_code is None else "CHROMIUM_EXITED"
+        self.exit_code = exit_code
+        super().__init__(self.code)
+
+
+async def wait_for_chromium(process: Any, profile: Path) -> str:
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        exit_code = process.poll()
+        if exit_code is not None:
+            raise ChromiumStartupError(exit_code)
+        try:
+            with (profile / "DevToolsActivePort").open("rb") as ready:
+                data = ready.read(257)
+            if len(data) > 256:
+                raise ValueError
+            port_text, browser_path = data.decode("ascii").splitlines()
+            port = int(port_text)
+            browser_id = UUID(browser_path.removeprefix("/devtools/browser/"))
+            if not 1 <= port <= 65535 or browser_path != f"/devtools/browser/{browser_id}":
+                raise ValueError
+            return f"ws://127.0.0.1:{port}{browser_path}"
+        except (OSError, ValueError):
+            # Chrome can still be writing its readiness file. Never report its contents.
+            await asyncio.sleep(0.1)
+    raise ChromiumStartupError()
 
 
 async def probe(chromium: str) -> dict[str, Any]:
@@ -93,11 +124,8 @@ async def probe(chromium: str) -> dict[str, Any]:
         patch.object(socket.socket, "connect_ex", connect_ex),
         patch.object(websockets, "connect", local_ws),
     ):
-        with socket.socket() as port_socket:
-            port_socket.bind(("127.0.0.1", 0))
-            port = port_socket.getsockname()[1]
         flags = [
-            chromium, "--headless", f"--remote-debugging-port={port}",
+            chromium, "--headless", "--remote-debugging-port=0",
             f"--user-data-dir={profile}", "--disable-background-networking",
             "--disable-component-update", "--disable-sync", "--no-first-run",
             "--disable-extensions", "--disable-quic", "--no-pings",
@@ -111,17 +139,9 @@ async def probe(chromium: str) -> dict[str, Any]:
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
         try:
-            endpoint = None
-            opener = build_opener(ProxyHandler({}))
-            for _ in range(80):
-                try:
-                    with opener.open(f"http://127.0.0.1:{port}/json/version", timeout=0.2) as r:
-                        endpoint = json.load(r)["webSocketDebuggerUrl"]
-                        break
-                except Exception:
-                    await asyncio.sleep(0.1)
-            if endpoint is None:
-                raise RuntimeError("SYNTHETIC_CHROMIUM_START_FAILED")
+            started = time.monotonic()
+            endpoint = await wait_for_chromium(process, Path(profile))
+            result["chromium_startup_seconds"] = round(time.monotonic() - started, 3)
 
             def factory(**options: Any) -> Any:
                 nonlocal sdk
@@ -249,8 +269,13 @@ def main() -> None:
             frames.append({"file": Path(trace.tb_frame.f_code.co_filename).name,
                            "line": trace.tb_lineno})
             trace = trace.tb_next
-        print(json.dumps({"status": "SYNTHETIC_HARNESS_FAILED", "teaching_server_attempts": 0,
-                          "source_locations": frames}))
+        failure: dict[str, Any] = {
+            "status": "SYNTHETIC_HARNESS_FAILED", "teaching_server_attempts": 0,
+            "source_locations": frames,
+        }
+        if isinstance(error, ChromiumStartupError):
+            failure["chromium_startup"] = {"code": error.code, "exit_code": error.exit_code}
+        print(json.dumps(failure))
         raise SystemExit(1) from None
     result["passed"] = (
         result["page_session_count"] == 1 and result["initial_post_session_count"] == 1
