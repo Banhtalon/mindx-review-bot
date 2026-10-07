@@ -80,7 +80,7 @@ Công cụ cần ghi giữ chỗ trước mỗi gửi, lưu biên nhận riêng 
 - App23 / Edge dương tính2 / GitHub việc cũ1 / worker0 / max_attempts1 và mọi
   bộ đếm sửa cũ giữ nguyên. Lượt giả mới không tự cấp thêm lần nhận việc cũ.
 
-Giới hạn40 lượt đọc có thể giảm sau khi entrypoint liệt kê từng yêu cầu. Các
+Giới hạn40 lượt đọc đã được đối chiếu với công cụ ba bước tại máy bên dưới. Các
 ngân sách không cộng để tăng quyền của thao tác khác. Bị lỗi/không rõ cũng
 tính đã dùng; không dò tài nguyên khác hoặc lặp để tìm kết quả xanh.
 
@@ -88,7 +88,40 @@ tính đã dùng; không dò tài nguyên khác hoặc lặp để tìm kết qu
 có sẵn, chốt chính xác từng method/path/body/role, kiểm tra giả về giới hạn và
 dọn dữ liệu, điểm khôi phục, đọc trước cấu hình không bí mật và trạng thái đích
 trong ngân sách được cấp, review độc lập đúng bản nguồn, rồi Owner duyệt đúng
-hậu quả ghi máy chủ. Bản chuẩn bị này chưa thỏa điều kiện entrypoint hosted.
+hậu quả ghi máy chủ. Chưa có quyền chạy, cấu hình kết nối hoặc bản duyệt máy chủ.
+
+## Công cụ ba bước đã có tại máy
+
+Tệp `scripts/storage_failure_pilot.py` tái dùng cipher/client, fixture công khai,
+kiểm bản mã và cách lưu biên nhận hiện có; không thêm thư viện hoặc workflow.
+Gọi trực tiếp bằng Python chỉ in trạng thái chuẩn bị, không kết nối mạng.
+Hàm `execute` cần kết nối được cung cấp riêng và bản duyệt đúng nguồn;
+không tự lấy khóa từ môi trường hoặc tự dùng quyền của công cụ cũ.
+
+- `exercise`: kiểm workspace trống, bucket riêng tư; tạo đúng hai tệp/phiên giả,
+  giả lập mất phản hồi kích hoạt V2 tại lớp nhận rồi dừng ở `WAITING_RECONCILE`.
+- `reconcile`: đối soát đúng V1/V2, dùng loader chọn active V2 rồi thử khóa cũ,
+  sai khóa/phiên bản; thiếu khóa dừng trước mạng. Kiểm hai quyền reset qua HTTP,
+  so trạng thái và byte tệp trước/sau; ghi đè đúng V2 bằng ciphertext bị sửa,
+  tải bằng loader rồi xác nhận không giải mã được. Dừng ở `READY_CLEANUP`.
+- `cleanup`: bước gọi riêng, kiểm lại workspace/phiên/tệp và byte chính xác;
+  reset service, xác nhận cả hai phiên revoked, xóa đúng hai đường dẫn và
+  xác nhận Storage còn0. Trạng thái `STORAGE_CLEAN_SQL_PENDING` vẫn giữ phần
+  dọn bản ghi/workspace và đối chiếu dữ liệu bảo vệ bằng SQL ở ngoài công cụ.
+
+Đường đi đủ ba bước dùng40 lượt đọc metadata,7 tải xuống,3 tải lên/ghi đè,
+5 RPC,1 xóa:56 yêu cầu giả; trần vẫn57 vì tải xuống cho phép tối đa8.
+Mỗi yêu cầu chốt method/path/body/role, lưu giữ chỗ trước gửi, kiểm lại HEAD,
+nguồn và dấu bản duyệt. Lỗi bất kỳ giữ sổ/tệp và dừng; không tự chạy lại.
+Một bước đã bắt đầu không chạy lần hai. Thay bản duyệt giữa hai yêu cầu hoặc
+hai bước không mở lượt còn lại. Không có dọn tự động khi phản hồi không rõ.
+
+Kiểm tại máy: từ `apps/browser-runner`, AI chạy
+`C:\Users\QQ\AppData\Local\Programs\Python\Python312\python.exe -m pytest tests/unit/test_storage_failure_pilot.py`.
+Các kết nối trong bài kiểm tra hoàn toàn giả. Chưa có quan sát lỗi trên máy chủ.
+Chưa tạo workspace, chưa cấp bản duyệt hay kích hoạt lượt mới; chưa chọn nơi
+chạy/khóa cơ chế lấy tài khoản chính thức và kết nối không retry/redirect.
+Phần quản lý SQL/so dữ liệu bảo vệ và nghiệm thu thật vẫn cần chuẩn bị riêng.
 
 Không cần sửa cấu trúc dữ liệu, triển khai lại Edge, đổi khóa thật, bật lịch,
 đọc học viên, mở trình duyệt thật hoặc nhập #41 để thực hiện các bài tại máy.
