@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from app_session_receiver import MAX_INPUT_BYTES, process_input
+from api_chain_continuation import check_source_head
 from api_chain_operator import (
     OperatorLedger, dispatch_existing_job, http_request_once, live_capability_status,
     probe_edge_negative, run_role_probes,
@@ -32,13 +33,15 @@ def check_scope(folder=FOLDER, root=ROOT):
         raise ValueError('SCOPE_BLOCKED')
     expected = {'scripts/app_session_host.mjs', 'scripts/lib/app_session.mjs',
                 'scripts/app_session_receiver.py', 'scripts/api_chain_operator.py',
-                'scripts/api_chain_session.py', 'scripts/api_chain_session_host.mjs'}
+                'scripts/api_chain_session.py', 'scripts/api_chain_session_host.mjs',
+                'scripts/api_chain_continuation.py'}
     hashes = scope.get('source_sha256')
     if not isinstance(hashes, dict) or set(hashes) != expected:
         raise ValueError('SOURCE_BLOCKED')
     for name, digest in hashes.items():
         if hashlib.sha256((root / name).read_bytes()).hexdigest() != digest:
             raise ValueError('SOURCE_BLOCKED')
+    check_source_head(root, scope.get('head'))
     return hashlib.sha256(raw).hexdigest()
 
 
@@ -55,24 +58,33 @@ def command(value, expected, previous):
     return True
 
 
-def execute_phase(phase, context, ledger, sender=http_request_once):
+def execute_phase(phase, context, ledger, sender=http_request_once, *,
+                  validate_scope=check_scope, scope_digest=None):
+    if scope_digest is None:
+        scope_digest = validate_scope()
+
+    def guarded_sender(method, url, headers, body):
+        if validate_scope() != scope_digest:
+            raise ValueError('SCOPE_CHANGED')
+        return sender(method, url, headers, body)
+
     headers = {'apikey': context['public_key'], 'Authorization': 'Bearer ' + context['access_token'],
                'Prefer': 'return=representation'}
     anon = {'apikey': context['public_key']}
     if phase == 'dispatch':
-        result = dispatch_existing_job(headers, sender, ledger, marker_sha=WORKFLOW_HEAD,
+        result = dispatch_existing_job(headers, guarded_sender, ledger, marker_sha=WORKFLOW_HEAD,
                                        approved_sha=WORKFLOW_HEAD, final_scope=True)
         if result['status'] != 'PASS':
             raise ValueError('DISPATCH_INCOMPLETE')
     else:
         for role in (('anonymous', 'nonmember') if phase == 'nonmember' else (phase,)):
             principal = anon if role == 'anonymous' else headers
-            result = run_role_probes(role, sender, ledger, auth_headers=principal,
+            result = run_role_probes(role, guarded_sender, ledger, auth_headers=principal,
                                      caller_user_id=None if role == 'anonymous' else context['user_uuid'])
             if result['status'] != 'PASS':
                 raise ValueError('ROLE_INCOMPLETE')
             if role != 'owner':
-                result = probe_edge_negative(role, principal, sender, ledger)
+                result = probe_edge_negative(role, principal, guarded_sender, ledger)
                 if result['status'] not in {'AUTH_GATE_ONLY', 'DENIED_OWNER_REQUIRED'}:
                     raise ValueError('EDGE_INCOMPLETE')
 
@@ -111,7 +123,7 @@ def main():
                 time.sleep(0.25)
             ledger.data['phase_status'] = phase + '_STARTED'
             ledger.persist()
-            execute_phase(phase, context, ledger)
+            execute_phase(phase, context, ledger, scope_digest=scope_digest)
             ledger.data['phases'].append(phase)
             ledger.data['phase_status'] = phase + '_PASS'
             ledger.persist()

@@ -17,7 +17,7 @@ test('trusted callback must be callable; original preview remains safe', async (
 
 test('ordered commands, frozen sources, synthetic full matrix and exhausted allowance', () => {
   const result = spawnSync('C:\\Users\\QQ\\AppData\\Local\\Programs\\Python\\Python312\\python.exe', ['-c', String.raw`
-import hashlib, json, tempfile
+import hashlib, json, subprocess, tempfile
 from pathlib import Path
 import api_chain_session as s
 import api_chain_operator as o
@@ -38,13 +38,44 @@ with tempfile.TemporaryDirectory() as name:
     (folder/'TASK.md').write_bytes(contract)
     sources={path:hashlib.sha256((s.ROOT/path).read_bytes()).hexdigest() for path in
              ('scripts/app_session_host.mjs','scripts/lib/app_session.mjs','scripts/app_session_receiver.py',
-              'scripts/api_chain_operator.py','scripts/api_chain_session.py','scripts/api_chain_session_host.mjs')}
-    approval={'head':'a'*40,'status':'EXACT_SCOPE_APPROVED','workflow_head':s.WORKFLOW_HEAD,
+              'scripts/api_chain_operator.py','scripts/api_chain_session.py','scripts/api_chain_session_host.mjs',
+              'scripts/api_chain_continuation.py')}
+    repo=folder/'repo'
+    repo.mkdir()
+    for path in sources:
+        target=repo/path
+        target.parent.mkdir(parents=True,exist_ok=True)
+        target.write_bytes((s.ROOT/path).read_bytes())
+    def git(*args):
+        return subprocess.run(['D:/Git/cmd/git.exe',*args],cwd=repo,capture_output=True,check=True).stdout.decode().strip()
+    git('init')
+    git('add','.')
+    git('-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-m','synthetic')
+    approved=git('rev-parse','HEAD')
+    approval={'head':approved,'status':'EXACT_SCOPE_APPROVED','workflow_head':s.WORKFLOW_HEAD,
               'contract_sha256':hashlib.sha256(contract).hexdigest(),'source_sha256':sources}
     (folder/'approval.json').write_text(json.dumps(approval))
-    s.check_scope(folder)
+    s.check_scope(folder,repo)
+    approval['head']='a'*40
+    (folder/'approval.json').write_text(json.dumps(approval))
+    blocked(lambda:s.check_scope(folder,repo))
+    approval['head']=approved
+    (folder/'approval.json').write_text(json.dumps(approval))
+    (repo/'tracked.txt').write_text('before')
+    git('add','tracked.txt')
+    git('-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-m','new head')
+    blocked(lambda:s.check_scope(folder,repo))
+    approval['head']=git('rev-parse','HEAD')
+    (folder/'approval.json').write_text(json.dumps(approval))
+    s.check_scope(folder,repo)
+    (repo/'tracked.txt').write_text('dirty')
+    blocked(lambda:s.check_scope(folder,repo))
+    (repo/'tracked.txt').write_text('before')
+    validator=lambda:s.check_scope(folder,repo)
+    frozen=validator()
     (folder/'TASK.md').write_bytes(b'changed')
-    blocked(lambda:s.check_scope(folder))
+    blocked(validator)
+    (folder/'TASK.md').write_bytes(contract)
     context={'public_key':'synthetic-public-key','access_token':'synthetic-app-token',
              'user_uuid':'10000000-0000-4000-8000-000000000001'}
     ledger=o.OperatorLedger(folder/'receipt.json')
@@ -72,15 +103,49 @@ with tempfile.TemporaryDirectory() as name:
         elif ledger.data['counts']['role_by_name']['reviewer']: current='reviewer'
         else: current='nonmember'
         return sender(method,url,headers,body)
-    for phase in s.PHASES: s.execute_phase(phase,context,ledger,by_role)
+    for phase in s.PHASES:
+        s.execute_phase(phase,context,ledger,by_role,validate_scope=validator,scope_digest=frozen)
     assert len(sent)==19 and ledger.data['counts']['edge_positive']==1
     assert ledger.data['status']=='DISPATCH_ACCEPTED_EXISTING_JOB'
-    blocked(lambda:s.execute_phase('nonmember',context,ledger,by_role))
+    blocked(lambda:s.execute_phase('nonmember',context,ledger,by_role,validate_scope=validator,scope_digest=frozen))
     assert len(sent)==19
     assert context['access_token'] not in (folder/'receipt.json').read_text()
     assert context['user_uuid'] not in (folder/'receipt.json').read_text()
+    # A valid replacement approval cannot grant remaining sends under the pinned digest.
+    approval['revision']='changed'
+    (folder/'approval.json').write_text(json.dumps(approval))
+    validator()  # Otherwise-valid replacement.
+    for phase in s.PHASES:
+        receipt=folder/(phase+'-stale.json')
+        guarded=o.OperatorLedger(receipt)
+        if phase=='dispatch':
+            guarded.data=json.loads((folder/'receipt.json').read_text())
+            guarded.data['counts']['edge_positive']=0
+            guarded.data['counts']['total']=18
+            guarded.data['status']='READY'
+            guarded.persist()
+        blocked(lambda:s.execute_phase(phase,context,guarded,by_role,validate_scope=validator,scope_digest=frozen))
+        assert guarded.data['stop_forward'] is True
+        assert len(sent)==19
+        assert context['access_token'] not in receipt.read_text()
+    del approval['revision']
+    (folder/'approval.json').write_text(json.dumps(approval))
+    # Source becomes dirty after a successful request; every subsequent send must stop.
+    guarded=o.OperatorLedger(folder/'mid-send.json')
+    original_sender=by_role
+    def change_after_send(method,url,headers,body):
+        response=original_sender(method,url,headers,body)
+        (repo/'tracked.txt').write_text('dirty after first send')
+        return response
+    blocked(lambda:s.execute_phase('nonmember',context,guarded,change_after_send,
+                                  validate_scope=validator,scope_digest=frozen))
+    assert len(sent)==20 and guarded.data['stop_forward'] is True
+    assert guarded.data['counts']['total']==2  # A blocked reserved slot stays consumed.
+    blocked(lambda:s.execute_phase('nonmember',context,guarded,change_after_send,
+                                  validate_scope=validator,scope_digest=frozen))
+    assert len(sent)==20
 print('SYNTHETIC_CONNECTION_CHECKS_PASS')
-`], {cwd:resolve('scripts'), encoding:'utf8', timeout:15_000, windowsHide:true,
+`], {cwd:resolve('scripts'), encoding:'utf8', timeout:30_000, windowsHide:true,
       env:Object.fromEntries(['SystemRoot','WINDIR'].filter(name => process.env[name]).map(name => [name,process.env[name]]))});
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'SYNTHETIC_CONNECTION_CHECKS_PASS');
