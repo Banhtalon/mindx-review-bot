@@ -15,7 +15,9 @@ MAX_INPUT = 16_384
 
 def connection_scope(folder):
     binding = pilot.check_scope(folder)
-    connection = json.loads((folder / "approval.json").read_bytes()).get("connection", {})
+    connection = json.loads((folder / "approval.json").read_bytes()).get(
+        "connection", {}
+    )
     pilot.require(
         set(connection) == {"mode", "project_ref", "actor_sha256"}
         and connection.get("mode") == "LOCAL_SUPERVISED"
@@ -28,7 +30,12 @@ def connection_scope(folder):
 
 
 def run_private_input(
-    folder, phase, raw, *, sender=pilot.previous.request_once, validate_scope=connection_scope
+    folder,
+    phase,
+    raw,
+    *,
+    sender=pilot.previous.request_once,
+    validate_scope=connection_scope,
 ):
     """A trusted SDK parent supplies its confirmed principal and official stored key.
 
@@ -45,27 +52,34 @@ def run_private_input(
         binding, actor = validate_scope(folder)  # No input/network before approval.
         payload = json.loads(raw)
         pilot.require(
-            isinstance(payload, dict) and set(payload) == {"application", "service_key"},
+            isinstance(payload, dict)
+            and set(payload) == {"application", "service_key"},
             "PILOT_INPUT_BLOCKED",
         )
         context, service = payload["application"], payload["service_key"]
         pilot.require(
-            isinstance(service, str) and 0 < len(service) <= 4096, "PILOT_KEY_TYPE_BLOCKED"
+            isinstance(service, str) and 0 < len(service) <= 4096,
+            "PILOT_KEY_TYPE_BLOCKED",
         )
         legacy = decode_claims(service)
         pilot.require(
             re.fullmatch(r"sb_secret_[A-Za-z0-9_-]{16,}", service)
             or (
-                legacy and legacy.get("role") == "service_role" and legacy.get("ref") == PROJECT_REF
+                legacy
+                and legacy.get("role") == "service_role"
+                and legacy.get("ref") == PROJECT_REF
             ),
             "PILOT_KEY_TYPE_BLOCKED",
         )
 
         def approved_scope(folder):
             current, current_actor = validate_scope(folder)
-            pilot.require(current == binding and current_actor == actor, "PILOT_SOURCE_CHANGED")
             pilot.require(
-                process_input(json.dumps(context).encode()).get("status") == "WAITING_FINAL_SCOPE"
+                current == binding and current_actor == actor, "PILOT_SOURCE_CHANGED"
+            )
+            pilot.require(
+                process_input(json.dumps(context).encode()).get("status")
+                == "WAITING_FINAL_SCOPE"
                 and hashlib.sha256(context["user_uuid"].encode()).hexdigest() == actor,
                 "PILOT_ACTOR_BLOCKED",
             )
@@ -96,32 +110,50 @@ def run_private_input(
         result = pilot.execute(
             folder, phase, principals, transport=send, validate_scope=approved_scope
         )
-        return {key: result[key] for key in ("status", "counts", "error_code") if key in result}
+        return {
+            key: result[key]
+            for key in ("status", "counts", "error_code")
+            if key in result
+        }
     except Exception:
         return {"status": "BLOCKED", "error_code": "PILOT_CONNECTION_BLOCKED"}
 
 
 def main(argv=None, input_stream=None, output_stream=None):
     output = output_stream or sys.stdout
-    parser = argparse.ArgumentParser(description="Supervised Storage phase; private stdin only")
+    parser = argparse.ArgumentParser(
+        description="Supervised Storage phase; private stdin only", exit_on_error=False
+    )
     parser.add_argument("--live", action="store_true")
-    parser.add_argument("--phase", choices=("exercise", "reconcile", "cleanup"), required=True)
+    parser.add_argument(
+        "--phase", choices=("exercise", "reconcile", "cleanup"), required=True
+    )
     parser.add_argument("--scope", type=Path, required=True)
-    args = parser.parse_args(argv)
     result = {"status": "BLOCKED", "error_code": "PILOT_CONNECTION_BLOCKED"}
-    if args.live:
+    try:
+        args, extra = parser.parse_known_args(argv)
+    except argparse.ArgumentError:
+        output.write(json.dumps(result) + "\n")
+        output.flush()
+        return 1
+    if args.live and not extra:
         try:
-            connection_scope(args.scope)  # Fail closed before opening the private input pipe.
+            connection_scope(
+                args.scope
+            )  # Fail closed before opening the private input pipe.
             source = input_stream or sys.stdin.buffer
             if not source.isatty():
-                result = run_private_input(args.scope, args.phase, source.read(MAX_INPUT + 1))
+                result = run_private_input(
+                    args.scope, args.phase, source.read(MAX_INPUT + 1)
+                )
         except Exception:
             pass
     output.write(json.dumps(result) + "\n")
     output.flush()
     return (
         0
-        if result["status"] in {"WAITING_RECONCILE", "READY_CLEANUP", "STORAGE_CLEAN_SQL_PENDING"}
+        if result["status"]
+        in {"WAITING_RECONCILE", "READY_CLEANUP", "STORAGE_CLEAN_SQL_PENDING"}
         else 1
     )
 

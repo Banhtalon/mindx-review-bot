@@ -175,6 +175,16 @@ def test_cli_without_live_does_not_read_input_or_check_scope(tmp_path):
     assert json.loads(output.getvalue())["status"] == "BLOCKED"
 
 
+@pytest.mark.parametrize("field", ["--unknown", "--phase"])
+def test_cli_rejects_bad_arguments_without_reflecting_values(tmp_path, field, capsys):
+    private = "private-synthetic-value"
+    args = ["--phase", "exercise", "--scope", str(tmp_path), field, private]
+    output = io.StringIO()
+    assert connection.main(args, io.BytesIO(b""), output) == 1
+    captured = capsys.readouterr()
+    assert private not in captured.out + captured.err + output.getvalue()
+
+
 def test_connection_scope_rejects_missing_connection_binding(setup, monkeypatch):
     folder, _, _, _, validate = setup
     monkeypatch.setattr(connection.pilot, "check_scope", validate)
