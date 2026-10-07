@@ -9,7 +9,7 @@ import {createAppSession, APP_PROJECT_URL} from './lib/app_session.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PYTHON = 'C:\\Users\\QQ\\AppData\\Local\\Programs\\Python\\Python312\\python.exe';
-const GIT = 'C:\\Program Files\\Git\\cmd\\git.exe';
+const GIT = 'D:\\Git\\cmd\\git.exe';
 const RECEIVER = resolve(ROOT, 'scripts/api_chain_session.py');
 const FOLDER = resolve(ROOT, '.workflow-local/api-chain-session');
 const ENV = Object.fromEntries(['SystemRoot', 'WINDIR'].filter(name => process.env[name]).map(name => [name, process.env[name]]));
