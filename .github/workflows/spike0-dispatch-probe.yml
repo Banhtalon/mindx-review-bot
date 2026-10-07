@@ -15,6 +15,11 @@ on:
         options:
           - sync_teaching
           - read_lms_pending
+      recover_from_run:
+        description: Optional pinned failure before worker claim (37578920147 only)
+        required: false
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -83,6 +88,7 @@ jobs:
 
       - name: Verify exact fixed-job dispatch history
         env:
+          RECOVER_FROM_RUN: ${{ inputs.recover_from_run }}
           MINDX_API_CHAIN_PILOT_APPROVAL_SHA: ${{ vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA }}
           GITHUB_TOKEN: ${{ github.token }}
           JOB_ID: ${{ inputs.job_id }}
@@ -90,6 +96,7 @@ jobs:
         run: >-
           uv run --project apps/browser-runner python scripts/api_chain_synthetic_pilot.py
           --preflight --receipt .workflow-local/api-chain-synthetic/receipt.json
+          --recover-from-run "$RECOVER_FROM_RUN"
 
       - name: Run one fixed synthetic API lease chain
         env:

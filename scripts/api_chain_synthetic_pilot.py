@@ -31,7 +31,6 @@ from storage_synthetic_pilot import request_once  # noqa: E402
 from mindx_runner.supabase_client import HttpResponse, SupabaseRunnerClient  # noqa: E402
 
 REPOSITORY = "Banhtalon/mindx-review-bot"
-WORKFLOW = "spike0-dispatch-probe"
 WORKFLOW_FILE = "spike0-dispatch-probe.yml"
 APPROVAL = "MINDX_API_CHAIN_PILOT_APPROVAL_SHA"
 BASE_URL = "https://gnvzjvgfsxfjgldatbwt.supabase.co"
@@ -39,6 +38,7 @@ BASE_ORIGIN = "https://gnvzjvgfsxfjgldatbwt.supabase.co"
 WORKSPACE_ID = "50318d02-6840-457d-b5a6-0870e7a308a4"
 WORKSPACE_NAME = "phase2-api-chain-synthetic-20261006-r1"
 JOB_ID = "a3fed449-7fac-422f-a3a7-9b22be678c12"
+RUN_NAME = f"spike0 synthetic {JOB_ID}"
 JOB_TYPE = "sync_teaching"
 IDEMPOTENCY_KEY = "phase2-api-chain-20261006-r1"
 PAYLOAD = {"synthetic": True, "pilot_id": IDEMPOTENCY_KEY, "case": "success"}
@@ -49,6 +49,40 @@ HISTORY_URL = (
 )
 MAX_HISTORY_RUNS = 100
 MAX_RESPONSE_BYTES = 32_768
+RECOVERY_RESPONSE_BYTES = 65_536
+RECOVERY_RUN_ID = 37_578_920_147
+WORKFLOW_ID = 332_430_198
+RECOVERY_CONTRACT_SHA = "c9029eefcea8951bdefda0cfa56b03229fd7ed08884a75087e159cff8ac5b05e"
+RECOVERY_OLD_RUN = {
+    "id": RECOVERY_RUN_ID,
+    "name": RUN_NAME,
+    "display_title": RUN_NAME,
+    "path": f".github/workflows/{WORKFLOW_FILE}",
+    "head_sha": "1855c37a6f1347cd70d14f9b9eb6eec52596823a",
+    "head_branch": "main",
+    "event": "workflow_dispatch",
+    "run_attempt": 1,
+    "run_number": 2,
+    "workflow_id": WORKFLOW_ID,
+    "status": "completed",
+    "conclusion": "failure",
+}
+RECOVERY_RUNTIME_STEPS = [
+    (1, "Set up job", "success"),
+    (2, "Checkout approved source without persisted credentials", "success"),
+    (3, "Set up uv", "success"),
+    (4, "Install the locked Python runner", "success"),
+    (5, "Verify exact fixed-job dispatch history", "failure"),
+    (6, "Run one fixed synthetic API lease chain", "skipped"),
+    (7, "Preserve the safe attempted-operation receipt", "success"),
+    (13, "Post Set up uv", "skipped"),
+    (14, "Post Checkout approved source without persisted credentials", "success"),
+    (15, "Complete job", "success"),
+]
+RECOVERY_JOBS_URL = (
+    f"https://api.github.com/repos/{REPOSITORY}/actions/runs/{RECOVERY_RUN_ID}"
+    "/attempts/1/jobs?per_page=100"
+)
 HOLD_SECONDS = 650
 WALL_SECONDS = 720
 HEARTBEAT_SECONDS = 30
@@ -146,23 +180,90 @@ def context(environment: dict[str, str], *, preflight: bool = False) -> tuple[st
     return head, run_id
 
 
-def history_once(token: str) -> HttpResponse:
+def history_once(token: str, *, recovery: bool = False) -> HttpResponse:
+    return github_once(token, HISTORY_URL, recovery=recovery)
+
+
+def jobs_once(token: str) -> HttpResponse:
+    return github_once(token, RECOVERY_JOBS_URL, recovery=True)
+
+
+def github_once(token: str, url: str, *, recovery: bool) -> HttpResponse:
     return request_once(
         "GET",
-        HISTORY_URL,
+        url,
         {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2026-03-10",
         },
         None,
+        max_response_bytes=RECOVERY_RESPONSE_BYTES if recovery else MAX_RESPONSE_BYTES,
     )
+
+
+def recovery_proof() -> dict[str, object]:
+    return {
+        "old_run": dict(RECOVERY_OLD_RUN),
+        "runtime_job_id": 112_653_972_649,
+        "runtime_steps": [list(step) for step in RECOVERY_RUNTIME_STEPS],
+        "worker_outcome": "SKIPPED_BEFORE_CLAIM",
+    }
+
+
+def proof_digest(proof: dict[str, object]) -> str:
+    return hashlib.sha256(json.dumps(proof, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def response_json(response: HttpResponse | bytes, limit: int) -> object:
+    if isinstance(response, HttpResponse):
+        require(response.status == 200, "PILOT_HISTORY_REJECTED")
+        raw = response.body
+    else:
+        raw = response
+    require(isinstance(raw, bytes) and len(raw) <= limit, "PILOT_HISTORY_INVALID")
+    return _unique_json(raw)
+
+
+def verify_old_jobs(value: object) -> None:
+    require(isinstance(value, dict) and type(value.get("total_count")) is int
+            and value["total_count"] == 2, "PILOT_OLD_JOBS_BLOCKED")
+    jobs = value.get("jobs")
+    require(isinstance(jobs, list) and len(jobs) == 2
+            and all(isinstance(job, dict) for job in jobs), "PILOT_OLD_JOBS_BLOCKED")
+    expected_jobs = {
+        "validate": (112_653_943_973, "success", [
+            (1, "Set up job", "success"),
+            (2, "Validate synthetic dispatch input", "success"),
+            (3, "Complete job", "success"),
+        ]),
+        "runtime": (112_653_972_649, "failure", RECOVERY_RUNTIME_STEPS),
+    }
+    require({job.get("name") for job in jobs} == set(expected_jobs), "PILOT_OLD_JOBS_BLOCKED")
+    for job in jobs:
+        job_id, conclusion, expected_steps = expected_jobs[job["name"]]
+        require(type(job.get("id")) is int and job["id"] == job_id
+                and type(job.get("run_id")) is int and job["run_id"] == RECOVERY_RUN_ID
+                and job.get("head_sha") == RECOVERY_OLD_RUN["head_sha"]
+                and job.get("status") == "completed"
+                and job.get("conclusion") == conclusion, "PILOT_OLD_JOBS_BLOCKED")
+        steps = job.get("steps")
+        require(isinstance(steps, list) and len(steps) == len(expected_steps),
+                "PILOT_OLD_STEPS_BLOCKED")
+        for step, expected in zip(steps, expected_steps, strict=True):
+            require(isinstance(step, dict) and type(step.get("number")) is int
+                    and step.get("status") == "completed"
+                    and (step.get("number"), step.get("name"), step.get("conclusion")) == expected,
+                    "PILOT_OLD_STEPS_BLOCKED")
 
 
 def preflight(
     environment: dict[str, str],
     file: Path,
-    transport=history_once,
+    transport=None,
+    *,
+    recover_from_run: str | None = None,
+    jobs_transport=None,
 ) -> dict[str, object]:
     receipt: dict[str, object] = {
         "status": "PREFLIGHT_STARTED",
@@ -181,18 +282,20 @@ def preflight(
 
     try:
         head, run_id = context(environment, preflight=True)
+        require(recover_from_run in {None, str(RECOVERY_RUN_ID)}, "PILOT_RECOVERY_BLOCKED")
+        recovery = recover_from_run is not None
+        require(not recovery or int(run_id) != RECOVERY_RUN_ID, "PILOT_RECOVERY_BLOCKED")
         receipt.update(head=head, run_id=run_id, job_id=JOB_ID, job_type=JOB_TYPE)
+        if recovery:
+            receipt.update(mode="RECOVERY", contract_sha256=RECOVERY_CONTRACT_SHA,
+                           recover_from_run=RECOVERY_RUN_ID)
         receipt["history_reads"] = 1
         receipt["history_outcome"] = "UNKNOWN"
         persist(file, receipt)  # The read is consumed before its only send.
-        response = transport(environment["GITHUB_TOKEN"])
-        if isinstance(response, HttpResponse):
-            require(response.status == 200, "PILOT_HISTORY_REJECTED")
-            raw = response.body
-        else:
-            raw = response
-        require(isinstance(raw, bytes) and len(raw) <= MAX_RESPONSE_BYTES, "PILOT_HISTORY_INVALID")
-        history = _unique_json(raw)
+        response = (transport or (lambda token: history_once(token, recovery=recovery)))(
+            environment["GITHUB_TOKEN"])
+        limit = RECOVERY_RESPONSE_BYTES if recovery else MAX_RESPONSE_BYTES
+        history = response_json(response, limit)
         require(isinstance(history, dict), "PILOT_HISTORY_INVALID")
         runs = history.get("workflow_runs")
         total = history.get("total_count")
@@ -203,20 +306,37 @@ def preflight(
             and len(runs) == total,
             "PILOT_HISTORY_INCOMPLETE",
         )
+        if recovery:
+            require(all(isinstance(item, dict) and type(item.get("id")) is int
+                        and item["id"] > 0 for item in runs)
+                    and len({item["id"] for item in runs}) == len(runs),
+                    "PILOT_HISTORY_INCOMPLETE")
         matches = [
             run
             for run in runs
             if isinstance(run, dict)
-            and isinstance(run.get("display_title"), str)
-            and JOB_ID in run["display_title"]
+            and ((isinstance(run.get("display_title"), str) and JOB_ID in run["display_title"])
+                 or (recovery and isinstance(run.get("name"), str) and JOB_ID in run["name"]))
         ]
-        require(len(matches) == 1, "PILOT_HISTORY_AMBIGUOUS")
-        run = matches[0]
+        require(len(matches) == (2 if recovery else 1), "PILOT_HISTORY_AMBIGUOUS")
+        if recovery:
+            old = [run for run in matches if run.get("id") == RECOVERY_RUN_ID]
+            require(len(old) == 1 and all(
+                type(old[0].get(key)) is type(expected) and old[0][key] == expected
+                for key, expected in RECOVERY_OLD_RUN.items()), "PILOT_OLD_RUN_BLOCKED")
+            current = [run for run in matches if run.get("id") != RECOVERY_RUN_ID]
+            require(len(current) == 1, "PILOT_HISTORY_AMBIGUOUS")
+            run = current[0]
+            require(type(run.get("workflow_id")) is int and run["workflow_id"] == WORKFLOW_ID,
+                    "PILOT_HISTORY_CONTEXT_MISMATCH")
+        else:
+            run = matches[0]
         path = run.get("path")
         require(
             type(run.get("id")) is int
             and run["id"] == int(run_id)
-            and run.get("name") == WORKFLOW
+            and run.get("name") == RUN_NAME
+            and run.get("display_title") == RUN_NAME
             and run.get("head_sha") == head
             and run.get("head_branch") == "main"
             and run.get("event") == "workflow_dispatch"
@@ -227,9 +347,19 @@ def preflight(
             and path == f".github/workflows/{WORKFLOW_FILE}",
             "PILOT_HISTORY_CONTEXT_MISMATCH",
         )
+        if recovery:
+            require(run["run_number"] > RECOVERY_OLD_RUN["run_number"],
+                    "PILOT_HISTORY_CONTEXT_MISMATCH")
+            receipt["history_reads"] = 2
+            persist(file, receipt)  # Consume the second read before its only send.
+            verify_old_jobs(response_json(
+                (jobs_transport or jobs_once)(environment["GITHUB_TOKEN"]), limit))
+            proof = recovery_proof()
+            receipt.update(recovery_proof=proof, recovery_proof_sha256=proof_digest(proof))
         receipt.update(
             status="PREFLIGHT_PASS",
-            history_outcome="ONE_FIXED_JOB_RUN_CONFIRMED",
+            history_outcome="PINNED_FAILURE_BEFORE_CLAIM_CONFIRMED" if recovery
+            else "ONE_FIXED_JOB_RUN_CONFIRMED",
             run_number=run["run_number"],
         )
     except PilotBlocked as error:
@@ -242,23 +372,48 @@ def preflight(
     return receipt
 
 
-def consume_preflight(environment: dict[str, str], file: Path) -> dict[str, object]:
+def validate_preflight_receipt(
+    environment: dict[str, str], receipt: object, *, status: str
+) -> None:
     head, run_id = context(environment)
-    try:
-        receipt = json.loads(file.read_text(encoding="utf-8"))
-    except Exception as error:
-        raise PilotBlocked("PILOT_PREFLIGHT_INVALID") from error
     require(
         isinstance(receipt, dict)
-        and receipt.get("status") == "PREFLIGHT_PASS"
+        and receipt.get("status") == status
         and receipt.get("head") == head
         and receipt.get("run_id") == run_id
         and receipt.get("job_id") == JOB_ID
-        and receipt.get("job_type") == JOB_TYPE
-        and receipt.get("history_reads") == 1
-        and receipt.get("history_outcome") == "ONE_FIXED_JOB_RUN_CONFIRMED",
+        and receipt.get("job_type") == JOB_TYPE,
         "PILOT_PREFLIGHT_REQUIRED",
     )
+    require(type(receipt.get("history_reads")) is int, "PILOT_PREFLIGHT_REQUIRED")
+    if receipt.get("mode") == "RECOVERY":
+        proof = recovery_proof()
+        require(receipt.get("history_reads") == 2
+                and receipt.get("history_outcome") == "PINNED_FAILURE_BEFORE_CLAIM_CONFIRMED"
+                and type(receipt.get("recover_from_run")) is int
+                and receipt["recover_from_run"] == RECOVERY_RUN_ID
+                and int(run_id) != RECOVERY_RUN_ID
+                and receipt.get("contract_sha256") == RECOVERY_CONTRACT_SHA
+                and receipt.get("recovery_proof") == proof
+                and receipt.get("recovery_proof_sha256") == proof_digest(proof)
+                and proof_digest(receipt["recovery_proof"]) == proof_digest(proof)
+                and type(receipt.get("run_number")) is int
+                and receipt["run_number"] > RECOVERY_OLD_RUN["run_number"],
+                "PILOT_RECOVERY_RECEIPT_BLOCKED")
+    else:
+        require(receipt.get("mode") is None and receipt.get("history_reads") == 1
+                and receipt.get("history_outcome") == "ONE_FIXED_JOB_RUN_CONFIRMED"
+                and not any(key in receipt for key in (
+                    "recover_from_run", "contract_sha256", "recovery_proof", "recovery_proof_sha256"
+                )), "PILOT_PREFLIGHT_REQUIRED")
+
+
+def consume_preflight(environment: dict[str, str], file: Path) -> dict[str, object]:
+    try:
+        receipt = _unique_json(file.read_bytes())
+    except Exception as error:
+        raise PilotBlocked("PILOT_PREFLIGHT_INVALID") from error
+    validate_preflight_receipt(environment, receipt, status="PREFLIGHT_PASS")
     receipt.update(
         status="WORKER_STARTED",
         request_count=0,
@@ -667,15 +822,8 @@ def _worker(environment: dict[str, str], file: Path, chromium: str) -> dict[str,
     require(environment.get("GITHUB_ACTIONS") == "true", "PILOT_HOST_REQUIRED")
     require(Path(chromium).is_file(), "PILOT_CHROMIUM_REQUIRED")
     require(importlib.metadata.version("browser-use") == "0.13.6", "PILOT_SDK_CHANGED")
-    receipt = json.loads(file.read_text(encoding="utf-8"))
-    require(
-        isinstance(receipt, dict)
-        and receipt.get("status") == "WORKER_STARTED"
-        and receipt.get("head") == head
-        and receipt.get("run_id") == run_id
-        and receipt.get("job_id") == JOB_ID,
-        "PILOT_PREFLIGHT_REQUIRED",
-    )
+    receipt = _unique_json(file.read_bytes())
+    validate_preflight_receipt(environment, receipt, status="WORKER_STARTED")
     require(
         cli_defaults_ok(),
         "PILOT_RUNNER_DEFAULTS_CHANGED",
@@ -952,11 +1100,14 @@ def main(argv: list[str] | None = None) -> int:
     modes.add_argument("--worker", action="store_true")
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--chromium")
+    parser.add_argument("--recover-from-run", choices=["", str(RECOVERY_RUN_ID)], default="")
     args = parser.parse_args(argv)
+    if args.recover_from_run and not args.preflight:
+        parser.error("--recover-from-run requires --preflight")
     try:
         file = args.receipt.resolve()
         if args.preflight:
-            result = preflight(dict(os.environ), file)
+            result = preflight(dict(os.environ), file, recover_from_run=args.recover_from_run or None)
             print(json.dumps({"status": result["status"], "error_code": result.get("error_code")}))
             return 0 if result["status"] == "PREFLIGHT_PASS" else 1
         if args.worker:
