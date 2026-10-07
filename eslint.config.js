@@ -39,19 +39,5 @@ export default tseslint.config(
       },
     },
   },
-  {
-    files: ["scripts/app_session_host.mjs"],
-    languageOptions: {
-      globals: {
-        Buffer: "readonly",
-        clearTimeout: "readonly",
-        process: "readonly",
-        setImmediate: "readonly",
-        setTimeout: "readonly",
-        URL: "readonly",
-        URLSearchParams: "readonly",
-      },
-    },
-  },
   ...tseslint.configs.recommended,
 );

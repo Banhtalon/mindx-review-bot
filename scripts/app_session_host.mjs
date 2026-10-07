@@ -1,9 +1,12 @@
+import {Buffer} from 'node:buffer';
 import {spawn} from 'node:child_process';
 import {randomBytes, timingSafeEqual} from 'node:crypto';
 import {existsSync} from 'node:fs';
 import http from 'node:http';
 import {dirname, resolve} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import process from 'node:process';
+import {clearTimeout, setImmediate, setTimeout} from 'node:timers';
+import {fileURLToPath, URL, URLSearchParams} from 'node:url';
 import {createAppSession, APP_PROJECT_REF, APP_PROJECT_URL} from './lib/app_session.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
@@ -204,30 +207,20 @@ export async function startAppSessionHost({mode = 'preview', liveConfig} = {}) {
     }
     if (tried) return write(res, 409, '<!doctype html><title>Đã dùng lượt thử</title><p>Công cụ chỉ nhận một lượt đăng nhập.</p>');
     tried = true;
-    let email = fields.email;
-    let password = fields.password;
-    if (!email || email.length > 254 || !password || password.length > 1024) {
+    if (!fields.email || fields.email.length > 254 || !fields.password || fields.password.length > 1024) {
       status = mode === 'preview' ? 'PREVIEW_COMPLETE' : 'WAITING_AUTH_CAPABILITY';
-      /* eslint-disable no-useless-assignment -- Preserve best-effort release of local credential references. */
-      email = '';
-      password = '';
-      /* eslint-enable no-useless-assignment */
       fields.email = '';
       fields.password = '';
       return write(res, 400, html({title: 'Thông tin chưa hợp lệ', note: 'Email hoặc mật khẩu trống hay quá dài.', csrf, showLogin: false}));
     }
     if (mode === 'preview') {
       status = 'PREVIEW_COMPLETE';
-      /* eslint-disable no-useless-assignment -- Preserve best-effort release of local credential references. */
-      email = '';
-      password = '';
-      /* eslint-enable no-useless-assignment */
       fields.email = '';
       fields.password = '';
       return write(res, 200, html({title: 'Mô phỏng hoàn tất', note: resultText(mode, status), csrf, showLogin: false}));
     }
     try {
-      const verified = await auth.login({email, password});
+      const verified = await auth.login({email: fields.email, password: fields.password});
       if (closed) return write(res, 410, '<!doctype html><title>Đã đóng</title>');
       principal = verified;
       const capability = await runCapabilityCheck(principal, {children});
@@ -243,10 +236,6 @@ export async function startAppSessionHost({mode = 'preview', liveConfig} = {}) {
       status = 'WAITING_AUTH_CAPABILITY';
       principal = null;
     } finally {
-      /* eslint-disable no-useless-assignment -- Preserve best-effort release of local credential references. */
-      email = '';
-      password = '';
-      /* eslint-enable no-useless-assignment */
       fields.email = '';
       fields.password = '';
     }
