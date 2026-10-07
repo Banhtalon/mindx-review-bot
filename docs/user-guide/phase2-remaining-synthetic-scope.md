@@ -94,7 +94,7 @@ hậu quả ghi máy chủ. Chưa có quyền chạy, cấu hình kết nối ho
 
 Tệp `scripts/storage_failure_pilot.py` tái dùng cipher/client, fixture công khai,
 kiểm bản mã và cách lưu biên nhận hiện có; không thêm thư viện hoặc workflow.
-Gọi trực tiếp bằng Python chỉ in trạng thái chuẩn bị, không kết nối mạng.
+Gọi trực tiếp công cụ thử bằng Python chỉ in trạng thái chuẩn bị, không kết nối mạng.
 Hàm `execute` cần kết nối được cung cấp riêng và bản duyệt đúng nguồn;
 không tự lấy khóa từ môi trường hoặc tự dùng quyền của công cụ cũ.
 
@@ -119,9 +119,39 @@ hai bước không mở lượt còn lại. Không có dọn tự động khi ph
 Kiểm tại máy: từ `apps/browser-runner`, AI chạy
 `C:\Users\QQ\AppData\Local\Programs\Python\Python312\python.exe -m pytest tests/unit/test_storage_failure_pilot.py`.
 Các kết nối trong bài kiểm tra hoàn toàn giả. Chưa có quan sát lỗi trên máy chủ.
-Chưa tạo workspace, chưa cấp bản duyệt hay kích hoạt lượt mới; chưa chọn nơi
-chạy/khóa cơ chế lấy tài khoản chính thức và kết nối không retry/redirect.
+Chưa tạo workspace, chưa cấp bản duyệt hay kích hoạt lượt mới.
 Phần quản lý SQL/so dữ liệu bảo vệ và nghiệm thu thật vẫn cần chuẩn bị riêng.
+
+## Kết nối có giám sát đã chuẩn bị
+
+`scripts/storage_failure_connection.py` nối từ tiến trình riêng trên máy Owner
+tới đúng Supabase project đã chọn. Tái dùng kết nối HTTP hiện có: một lần gửi,
+không thử lại/chuyển trang, tối đa30 giây và32768byte phản hồi. Không thêm
+workflow GitHub hoặc sửa chức năng sản phẩm. Chốt mã dùng Git tương ứng trên
+Windows/Linux để kiểm tra trên GitHub vẫn kiểm đúng bản và cây mã sạch.
+
+Mỗi bước cần `--live`, `--phase` và `--scope` rõ ràng. AI dùng tiến trình cha
+đã được duyệt để đưa khóa từ kho tài khoản chính thức và phiên do SDK xác nhận
+qua private stdin (kênh nhập giữa hai tiến trình). Không đưa mật khẩu, khóa
+hoặc phiên vào câu lệnh, biến môi trường, tệp, chat, đầu ra hay nhật ký.
+Chưa có `approval.json` thực thi; không mở hay đăng nhập tài khoản trong đợt này.
+
+Bản duyệt cần thêm `connection`: mode `LOCAL_SUPERVISED`, project_ref đúng đích
+và actor_sha256 của tài khoản được chọn. Thiếu bản duyệt/đổi nguồn/tài khoản
+khác/phiên hết hạn đều chặn trước gửi. Phiên ứng dụng phải do helper SDK hiện có
+đăng nhập/getUser một lần; attestation qua kênh riêng là sự tin cậy vào helper,
+không thay cho xác minh chữ ký JWT tại máy chủ. Adapter không gọi Auth thêm.
+Tiến trình cha cần giữ cùng phiên trong bộ nhớ để gọi ba bước riêng; phiên hết
+hạn phải dừng, không tự đăng nhập hay xin thêm lượt. Đóng tiến trình bỏ tham chiếu
+thông tin riêng. Adapter chỉ trả trạng thái/số lượt/mã lỗi an toàn.
+
+Khóa `sb_*` gửi ở `apikey`; `Authorization` chỉ giữ JWT khi phù hợp, không gửi
+khóa không phải JWT làm Bearer. Không đổi khóa đang dùng hoặc cấu hình máy chủ.
+Thứ tự vận hành sau này: duyệt đúng phạm vi/nguồn và SQL chuẩn bị → Owner đăng
+nhập qua helper riêng → AI truyền khóa/phiên bằng kênh riêng → từng bước được
+gọi rõ ràng → đối soát Storage/SQL và dữ liệu bảo vệ. Chuẩn bị adapter không cấp
+quyền cho các bước này. Hiện chưa có tài khoản/khóa trong tiến trình hoặc lượt
+thử hosted; P2-D2/Spike0/Phase2 tiếp tục mở.
 
 Không cần sửa cấu trúc dữ liệu, triển khai lại Edge, đổi khóa thật, bật lịch,
 đọc học viên, mở trình duyệt thật hoặc nhập #41 để thực hiện các bài tại máy.

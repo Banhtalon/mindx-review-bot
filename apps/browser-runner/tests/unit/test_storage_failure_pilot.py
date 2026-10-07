@@ -1,4 +1,5 @@
 """Public fixtures and fake transport only; no Supabase calls."""
+
 import importlib.util
 import json
 import subprocess
@@ -6,12 +7,14 @@ import sys
 from pathlib import Path
 
 import pytest
-
-from test_storage_synthetic_pilot import SyntheticServer, pilot as old
+from test_storage_synthetic_pilot import SyntheticServer
+from test_storage_synthetic_pilot import pilot as old
 
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "scripts"))
-SPEC = importlib.util.spec_from_file_location("storage_failure_pilot", ROOT / "scripts/storage_failure_pilot.py")
+SPEC = importlib.util.spec_from_file_location(
+    "storage_failure_pilot", ROOT / "scripts/storage_failure_pilot.py"
+)
 pilot = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(pilot)
 
@@ -23,9 +26,13 @@ def setup(tmp_path, monkeypatch):
     (tmp_path / "TASK.md").write_text("synthetic contract")
     (tmp_path / "approval.json").write_text(json.dumps({"synthetic": True}))
     server = SyntheticServer()
-    principals = {role: {"apikey": "public-synthetic-" + role,
-                         "Authorization": "Bearer public-synthetic-" + role}
-                  for role in ("service", "anon", "authenticated")}
+    principals = {
+        role: {
+            "apikey": "public-synthetic-" + role,
+            "Authorization": "Bearer public-synthetic-" + role,
+        }
+        for role in ("service", "anon", "authenticated")
+    }
 
     def validate(folder):
         return "a" * 40, pilot.digest(folder / "approval.json")
@@ -36,7 +43,11 @@ def setup(tmp_path, monkeypatch):
             return pilot.HttpResponse(403, b'{"code":"42501"}')
         if url.endswith(pilot.ACTIVE_ROUTE):
             server.calls.append((method, url))
-            rows = [{"object_path": v["object_path"]} for v in server.versions if v["status"] == "active"]
+            rows = [
+                {"object_path": v["object_path"]}
+                for v in server.versions
+                if v["status"] == "active"
+            ]
             return pilot.HttpResponse(200, json.dumps(rows).encode())
         if headers.get("x-upsert") == "true":
             server.calls.append((method, url))
@@ -47,7 +58,9 @@ def setup(tmp_path, monkeypatch):
         return server(method, url, headers, body)
 
     def run(phase, sender=transport, validator=validate):
-        return pilot.execute(tmp_path, phase, principals, transport=sender, validate_scope=validator)
+        return pilot.execute(
+            tmp_path, phase, principals, transport=sender, validate_scope=validator
+        )
 
     return tmp_path, server, run, transport, validate
 
@@ -64,9 +77,15 @@ def test_remaining_failure_phases_bounded_and_not_automatic(setup):
     assert final["status"] == "STORAGE_CLEAN_SQL_PENDING"
     assert final["counts"] == {"read": 40, "download": 7, "upload": 3, "rpc": 5, "delete": 1}
     assert set(final["checks"]) == {
-        "SIMULATED_ACTIVATION_RESPONSE_LOSS", "MISSING_KEY_ZERO_NETWORK",
-        "WRONG_KEY_REJECTED", "WRONG_VERSION_REJECTED", "ACTIVE_LOADER_OLD_KEY_REJECTED",
-        "HTTP_DENIAL_STATE_UNCHANGED", "STORED_TAMPER_REJECTED", "STORAGE_OBJECTS_ZERO_METADATA_SQL_PENDING"}
+        "SIMULATED_ACTIVATION_RESPONSE_LOSS",
+        "MISSING_KEY_ZERO_NETWORK",
+        "WRONG_KEY_REJECTED",
+        "WRONG_VERSION_REJECTED",
+        "ACTIVE_LOADER_OLD_KEY_REJECTED",
+        "HTTP_DENIAL_STATE_UNCHANGED",
+        "STORED_TAMPER_REJECTED",
+        "STORAGE_OBJECTS_ZERO_METADATA_SQL_PENDING",
+    }
     assert not server.objects and all(v["status"] == "revoked" for v in server.versions)
     raw = (folder / "receipt.json").read_text()
     assert "Bearer" not in raw and "public-synthetic-service" not in raw
@@ -77,12 +96,12 @@ def test_no_repeat_or_skipped_reconciliation(setup):
     run("exercise")
     before, count = (folder / "receipt.json").read_bytes(), len(server.calls)
     assert run("exercise")["error_code"] == "PILOT_ALREADY_ATTEMPTED"
-    with pytest.raises(Exception):
+    with pytest.raises(pilot.previous.PilotBlocked):
         run("cleanup")
     assert (folder / "receipt.json").read_bytes() == before and len(server.calls) == count
     run("reconcile")
     before, count = (folder / "receipt.json").read_bytes(), len(server.calls)
-    with pytest.raises(Exception):
+    with pytest.raises(pilot.previous.PilotBlocked):
         run("reconcile")
     assert (folder / "receipt.json").read_bytes() == before and len(server.calls) == count
 
@@ -108,7 +127,7 @@ def test_unknown_write_preserves_objects_without_retry(setup, phase):
     assert result["intents"][-1]["outcome"] == "UNKNOWN" and result["counts"]["delete"] == 0
     count = len(server.calls)
     if phase != "exercise":
-        with pytest.raises(Exception):
+        with pytest.raises(pilot.previous.PilotBlocked):
             run(phase)
     else:
         assert run(phase)["status"] == "BLOCKED"
@@ -164,10 +183,14 @@ def test_exact_request_allowlist():
         ("service", "POST", pilot.RESET_ROUTE, {**pilot.RESET_BODY, "target_site": "lms"}),
         ("service", "POST", "/storage/v1/object/browser-state/foreign", raws[0]),
     ]:
-        assert not pilot.allowed("rpc" if "rpc" in path else "delete", role, method, path, body, raws, tampered)
+        assert not pilot.allowed(
+            "rpc" if "rpc" in path else "delete", role, method, path, body, raws, tampered
+        )
 
 
-@pytest.mark.parametrize("response", [pilot.HttpResponse(200, b"[]"), pilot.HttpResponse(403, b'{"code":"unknown"}')])
+@pytest.mark.parametrize(
+    "response", [pilot.HttpResponse(200, b"[]"), pilot.HttpResponse(403, b'{"code":"unknown"}')]
+)
 def test_reset_denial_requires_explicit_permission_code(setup, response):
     _, server, run, transport, _ = setup
     run("exercise")
@@ -188,40 +211,59 @@ def test_changed_approval_before_next_phase_preserves_receipt(setup):
     run("exercise")
     before, count = (folder / "receipt.json").read_bytes(), len(server.calls)
     (folder / "approval.json").write_text(json.dumps({"synthetic": True, "revision": 2}))
-    with pytest.raises(Exception):
+    with pytest.raises(pilot.previous.PilotBlocked):
         run("reconcile")
     assert (folder / "receipt.json").read_bytes() == before and len(server.calls) == count
 
 
 def test_real_source_guard_approval_hash_head_and_dirty_tree(tmp_path):
+    from api_chain_continuation import GIT
+
     for name in pilot.SOURCES:
         target = tmp_path / name
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes((ROOT / name).read_bytes())
-    git = "D:/Git/cmd/git.exe"
+    git = GIT
 
     def command(*args):
-        return subprocess.run([git, *args], cwd=tmp_path, check=True, capture_output=True).stdout.decode().strip()
+        return (
+            subprocess.run([git, *args], cwd=tmp_path, check=True, capture_output=True)
+            .stdout.decode()
+            .strip()
+        )
 
     command("init")
     command("add", ".")
-    command("-c", "user.name=Synthetic", "-c", "user.email=synthetic@example.invalid", "commit", "-m", "synthetic source")
+    command(
+        "-c",
+        "user.name=Synthetic",
+        "-c",
+        "user.email=synthetic@example.invalid",
+        "commit",
+        "-m",
+        "synthetic source",
+    )
     folder = tmp_path / ".workflow-local"
     folder.mkdir()
     (folder / "TASK.md").write_text("synthetic contract")
-    scope = {"status": "EXACT_SCOPE_APPROVED", "workspace": pilot.WORKSPACE, "limits": pilot.LIMITS,
-             "contract_sha256": pilot.digest(folder / "TASK.md"), "head": command("rev-parse", "HEAD"),
-             "source_sha256": {name: pilot.digest(tmp_path / name) for name in pilot.SOURCES}}
+    scope = {
+        "status": "EXACT_SCOPE_APPROVED",
+        "workspace": pilot.WORKSPACE,
+        "limits": pilot.LIMITS,
+        "contract_sha256": pilot.digest(folder / "TASK.md"),
+        "head": command("rev-parse", "HEAD"),
+        "source_sha256": {name: pilot.digest(tmp_path / name) for name in pilot.SOURCES},
+    }
     (folder / "approval.json").write_text(json.dumps(scope))
     assert pilot.check_scope(folder, tmp_path)[0] == scope["head"]
     scope["head"] = "b" * 40
     (folder / "approval.json").write_text(json.dumps(scope))
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError, match="EXACT_HEAD_CHANGED"):
         pilot.check_scope(folder, tmp_path)
     scope["head"] = command("rev-parse", "HEAD")
     target = tmp_path / "scripts/storage_failure_pilot.py"
     target.write_bytes(target.read_bytes() + b"\n# changed source\n")
     scope["source_sha256"]["scripts/storage_failure_pilot.py"] = pilot.digest(target)
     (folder / "approval.json").write_text(json.dumps(scope))
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError, match="EXACT_HEAD_CHANGED"):
         pilot.check_scope(folder, tmp_path)  # Even updated hashes cannot approve a dirty tree.

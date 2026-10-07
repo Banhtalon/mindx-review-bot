@@ -18,6 +18,7 @@ PATHS = [f"{WORKSPACE}/teaching/{version}.json" for version in VERSIONS]
 LIMITS = {"read": 40, "download": 8, "upload": 3, "rpc": 5, "delete": 1}
 SOURCES = {
     "scripts/storage_failure_pilot.py", "scripts/storage_synthetic_pilot.py",
+    "scripts/storage_failure_connection.py",
     "scripts/api_chain_continuation.py", "scripts/api_chain_operator.py",
     "scripts/app_session_receiver.py",
     "apps/browser-runner/src/mindx_runner/browser_state.py",

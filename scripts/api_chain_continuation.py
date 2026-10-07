@@ -21,14 +21,14 @@ MEMBER_PATH = f'/rest/v1/workspace_members?workspace_id=eq.{o.WORKSPACE_ID}&sele
 SOURCES = {'scripts/app_session_host.mjs', 'scripts/lib/app_session.mjs',
            'scripts/app_session_receiver.py', 'scripts/api_chain_operator.py',
            'scripts/api_chain_session_host.mjs', 'scripts/api_chain_continuation.py'}
-GIT = 'D:/Git/cmd/git.exe'
+GIT = 'D:/Git/cmd/git.exe' if os.name == 'nt' else 'git'
 
 
 def check_source_head(root, approved):
     head = subprocess.run([GIT, 'rev-parse', 'HEAD'], cwd=root, capture_output=True,
-                          timeout=5, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+                          timeout=5, check=True, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     clean = subprocess.run([GIT, 'diff', '--quiet', 'HEAD'], cwd=root, capture_output=True,
-                           timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
+                           timeout=5, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
     if head.stdout.decode().strip() != approved or clean.returncode != 0:
         raise ValueError('EXACT_HEAD_CHANGED')
 
