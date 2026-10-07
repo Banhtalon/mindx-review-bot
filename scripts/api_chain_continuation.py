@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -20,13 +21,23 @@ MEMBER_PATH = f'/rest/v1/workspace_members?workspace_id=eq.{o.WORKSPACE_ID}&sele
 SOURCES = {'scripts/app_session_host.mjs', 'scripts/lib/app_session.mjs',
            'scripts/app_session_receiver.py', 'scripts/api_chain_operator.py',
            'scripts/api_chain_session_host.mjs', 'scripts/api_chain_continuation.py'}
+GIT = 'D:/Git/cmd/git.exe'
+
+
+def check_source_head(root, approved):
+    head = subprocess.run([GIT, 'rev-parse', 'HEAD'], cwd=root, capture_output=True,
+                          timeout=5, check=True, creationflags=subprocess.CREATE_NO_WINDOW)
+    clean = subprocess.run([GIT, 'diff', '--quiet', 'HEAD'], cwd=root, capture_output=True,
+                           timeout=5, creationflags=subprocess.CREATE_NO_WINDOW)
+    if head.stdout.decode().strip() != approved or clean.returncode != 0:
+        raise ValueError('EXACT_HEAD_CHANGED')
 
 
 def digest(file):
     return hashlib.sha256(file.read_bytes()).hexdigest()
 
 
-def check_scope(folder=FOLDER, root=ROOT):
+def check_scope(folder=FOLDER, root=ROOT, *, check_head=True):
     scope = json.loads((folder / 'approval.json').read_bytes())
     previous_file = folder.parent / 'operator-receipt.json'
     previous = json.loads(previous_file.read_bytes())
@@ -42,6 +53,8 @@ def check_scope(folder=FOLDER, root=ROOT):
     hashes = scope.get('source_sha256', {})
     if set(hashes) != SOURCES or any(digest(root / name) != sha for name, sha in hashes.items()):
         raise ValueError('SOURCE_BLOCKED')
+    if check_head:
+        check_source_head(root, scope.get('head'))
     return digest(folder / 'approval.json')
 
 
@@ -52,7 +65,7 @@ def persist(file, data, *, exclusive=False):
         os.fsync(stream.fileno())
 
 
-def execute(context, file, sender=o.http_request_once):
+def execute(context, file, sender=o.http_request_once, *, validate_scope=check_scope):
     if hashlib.sha256(context['user_uuid'].encode()).hexdigest() != ACTOR:
         raise ValueError('ACTOR_CHANGED')
     receipt = {'previous_receipt_sha256': digest(PREVIOUS), 'prior_operator_requests': 19,
@@ -63,6 +76,7 @@ def execute(context, file, sender=o.http_request_once):
     try:
         paths = (o.WORKSPACE_PATH, MEMBER_PATH, o.JOB_GET_PATH, o.EDGE_PATH)
         for ordinal, path in enumerate(paths):
+            validate_scope()  # Recheck approved HEAD/clean tree before each bounded send.
             positive = ordinal == 3
             method = 'POST' if positive else 'GET'
             body = o._canonical_body(o.EDGE_BODY) if positive else None
