@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import importlib
 import io
 import json
 import subprocess
@@ -11,8 +12,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Thread
 
 import pytest
-import storage_failure_connection as connection
 import test_storage_failure_pilot as cases
+
+connection = importlib.import_module("storage_failure_connection")
 
 
 @pytest.fixture
