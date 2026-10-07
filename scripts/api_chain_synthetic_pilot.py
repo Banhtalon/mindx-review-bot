@@ -31,7 +31,6 @@ from storage_synthetic_pilot import request_once  # noqa: E402
 from mindx_runner.supabase_client import HttpResponse, SupabaseRunnerClient  # noqa: E402
 
 REPOSITORY = "Banhtalon/mindx-review-bot"
-WORKFLOW = "spike0-dispatch-probe"
 WORKFLOW_FILE = "spike0-dispatch-probe.yml"
 APPROVAL = "MINDX_API_CHAIN_PILOT_APPROVAL_SHA"
 BASE_URL = "https://gnvzjvgfsxfjgldatbwt.supabase.co"
@@ -39,6 +38,7 @@ BASE_ORIGIN = "https://gnvzjvgfsxfjgldatbwt.supabase.co"
 WORKSPACE_ID = "50318d02-6840-457d-b5a6-0870e7a308a4"
 WORKSPACE_NAME = "phase2-api-chain-synthetic-20261006-r1"
 JOB_ID = "a3fed449-7fac-422f-a3a7-9b22be678c12"
+RUN_NAME = f"spike0 synthetic {JOB_ID}"
 JOB_TYPE = "sync_teaching"
 IDEMPOTENCY_KEY = "phase2-api-chain-20261006-r1"
 PAYLOAD = {"synthetic": True, "pilot_id": IDEMPOTENCY_KEY, "case": "success"}
@@ -216,7 +216,8 @@ def preflight(
         require(
             type(run.get("id")) is int
             and run["id"] == int(run_id)
-            and run.get("name") == WORKFLOW
+            and run.get("name") == RUN_NAME
+            and run.get("display_title") == RUN_NAME
             and run.get("head_sha") == head
             and run.get("head_branch") == "main"
             and run.get("event") == "workflow_dispatch"

@@ -59,8 +59,8 @@ def history_bytes(*runs, total=None):
 def current_run(**changes):
     run = {
         "id": 42,
-        "display_title": f"API chain synthetic {JOB_ID}",
-        "name": "spike0-dispatch-probe",
+        "display_title": f"spike0 synthetic {JOB_ID}",
+        "name": f"spike0 synthetic {JOB_ID}",
         "path": ".github/workflows/spike0-dispatch-probe.yml",
         "head_sha": HEAD,
         "head_branch": "main",
@@ -136,6 +136,42 @@ def test_history_guard_requires_a_complete_single_fixed_job_dispatch_not_run_num
     )
     assert blocked["status"] == "BLOCKED"
     assert blocked["history_reads"] == 1
+
+
+@pytest.mark.parametrize("changes", [
+    {"name": "spike0-dispatch-probe"},
+    {"display_title": f"unexpected {JOB_ID}"},
+    {"id": 43},
+    {"head_sha": "b" * 40},
+    {"head_branch": "other"},
+    {"event": "push"},
+    {"run_attempt": 2},
+    {"path": ".github/workflows/other.yml"},
+])
+def test_history_rejects_wrong_run_name_title_or_context(tmp_path, changes):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    result = pilot.preflight(
+        workflow_environment(), tmp_path / "receipt.json",
+        lambda _: history_bytes(current_run(**changes)),
+    )
+    assert result["status"] == "BLOCKED"
+    assert result["error_code"] == "PILOT_HISTORY_CONTEXT_MISMATCH"
+    assert result["history_reads"] == 1
+
+
+def test_history_still_blocks_duplicate_job_runs_and_receipt_reuse(tmp_path):
+    pilot = load_script("api_chain_synthetic_pilot.py")
+    sender = Mock(return_value=history_bytes(
+        current_run(id=41, status="completed", conclusion="failure"), current_run(),
+    ))
+    path = tmp_path / "receipt.json"
+    result = pilot.preflight(workflow_environment(), path, sender)
+    assert result["error_code"] == "PILOT_HISTORY_AMBIGUOUS"
+    original = path.read_bytes()
+    repeated = pilot.preflight(workflow_environment(), path, sender)
+    assert repeated["error_code"] == "PILOT_ALREADY_ATTEMPTED"
+    sender.assert_called_once()
+    assert path.read_bytes() == original
 
 
 def test_context_rejects_wrong_scope_before_history_send(tmp_path):
