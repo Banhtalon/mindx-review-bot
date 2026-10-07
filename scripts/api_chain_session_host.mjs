@@ -10,8 +10,10 @@ import {createAppSession, APP_PROJECT_URL} from './lib/app_session.mjs';
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const PYTHON = 'C:\\Users\\QQ\\AppData\\Local\\Programs\\Python\\Python312\\python.exe';
 const GIT = 'D:\\Git\\cmd\\git.exe';
-const RECEIVER = resolve(ROOT, 'scripts/api_chain_session.py');
-const FOLDER = resolve(ROOT, '.workflow-local/api-chain-session');
+const CONTINUE = process.argv[3] === '--continue';
+const MODULE = CONTINUE ? 'api_chain_continuation' : 'api_chain_session';
+const RECEIVER = resolve(ROOT, `scripts/${MODULE}.py`);
+const FOLDER = resolve(ROOT, '.workflow-local/api-chain-session', CONTINUE ? 'continuation' : '.');
 const ENV = Object.fromEntries(['SystemRoot', 'WINDIR'].filter(name => process.env[name]).map(name => [name, process.env[name]]));
 
 function checkApproval() {
@@ -19,7 +21,7 @@ function checkApproval() {
   const head = spawnSync(GIT, ['rev-parse', 'HEAD'], {cwd:ROOT, env:ENV, encoding:'utf8', windowsHide:true, timeout:5000});
   const clean = spawnSync(GIT, ['diff', '--quiet', 'HEAD'], {cwd:ROOT, env:ENV, windowsHide:true, timeout:5000});
   if (head.status !== 0 || clean.status !== 0 || approval.head !== head.stdout.trim()) throw new Error('APPROVAL');
-  const checked = spawnSync(PYTHON, ['-c', 'from api_chain_session import check_scope; check_scope()'], {
+  const checked = spawnSync(PYTHON, ['-c', `from ${MODULE} import check_scope; check_scope()`], {
     cwd:resolve(ROOT, 'scripts'), env:ENV, windowsHide:true, timeout:5000, stdio:'ignore',
   });
   if (checked.status !== 0) throw new Error('APPROVAL');
@@ -58,7 +60,7 @@ function connect(principal, {children}) {
 }
 
 async function main() {
-  if (process.argv.length !== 3 || process.argv[2] !== '--live') throw new Error('ARGS');
+  if (process.argv[2] !== '--live' || process.argv.length !== (CONTINUE ? 4 : 3)) throw new Error('ARGS');
   checkApproval();
   if (process.stdin.isTTY) process.stdin.setRawMode(true);
   const deadline = setTimeout(() => {process.stderr.write('SESSION_LAUNCH_BLOCKED\n'); process.exit(1);}, 30_000);
@@ -78,6 +80,10 @@ async function main() {
   const config = JSON.parse(input);
   if (!config || Object.keys(config).sort().join(',') !== 'publicKey,url' || config.url !== APP_PROJECT_URL) throw new Error('CONFIG');
   await createAppSession(config).dispose();
+  if (CONTINUE) {
+    const reserved = spawnSync(PYTHON, [RECEIVER, '--reserve-auth'], {cwd:ROOT, env:ENV, windowsHide:true, timeout:5000, stdio:'ignore'});
+    if (reserved.status !== 0) throw new Error('AUTH_ALREADY_RESERVED');
+  }
   const host = await startAppSessionHost({mode:'live', liveConfig:config, capabilityCheck:connect});
   process.stdout.write(`SESSION_CHAIN_READY ${host.url}\n`);
   process.once('SIGINT', () => void host.close());
