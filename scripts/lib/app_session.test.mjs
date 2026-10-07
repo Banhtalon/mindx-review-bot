@@ -37,7 +37,7 @@ async function safeRejects(promise, expectedCode, failureCode, privateValues = [
   safeCheck(error?.code === expectedCode && privateValues.every(value => !message.includes(value)), failureCode);
 }
 
-function authFixture({token = accessToken(), userId = userUUID, userAnonymous = false,
+function authFixture({token = accessToken(), userId = userUUID, confirmedUserId = userId, userAnonymous = false,
   omitAnonymousFlag = false, transport} = {}) {
   const calls = [];
   const fetchImpl = transport ?? (async (input) => {
@@ -50,7 +50,7 @@ function authFixture({token = accessToken(), userId = userUUID, userAnonymous = 
       refresh_token: 'synthetic-refresh-token', user: {id: userId},
     });
     if (url.pathname === '/auth/v1/user') {
-      const user = {id: userId};
+      const user = {id: confirmedUserId};
       if (!omitAnonymousFlag) user.is_anonymous = userAnonymous;
       return json(user);
     }
@@ -73,6 +73,7 @@ test('official SDK fake transport performs only password sign-in and getUser, th
   safeCheck(principal.accessToken.split('.').length === 3, 'SAFE_PRINCIPAL_TOKEN_SHAPE');
   safeCheck(!('password' in principal), 'SAFE_PRINCIPAL_PASSWORD_ABSENT');
   safeCheck(!('refresh_token' in principal), 'SAFE_PRINCIPAL_REFRESH_ABSENT');
+  await client.dispose();
 });
 
 test('invalid project, privileged key, failed transport, redirects, and oversized response fail closed without retries', async () => {
@@ -84,6 +85,7 @@ test('invalid project, privileged key, failed transport, redirects, and oversize
   const transportFailure = createAppSession({url: projectUrl, publicKey, fetchImpl: noNetwork});
   await safeRejects(transportFailure.login({email: 'user@example.invalid', password: 'synthetic-password'}),
     'AUTH_UNAVAILABLE', 'SAFE_TRANSPORT_FAILURE', ['private transport detail', 'synthetic-password']);
+  await transportFailure.dispose();
   assert.equal(calls, 1);
 
   let redirects = 0;
@@ -142,11 +144,33 @@ test('getUser must explicitly confirm the user is nonanonymous', async () => {
   }
 });
 
+test('a mismatched getUser confirmation fails after the bounded sign-in and verification requests', async () => {
+  const {calls, client} = authFixture({confirmedUserId: '2d7ad7e5-e496-44dc-86ed-9a161a86a350'});
+  await safeRejects(
+    client.login({email: 'user@example.invalid', password: 'synthetic-password'}),
+    'USER_UNCONFIRMED', 'SAFE_MISMATCHED_USER_REJECTED',
+  );
+  await client.dispose();
+  assert.deepEqual(calls.map(({method, path}) => [method, path]), [
+    ['POST', '/auth/v1/token'], ['GET', '/auth/v1/user'],
+  ]);
+});
+
 test('a second helper login is denied before another request can be sent', async () => {
   const {calls, client} = authFixture();
   await client.login({email: 'user@example.invalid', password: 'synthetic-password'});
   await safeRejects(client.login({email: 'user@example.invalid', password: 'synthetic-password'}), 'ATTEMPT_USED', 'SAFE_SECOND_ATTEMPT_REJECTED');
   assert.equal(calls.length, 2);
+});
+
+test('disposing before login prevents the SDK from sending any request', async () => {
+  const {calls, client} = authFixture();
+  await client.dispose();
+  await safeRejects(
+    client.login({email: 'user@example.invalid', password: 'synthetic-password'}),
+    'AUTH_UNAVAILABLE', 'SAFE_DISPOSED_LOGIN_REJECTED',
+  );
+  assert.equal(calls.length, 0);
 });
 
 test('preview is same-origin, CSRF-bound, one-attempt, and synthetic', async t => {
@@ -212,6 +236,39 @@ test('local live-shaped flow uses fake SDK transport and private receiver, with 
   const status = await (await fetch(`${host.url}status`)).json();
   safeCheck(status.mode === 'application' && status.status === 'WAITING_FINAL_SCOPE' && status.verified === true,
     'SAFE_FLOW_STATUS');
+});
+
+test('closing the host aborts a pending sign-in and does not start user confirmation', async t => {
+  let markStarted;
+  const started = new Promise(resolvePromise => { markStarted = resolvePromise; });
+  const calls = [];
+  const host = await startAppSessionHost({mode: 'live', liveConfig: {
+    url: projectUrl, publicKey, fetchImpl: input => {
+      const request = input instanceof Request ? input : new Request(input);
+      const url = new URL(request.url);
+      calls.push({method: request.method, path: url.pathname});
+      markStarted();
+      return new Promise((_, reject) => {
+        const aborted = () => reject(new Error('aborted'));
+        if (request.signal.aborted) aborted();
+        else request.signal.addEventListener('abort', aborted, {once: true});
+      });
+    },
+  }});
+  t.after(() => host.close());
+  const page = await (await fetch(host.url)).text();
+  const csrf = page.match(/name="csrf" value="([^"]+)"/)?.[1];
+  safeCheck(Boolean(csrf), 'SAFE_PENDING_CSRF_PRESENT');
+  const login = fetch(host.url + 'login', {
+    method: 'POST', headers: {origin: host.url.slice(0, -1)},
+    body: new URLSearchParams({csrf, email: 'user@example.invalid', password: 'synthetic-password'}),
+  });
+  await started;
+  await host.close();
+  const response = await login;
+  assert.equal(response.status, 410);
+  safeCheck(!/synthetic-password|user@example.invalid/.test(await response.text()), 'SAFE_PENDING_CLOSE_REDACTED');
+  assert.deepEqual(calls, [{method: 'POST', path: '/auth/v1/token'}]);
 });
 
 test('preview rejects oversized bodies and an incorrect Host without reflecting fields or adding CORS', async t => {

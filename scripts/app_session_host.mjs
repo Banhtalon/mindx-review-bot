@@ -139,7 +139,7 @@ export async function startAppSessionHost({mode = 'preview', liveConfig} = {}) {
   if (mode === 'live' && (!liveConfig || liveConfig.url !== APP_PROJECT_URL)) {
     throw new Error('Live configuration unavailable');
   }
-  const auth = mode === 'live' ? createAppSession(liveConfig) : null;
+  let auth = mode === 'live' ? createAppSession(liveConfig) : null;
   const csrf = randomBytes(32).toString('hex');
   const children = new Set();
   let tried = false;
@@ -149,25 +149,33 @@ export async function startAppSessionHost({mode = 'preview', liveConfig} = {}) {
   let server;
   let baseUrl;
   let ttl;
+  let closePromise;
   const stopChildren = () => {
     for (const child of children) child.kill();
     children.clear();
   };
-  const close = () => new Promise(resolvePromise => {
-    if (closed) return resolvePromise();
+  const close = () => {
+    if (closePromise) return closePromise;
     closed = true;
     clearTimeout(ttl);
     principal = null;
     stopChildren();
-    if (!server.listening) return resolvePromise();
-    server.close(() => resolvePromise());
-  });
+    const session = auth;
+    auth = null;
+    closePromise = (async () => {
+      await session?.dispose();
+      if (!server.listening) return;
+      await new Promise(resolvePromise => server.close(resolvePromise));
+    })();
+    return closePromise;
+  };
 
   server = http.createServer((req, res) => {
     void (async () => {
     if (req.socket.remoteAddress !== '127.0.0.1' || !baseUrl || req.headers.host !== baseUrl.host) {
       return write(res, 421, '<!doctype html><title>Địa chỉ không hợp lệ</title>');
     }
+    if (closed) return write(res, 410, '<!doctype html><title>Đã đóng</title>');
     if (principal && principal.expiresAt * 1000 <= Date.now()) {
       principal = null;
       status = 'WAITING_AUTH_CAPABILITY';
@@ -200,6 +208,7 @@ export async function startAppSessionHost({mode = 'preview', liveConfig} = {}) {
     if (Object.keys(fields).sort().join(',') !== expectedFields.join(',') || !validCsrf) {
       return write(res, 403, '<!doctype html><title>Yêu cầu bị từ chối</title>');
     }
+    if (closed) return write(res, 410, '<!doctype html><title>Đã đóng</title>');
     if (req.url === '/close') {
       write(res, 200, '<!doctype html><title>Đã đóng</title><p>Công cụ đã đóng.</p>');
       setImmediate(() => void close());
@@ -239,6 +248,7 @@ export async function startAppSessionHost({mode = 'preview', liveConfig} = {}) {
       fields.email = '';
       fields.password = '';
     }
+    if (closed) return write(res, 410, '<!doctype html><title>Đã đóng</title>');
     return write(res, 200, html({title: 'Đăng nhập đã được kiểm tra', note: resultText(mode, status), csrf, showLogin: false}));
     })().catch(() => {
       if (res.headersSent) return res.destroy();

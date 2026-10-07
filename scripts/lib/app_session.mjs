@@ -41,7 +41,10 @@ function validateConfig(url, publicKey, fetchImpl) {
 function boundedFetch(fetchImpl, publicKey, {maxResponseBytes, timeoutMs}) {
   let requestCount = 0;
   let expectedToken = null;
+  let disposed = false;
+  const pending = new Set();
   const guardedFetch = async (input, init = {}) => {
+    if (disposed) throw safeError('AUTH_UNAVAILABLE');
     requestCount += 1;
     if (requestCount > 2) throw safeError('REQUEST_BUDGET_EXHAUSTED');
 
@@ -71,6 +74,12 @@ function boundedFetch(fetchImpl, publicKey, {maxResponseBytes, timeoutMs}) {
       const controller = new AbortController();
       let timer;
       const boundedRequest = new Request(request, {redirect: 'manual', signal: controller.signal});
+      let cancel;
+      const cancelled = new Promise((_, reject) => {
+        cancel = () => reject(safeError('AUTH_UNAVAILABLE'));
+      });
+      const pendingRequest = {controller, cancel};
+      pending.add(pendingRequest);
       const work = (async () => {
         const response = await fetchImpl(boundedRequest);
         if (!response || response.redirected || response.status >= 300 && response.status < 400) {
@@ -105,17 +114,28 @@ function boundedFetch(fetchImpl, publicKey, {maxResponseBytes, timeoutMs}) {
         }, timeoutMs);
       });
       try {
-        return await Promise.race([work, timeout]);
+        return await Promise.race([work, timeout, cancelled]);
       } finally {
         clearTimeout(timer);
         controller.abort();
+        pending.delete(pendingRequest);
       }
     } catch (error) {
       if (error?.code) throw error;
       throw safeError('AUTH_UNAVAILABLE');
     }
   };
-  guardedFetch.setExpectedToken = token => { expectedToken = token; };
+  guardedFetch.setExpectedToken = token => { expectedToken = disposed ? null : token; };
+  guardedFetch.dispose = () => {
+    if (disposed) return;
+    disposed = true;
+    expectedToken = null;
+    for (const active of pending) {
+      active.controller.abort();
+      active.cancel();
+    }
+    pending.clear();
+  };
   return guardedFetch;
 }
 
@@ -158,10 +178,10 @@ export function createAppSession({
       !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > REQUEST_TIMEOUT_MS) {
     throw safeError('CONFIG_INVALID');
   }
-  const fetch = boundedFetch(fetchImpl, publicKey, {maxResponseBytes, timeoutMs});
+  let fetch = boundedFetch(fetchImpl, publicKey, {maxResponseBytes, timeoutMs});
   const headers = {apikey: publicKey};
   if (!publicKey.startsWith('sb_publishable_')) headers.Authorization = `Bearer ${publicKey}`;
-  const client = new AuthClient({
+  let client = new AuthClient({
     url: `${url}/auth/v1`,
     headers,
     fetch,
@@ -171,30 +191,48 @@ export function createAppSession({
     skipAutoInitialize: true,
   });
   let used = false;
+  let disposed = false;
+  let disposePromise;
+  const dispose = () => {
+    if (disposePromise) return disposePromise;
+    disposed = true;
+    const currentClient = client;
+    client = null;
+    fetch?.dispose();
+    fetch = null;
+    disposePromise = Promise.resolve().then(() => currentClient?.dispose()).catch(() => undefined);
+    return disposePromise;
+  };
 
   return {
+    dispose,
     async login({email, password} = {}) {
       if (used) throw safeError('ATTEMPT_USED');
       used = true;
-      if (typeof email !== 'string' || !email || email.length > 254 ||
-          typeof password !== 'string' || !password || password.length > 1024) {
-        throw safeError('INPUT_INVALID');
-      }
+      if (disposed || !client || !fetch) throw safeError('AUTH_UNAVAILABLE');
+      const sessionClient = client;
+      const sessionFetch = fetch;
       try {
-        const {data: signedIn, error: signInError} = await client.signInWithPassword({email, password});
+        if (typeof email !== 'string' || !email || email.length > 254 ||
+            typeof password !== 'string' || !password || password.length > 1024) {
+          throw safeError('INPUT_INVALID');
+        }
+        const {data: signedIn, error: signInError} = await sessionClient.signInWithPassword({email, password});
+        if (disposed) throw safeError('AUTH_UNAVAILABLE');
         const session = signedIn?.session;
         if (signInError?.name === 'AuthRetryableFetchError') throw safeError('AUTH_UNAVAILABLE');
         if (signInError || !session?.access_token || !Number.isFinite(Number(session.expires_at))) throw safeError('AUTH_REJECTED');
         const token = session.access_token;
         // The second and final network request must validate this exact token.
-        fetch.setExpectedToken(token);
+        sessionFetch.setExpectedToken(token);
         let confirmed;
         let userError;
         try {
-          ({data: confirmed, error: userError} = await client.getUser(token));
+          ({data: confirmed, error: userError} = await sessionClient.getUser(token));
         } finally {
-          fetch.setExpectedToken(null);
+          sessionFetch.setExpectedToken(null);
         }
+        if (disposed) throw safeError('AUTH_UNAVAILABLE');
         if (userError || !confirmed?.user || confirmed.user.id !== signedIn.user?.id || confirmed.user.is_anonymous !== false) {
           throw safeError('USER_UNCONFIRMED');
         }
@@ -203,6 +241,8 @@ export function createAppSession({
       } catch (error) {
         if (error?.code && ['AUTH_REJECTED', 'USER_UNCONFIRMED', 'SESSION_INVALID', 'INPUT_INVALID'].includes(error.code)) throw error;
         throw safeError('AUTH_UNAVAILABLE');
+      } finally {
+        await dispose();
       }
     },
   };
