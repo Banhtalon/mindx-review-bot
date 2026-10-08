@@ -28,6 +28,7 @@ for entry in (str(SCRIPTS), str(SOURCE)):
 
 import runtime_synthetic_pilot as runtime_helpers  # noqa: E402
 from storage_synthetic_pilot import request_once  # noqa: E402
+import api_chain_operator as operator  # noqa: E402
 from mindx_runner.supabase_client import HttpResponse, SupabaseRunnerClient  # noqa: E402
 
 REPOSITORY = "Banhtalon/mindx-review-bot"
@@ -52,7 +53,9 @@ MAX_RESPONSE_BYTES = 32_768
 RECOVERY_RESPONSE_BYTES = 65_536
 RECOVERY_RUN_ID = 37_578_920_147
 WORKFLOW_ID = 332_430_198
-RECOVERY_CONTRACT_SHA = "c9029eefcea8951bdefda0cfa56b03229fd7ed08884a75087e159cff8ac5b05e"
+RECOVERY_CONTRACT_SHA = (
+    "c9029eefcea8951bdefda0cfa56b03229fd7ed08884a75087e159cff8ac5b05e"
+)
 RECOVERY_OLD_RUN = {
     "id": RECOVERY_RUN_ID,
     "name": RUN_NAME,
@@ -110,6 +113,14 @@ REQUEST_CAPS = {
     "heartbeat": MAX_HEARTBEATS,
     "finish": 1,
 }
+FRESH_R13_REQUEST_CAPS = {
+    "job_preflight": 1,
+    "state_preflight": 1,
+    "claim": 1,
+    "heartbeat": 22,
+    "finish": 1,
+}
+FRESH_R13_MAX_REQUESTS = 26
 
 
 class PilotBlocked(RuntimeError):
@@ -140,14 +151,104 @@ def _unique_json(raw: bytes) -> object:
     return json.loads(raw.decode("utf-8"), object_pairs_hook=object_from_pairs)
 
 
-def context(environment: dict[str, str], *, preflight: bool = False) -> tuple[str, str]:
+def _scope_from_environment(
+    environment: dict[str, str], scope: operator.TargetProfile | None = None
+) -> operator.TargetProfile:
+    try:
+        selected = (
+            operator.profile_for_job_id(environment.get("JOB_ID"))
+            if scope is None
+            else operator.require_target_profile(scope)
+        )
+    except operator.OperatorBlocked as error:
+        raise PilotBlocked("PILOT_CONTEXT_BLOCKED") from error
+    require(
+        environment.get("JOB_ID") == selected.job_id
+        and environment.get("JOB_TYPE") == selected.job_type,
+        "PILOT_CONTEXT_BLOCKED",
+    )
+    return selected
+
+
+def _scope_fields(receipt: object, scope: operator.TargetProfile) -> None:
+    require(
+        isinstance(receipt, dict)
+        and receipt.get("job_id") == scope.job_id
+        and receipt.get("job_type") == scope.job_type,
+        "PILOT_PROFILE_MISMATCH",
+    )
+    if scope is operator.FRESH_R13_PROFILE:
+        require(
+            receipt.get("scope_profile") == scope.name
+            and receipt.get("scope_digest") == operator.profile_scope_digest(scope)
+            and receipt.get("workflow_head") == receipt.get("head")
+            and re.fullmatch(r"[a-f0-9]{40}", str(receipt.get("head", ""))) is not None,
+            "PILOT_PROFILE_MISMATCH",
+        )
+    else:
+        require(
+            not any(
+                key in receipt
+                for key in ("scope_profile", "scope_digest", "workflow_head")
+            ),
+            "PILOT_PROFILE_MISMATCH",
+        )
+
+
+def _request_caps(scope: operator.TargetProfile) -> dict[str, int]:
+    operator.require_target_profile(scope)
+    if scope is operator.FRESH_R13_PROFILE:
+        return dict(FRESH_R13_REQUEST_CAPS)
+    return dict(REQUEST_CAPS)
+
+
+def _max_requests(scope: operator.TargetProfile) -> int:
+    operator.require_target_profile(scope)
+    return (
+        FRESH_R13_MAX_REQUESTS if scope is operator.FRESH_R13_PROFILE else MAX_REQUESTS
+    )
+
+
+def _job_preflight_path(scope: operator.TargetProfile) -> str:
+    if scope is operator.LEGACY_PROFILE:
+        return JOB_PREFLIGHT_PATH
+    return (
+        "/rest/v1/automation_jobs"
+        f"?id=eq.{scope.job_id}"
+        "&select=id,workspace_id,type,status,idempotency_key,payload_json,max_attempts,"
+        "attempt_count,runner_id,lease_expires_at,heartbeat_at&limit=2"
+    )
+
+
+def _state_preflight_path(scope: operator.TargetProfile) -> str:
+    if scope is operator.LEGACY_PROFILE:
+        return STATE_PREFLIGHT_PATH
+    return (
+        "/rest/v1/browser_state_versions"
+        f"?workspace_id=eq.{scope.workspace_id}&select=id,site,status&limit=2"
+    )
+
+
+def _run_name(scope: operator.TargetProfile) -> str:
+    if scope is operator.LEGACY_PROFILE:
+        return RUN_NAME
+    return f"spike0 synthetic {scope.job_id}"
+
+
+def context(
+    environment: dict[str, str],
+    *,
+    preflight: bool = False,
+    scope: operator.TargetProfile | None = None,
+) -> tuple[str, str]:
+    scope = _scope_from_environment(environment, scope)
     require(
         environment.get("GITHUB_REPOSITORY") == REPOSITORY
         and environment.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
         and environment.get("GITHUB_REF") == "refs/heads/main"
         and environment.get("GITHUB_RUN_ATTEMPT") == "1"
-        and environment.get("JOB_ID") == JOB_ID
-        and environment.get("JOB_TYPE") == JOB_TYPE,
+        and environment.get("JOB_ID") == scope.job_id
+        and environment.get("JOB_TYPE") == scope.job_type,
         "PILOT_CONTEXT_BLOCKED",
     )
     head = environment.get("GITHUB_SHA", "")
@@ -163,16 +264,21 @@ def context(environment: dict[str, str], *, preflight: bool = False) -> tuple[st
     require(
         not any(
             key.upper().startswith(("TEACHING_", "LMS_"))
-            or key.upper() in {"MINDX_TEACHING_TARGET_JSON", "SUPABASE_SERVICE_ROLE_KEY"}
+            or key.upper()
+            in {"MINDX_TEACHING_TARGET_JSON", "SUPABASE_SERVICE_ROLE_KEY"}
             for key in environment
         ),
         "PILOT_ACCOUNT_ENV_BLOCKED",
     )
     if preflight:
-        require(bool(environment.get("GITHUB_TOKEN")), "PILOT_HISTORY_CREDENTIAL_REQUIRED")
+        require(
+            bool(environment.get("GITHUB_TOKEN")), "PILOT_HISTORY_CREDENTIAL_REQUIRED"
+        )
     else:
         require("GITHUB_TOKEN" not in environment, "PILOT_TOKEN_SCOPE_BLOCKED")
-        require(bool(environment.get("SUPABASE_SECRET_KEY")), "PILOT_RUNNER_KEY_REQUIRED")
+        require(
+            bool(environment.get("SUPABASE_SECRET_KEY")), "PILOT_RUNNER_KEY_REQUIRED"
+        )
         require(
             "BROWSER_STATE_ENCRYPTION_KEY" not in environment,
             "PILOT_REAL_STATE_KEY_BLOCKED",
@@ -212,7 +318,9 @@ def recovery_proof() -> dict[str, object]:
 
 
 def proof_digest(proof: dict[str, object]) -> str:
-    return hashlib.sha256(json.dumps(proof, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps(proof, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def response_json(response: HttpResponse | bytes, limit: int) -> object:
@@ -226,35 +334,61 @@ def response_json(response: HttpResponse | bytes, limit: int) -> object:
 
 
 def verify_old_jobs(value: object) -> None:
-    require(isinstance(value, dict) and type(value.get("total_count")) is int
-            and value["total_count"] == 2, "PILOT_OLD_JOBS_BLOCKED")
+    require(
+        isinstance(value, dict)
+        and type(value.get("total_count")) is int
+        and value["total_count"] == 2,
+        "PILOT_OLD_JOBS_BLOCKED",
+    )
     jobs = value.get("jobs")
-    require(isinstance(jobs, list) and len(jobs) == 2
-            and all(isinstance(job, dict) for job in jobs), "PILOT_OLD_JOBS_BLOCKED")
+    require(
+        isinstance(jobs, list)
+        and len(jobs) == 2
+        and all(isinstance(job, dict) for job in jobs),
+        "PILOT_OLD_JOBS_BLOCKED",
+    )
     expected_jobs = {
-        "validate": (112_653_943_973, "success", [
-            (1, "Set up job", "success"),
-            (2, "Validate synthetic dispatch input", "success"),
-            (3, "Complete job", "success"),
-        ]),
+        "validate": (
+            112_653_943_973,
+            "success",
+            [
+                (1, "Set up job", "success"),
+                (2, "Validate synthetic dispatch input", "success"),
+                (3, "Complete job", "success"),
+            ],
+        ),
         "runtime": (112_653_972_649, "failure", RECOVERY_RUNTIME_STEPS),
     }
-    require({job.get("name") for job in jobs} == set(expected_jobs), "PILOT_OLD_JOBS_BLOCKED")
+    require(
+        {job.get("name") for job in jobs} == set(expected_jobs),
+        "PILOT_OLD_JOBS_BLOCKED",
+    )
     for job in jobs:
         job_id, conclusion, expected_steps = expected_jobs[job["name"]]
-        require(type(job.get("id")) is int and job["id"] == job_id
-                and type(job.get("run_id")) is int and job["run_id"] == RECOVERY_RUN_ID
-                and job.get("head_sha") == RECOVERY_OLD_RUN["head_sha"]
-                and job.get("status") == "completed"
-                and job.get("conclusion") == conclusion, "PILOT_OLD_JOBS_BLOCKED")
+        require(
+            type(job.get("id")) is int
+            and job["id"] == job_id
+            and type(job.get("run_id")) is int
+            and job["run_id"] == RECOVERY_RUN_ID
+            and job.get("head_sha") == RECOVERY_OLD_RUN["head_sha"]
+            and job.get("status") == "completed"
+            and job.get("conclusion") == conclusion,
+            "PILOT_OLD_JOBS_BLOCKED",
+        )
         steps = job.get("steps")
-        require(isinstance(steps, list) and len(steps) == len(expected_steps),
-                "PILOT_OLD_STEPS_BLOCKED")
+        require(
+            isinstance(steps, list) and len(steps) == len(expected_steps),
+            "PILOT_OLD_STEPS_BLOCKED",
+        )
         for step, expected in zip(steps, expected_steps, strict=True):
-            require(isinstance(step, dict) and type(step.get("number")) is int
-                    and step.get("status") == "completed"
-                    and (step.get("number"), step.get("name"), step.get("conclusion")) == expected,
-                    "PILOT_OLD_STEPS_BLOCKED")
+            require(
+                isinstance(step, dict)
+                and type(step.get("number")) is int
+                and step.get("status") == "completed"
+                and (step.get("number"), step.get("name"), step.get("conclusion"))
+                == expected,
+                "PILOT_OLD_STEPS_BLOCKED",
+            )
 
 
 def preflight(
@@ -281,19 +415,43 @@ def preflight(
         return {"status": "BLOCKED", "error_code": "PILOT_ALREADY_ATTEMPTED"}
 
     try:
-        head, run_id = context(environment, preflight=True)
-        require(recover_from_run in {None, str(RECOVERY_RUN_ID)}, "PILOT_RECOVERY_BLOCKED")
+        scope = _scope_from_environment(environment)
+        head, run_id = context(environment, preflight=True, scope=scope)
+        if scope is operator.FRESH_R13_PROFILE:
+            require(recover_from_run is None, "PILOT_FRESH_R13_RECOVERY_BLOCKED")
+        else:
+            require(
+                recover_from_run in {None, str(RECOVERY_RUN_ID)},
+                "PILOT_RECOVERY_BLOCKED",
+            )
         recovery = recover_from_run is not None
-        require(not recovery or int(run_id) != RECOVERY_RUN_ID, "PILOT_RECOVERY_BLOCKED")
-        receipt.update(head=head, run_id=run_id, job_id=JOB_ID, job_type=JOB_TYPE)
+        require(
+            not recovery or int(run_id) != RECOVERY_RUN_ID, "PILOT_RECOVERY_BLOCKED"
+        )
+        receipt.update(
+            head=head,
+            run_id=run_id,
+            job_id=scope.job_id,
+            job_type=scope.job_type,
+        )
+        if scope is operator.FRESH_R13_PROFILE:
+            receipt.update(
+                scope_profile=scope.name,
+                scope_digest=operator.profile_scope_digest(scope),
+                workflow_head=head,
+            )
         if recovery:
-            receipt.update(mode="RECOVERY", contract_sha256=RECOVERY_CONTRACT_SHA,
-                           recover_from_run=RECOVERY_RUN_ID)
+            receipt.update(
+                mode="RECOVERY",
+                contract_sha256=RECOVERY_CONTRACT_SHA,
+                recover_from_run=RECOVERY_RUN_ID,
+            )
         receipt["history_reads"] = 1
         receipt["history_outcome"] = "UNKNOWN"
         persist(file, receipt)  # The read is consumed before its only send.
-        response = (transport or (lambda token: history_once(token, recovery=recovery)))(
-            environment["GITHUB_TOKEN"])
+        response = (
+            transport or (lambda token: history_once(token, recovery=recovery))
+        )(environment["GITHUB_TOKEN"])
         limit = RECOVERY_RESPONSE_BYTES if recovery else MAX_RESPONSE_BYTES
         history = response_json(response, limit)
         require(isinstance(history, dict), "PILOT_HISTORY_INVALID")
@@ -307,36 +465,60 @@ def preflight(
             "PILOT_HISTORY_INCOMPLETE",
         )
         if recovery:
-            require(all(isinstance(item, dict) and type(item.get("id")) is int
-                        and item["id"] > 0 for item in runs)
-                    and len({item["id"] for item in runs}) == len(runs),
-                    "PILOT_HISTORY_INCOMPLETE")
+            require(
+                all(
+                    isinstance(item, dict)
+                    and type(item.get("id")) is int
+                    and item["id"] > 0
+                    for item in runs
+                )
+                and len({item["id"] for item in runs}) == len(runs),
+                "PILOT_HISTORY_INCOMPLETE",
+            )
         matches = [
             run
             for run in runs
             if isinstance(run, dict)
-            and ((isinstance(run.get("display_title"), str) and JOB_ID in run["display_title"])
-                 or (recovery and isinstance(run.get("name"), str) and JOB_ID in run["name"]))
+            and (
+                (
+                    isinstance(run.get("display_title"), str)
+                    and scope.job_id in run["display_title"]
+                )
+                or (
+                    recovery
+                    and isinstance(run.get("name"), str)
+                    and scope.job_id in run["name"]
+                )
+            )
         ]
         require(len(matches) == (2 if recovery else 1), "PILOT_HISTORY_AMBIGUOUS")
         if recovery:
             old = [run for run in matches if run.get("id") == RECOVERY_RUN_ID]
-            require(len(old) == 1 and all(
-                type(old[0].get(key)) is type(expected) and old[0][key] == expected
-                for key, expected in RECOVERY_OLD_RUN.items()), "PILOT_OLD_RUN_BLOCKED")
+            require(
+                len(old) == 1
+                and all(
+                    type(old[0].get(key)) is type(expected) and old[0][key] == expected
+                    for key, expected in RECOVERY_OLD_RUN.items()
+                ),
+                "PILOT_OLD_RUN_BLOCKED",
+            )
             current = [run for run in matches if run.get("id") != RECOVERY_RUN_ID]
             require(len(current) == 1, "PILOT_HISTORY_AMBIGUOUS")
             run = current[0]
-            require(type(run.get("workflow_id")) is int and run["workflow_id"] == WORKFLOW_ID,
-                    "PILOT_HISTORY_CONTEXT_MISMATCH")
+            require(
+                type(run.get("workflow_id")) is int
+                and run["workflow_id"] == WORKFLOW_ID,
+                "PILOT_HISTORY_CONTEXT_MISMATCH",
+            )
         else:
             run = matches[0]
         path = run.get("path")
+        expected_run_name = _run_name(scope)
         require(
             type(run.get("id")) is int
             and run["id"] == int(run_id)
-            and run.get("name") == RUN_NAME
-            and run.get("display_title") == RUN_NAME
+            and run.get("name") == expected_run_name
+            and run.get("display_title") == expected_run_name
             and run.get("head_sha") == head
             and run.get("head_branch") == "main"
             and run.get("event") == "workflow_dispatch"
@@ -348,17 +530,25 @@ def preflight(
             "PILOT_HISTORY_CONTEXT_MISMATCH",
         )
         if recovery:
-            require(run["run_number"] > RECOVERY_OLD_RUN["run_number"],
-                    "PILOT_HISTORY_CONTEXT_MISMATCH")
+            require(
+                run["run_number"] > RECOVERY_OLD_RUN["run_number"],
+                "PILOT_HISTORY_CONTEXT_MISMATCH",
+            )
             receipt["history_reads"] = 2
             persist(file, receipt)  # Consume the second read before its only send.
-            verify_old_jobs(response_json(
-                (jobs_transport or jobs_once)(environment["GITHUB_TOKEN"]), limit))
+            verify_old_jobs(
+                response_json(
+                    (jobs_transport or jobs_once)(environment["GITHUB_TOKEN"]), limit
+                )
+            )
             proof = recovery_proof()
-            receipt.update(recovery_proof=proof, recovery_proof_sha256=proof_digest(proof))
+            receipt.update(
+                recovery_proof=proof, recovery_proof_sha256=proof_digest(proof)
+            )
         receipt.update(
             status="PREFLIGHT_PASS",
-            history_outcome="PINNED_FAILURE_BEFORE_CLAIM_CONFIRMED" if recovery
+            history_outcome="PINNED_FAILURE_BEFORE_CLAIM_CONFIRMED"
+            if recovery
             else "ONE_FIXED_JOB_RUN_CONFIRMED",
             run_number=run["run_number"],
         )
@@ -375,37 +565,66 @@ def preflight(
 def validate_preflight_receipt(
     environment: dict[str, str], receipt: object, *, status: str
 ) -> None:
-    head, run_id = context(environment)
+    scope = _scope_from_environment(environment)
+    head, run_id = context(environment, scope=scope)
     require(
         isinstance(receipt, dict)
         and receipt.get("status") == status
         and receipt.get("head") == head
-        and receipt.get("run_id") == run_id
-        and receipt.get("job_id") == JOB_ID
-        and receipt.get("job_type") == JOB_TYPE,
+        and receipt.get("run_id") == run_id,
         "PILOT_PREFLIGHT_REQUIRED",
     )
+    _scope_fields(receipt, scope)
     require(type(receipt.get("history_reads")) is int, "PILOT_PREFLIGHT_REQUIRED")
+    if scope is operator.FRESH_R13_PROFILE:
+        require(
+            receipt.get("mode") is None
+            and receipt.get("history_reads") == 1
+            and receipt.get("history_outcome") == "ONE_FIXED_JOB_RUN_CONFIRMED"
+            and not any(
+                key in receipt
+                for key in (
+                    "recover_from_run",
+                    "contract_sha256",
+                    "recovery_proof",
+                    "recovery_proof_sha256",
+                )
+            ),
+            "PILOT_FRESH_R13_RECOVERY_BLOCKED",
+        )
     if receipt.get("mode") == "RECOVERY":
         proof = recovery_proof()
-        require(receipt.get("history_reads") == 2
-                and receipt.get("history_outcome") == "PINNED_FAILURE_BEFORE_CLAIM_CONFIRMED"
-                and type(receipt.get("recover_from_run")) is int
-                and receipt["recover_from_run"] == RECOVERY_RUN_ID
-                and int(run_id) != RECOVERY_RUN_ID
-                and receipt.get("contract_sha256") == RECOVERY_CONTRACT_SHA
-                and receipt.get("recovery_proof") == proof
-                and receipt.get("recovery_proof_sha256") == proof_digest(proof)
-                and proof_digest(receipt["recovery_proof"]) == proof_digest(proof)
-                and type(receipt.get("run_number")) is int
-                and receipt["run_number"] > RECOVERY_OLD_RUN["run_number"],
-                "PILOT_RECOVERY_RECEIPT_BLOCKED")
+        require(
+            receipt.get("history_reads") == 2
+            and receipt.get("history_outcome")
+            == "PINNED_FAILURE_BEFORE_CLAIM_CONFIRMED"
+            and type(receipt.get("recover_from_run")) is int
+            and receipt["recover_from_run"] == RECOVERY_RUN_ID
+            and int(run_id) != RECOVERY_RUN_ID
+            and receipt.get("contract_sha256") == RECOVERY_CONTRACT_SHA
+            and receipt.get("recovery_proof") == proof
+            and receipt.get("recovery_proof_sha256") == proof_digest(proof)
+            and proof_digest(receipt["recovery_proof"]) == proof_digest(proof)
+            and type(receipt.get("run_number")) is int
+            and receipt["run_number"] > RECOVERY_OLD_RUN["run_number"],
+            "PILOT_RECOVERY_RECEIPT_BLOCKED",
+        )
     else:
-        require(receipt.get("mode") is None and receipt.get("history_reads") == 1
-                and receipt.get("history_outcome") == "ONE_FIXED_JOB_RUN_CONFIRMED"
-                and not any(key in receipt for key in (
-                    "recover_from_run", "contract_sha256", "recovery_proof", "recovery_proof_sha256"
-                )), "PILOT_PREFLIGHT_REQUIRED")
+        require(
+            receipt.get("mode") is None
+            and receipt.get("history_reads") == 1
+            and receipt.get("history_outcome") == "ONE_FIXED_JOB_RUN_CONFIRMED"
+            and not any(
+                key in receipt
+                for key in (
+                    "recover_from_run",
+                    "contract_sha256",
+                    "recovery_proof",
+                    "recovery_proof_sha256",
+                )
+            ),
+            "PILOT_PREFLIGHT_REQUIRED",
+        )
 
 
 def consume_preflight(environment: dict[str, str], file: Path) -> dict[str, object]:
@@ -414,10 +633,11 @@ def consume_preflight(environment: dict[str, str], file: Path) -> dict[str, obje
     except Exception as error:
         raise PilotBlocked("PILOT_PREFLIGHT_INVALID") from error
     validate_preflight_receipt(environment, receipt, status="PREFLIGHT_PASS")
+    scope = _scope_from_environment(environment)
     receipt.update(
         status="WORKER_STARTED",
         request_count=0,
-        counts=dict.fromkeys(REQUEST_CAPS, 0),
+        counts=dict.fromkeys(_request_caps(scope), 0),
         intents=[],
         server_snapshots=[],
         cli_outcome={"status": "NOT_STARTED"},
@@ -455,56 +675,176 @@ def _server_time(value: object) -> bool:
         return False
 
 
-def new_worker_receipt(head: str, run_id: str) -> dict[str, object]:
-    return {
+def new_worker_receipt(
+    head: str,
+    run_id: str,
+    scope: operator.TargetProfile = operator.LEGACY_PROFILE,
+) -> dict[str, object]:
+    scope = operator.require_target_profile(scope)
+    receipt: dict[str, object] = {
         "status": "WORKER_STARTED",
         "head": head,
         "run_id": run_id,
-        "job_id": JOB_ID,
-        "job_type": JOB_TYPE,
+        "job_id": scope.job_id,
+        "job_type": scope.job_type,
         "request_count": 0,
-        "counts": dict.fromkeys(REQUEST_CAPS, 0),
+        "counts": dict.fromkeys(_request_caps(scope), 0),
         "intents": [],
         "server_snapshots": [],
         "cli_outcome": {"status": "NOT_STARTED"},
     }
+    if scope is operator.FRESH_R13_PROFILE:
+        receipt.update(
+            scope_profile=scope.name,
+            scope_digest=operator.profile_scope_digest(scope),
+            workflow_head=head,
+            history_reads=1,
+            history_outcome="ONE_FIXED_JOB_RUN_CONFIRMED",
+        )
+    return receipt
 
 
 class WorkerApiTransport:
     """Allowlisted one-send transport around the existing real Supabase client."""
 
-    def __init__(self, receipt: dict[str, object], file: Path, sender=request_once):
+    def __init__(
+        self,
+        receipt: dict[str, object],
+        file: Path,
+        sender=request_once,
+        *,
+        scope: operator.TargetProfile | None = None,
+    ):
+        if scope is None:
+            try:
+                scope = operator.profile_for_job_id(receipt.get("job_id"))
+            except operator.OperatorBlocked as error:
+                raise PilotBlocked("PILOT_PROFILE_MISMATCH") from error
+        else:
+            try:
+                scope = operator.require_target_profile(scope)
+            except operator.OperatorBlocked as error:
+                raise PilotBlocked("PILOT_PROFILE_MISMATCH") from error
+        _scope_fields(receipt, scope)
+        if scope is operator.FRESH_R13_PROFILE:
+            counts = receipt.get("counts")
+            require(
+                receipt.get("status") == "WORKER_STARTED"
+                and receipt.get("history_reads") == 1
+                and receipt.get("history_outcome") == "ONE_FIXED_JOB_RUN_CONFIRMED"
+                and not any(
+                    key in receipt
+                    for key in (
+                        "recover_from_run",
+                        "contract_sha256",
+                        "recovery_proof",
+                        "recovery_proof_sha256",
+                    )
+                )
+                and type(receipt.get("request_count")) is int
+                and receipt["request_count"] == 0
+                and isinstance(counts, dict)
+                and set(counts) == set(_request_caps(scope))
+                and all(
+                    type(counts.get(key)) is int and counts[key] == 0 for key in counts
+                )
+                and receipt.get("intents") == []
+                and receipt.get("server_snapshots") == [],
+                "PILOT_FRESH_R13_RECEIPT_REPLAY_BLOCKED",
+            )
         self.receipt = receipt
         self.file = file
         self.sender = sender
+        self._scope = scope
+        self._head = receipt.get("head")
+        self._workflow_head = receipt.get("workflow_head", self._head)
+        self._receipt_run_id = receipt.get("run_id")
         self.actual_run_id: str | None = None
         started = receipt.get("worker_started_monotonic")
-        self.started_monotonic = started if isinstance(started, (float, int)) else time.monotonic()
+        self.started_monotonic = (
+            started if isinstance(started, (float, int)) else time.monotonic()
+        )
 
     def client(self, secret_key: str) -> SupabaseRunnerClient:
         return SupabaseRunnerClient(BASE_URL, secret_key, transport=self)
 
+    @property
+    def scope(self) -> operator.TargetProfile:
+        return self._scope
+
+    def _check_latched_receipt(self) -> None:
+        _scope_fields(self.receipt, self.scope)
+        workflow_head_matches = (
+            self.receipt.get("workflow_head") == self._workflow_head
+            if self.scope is operator.FRESH_R13_PROFILE
+            else "workflow_head" not in self.receipt
+        )
+        require(
+            self.receipt.get("head") == self._head
+            and workflow_head_matches
+            and self.receipt.get("run_id") == self._receipt_run_id,
+            "PILOT_RECEIPT_SCOPE_CHANGED",
+        )
+        if self.scope is operator.FRESH_R13_PROFILE:
+            counts = self.receipt.get("counts")
+            intents = self.receipt.get("intents")
+            require(
+                isinstance(counts, dict)
+                and set(counts) == set(_request_caps(self.scope))
+                and all(
+                    type(counts.get(key)) is int and 0 <= counts[key] <= cap
+                    for key, cap in _request_caps(self.scope).items()
+                )
+                and type(self.receipt.get("request_count")) is int
+                and isinstance(intents, list)
+                and self.receipt["request_count"] == len(intents)
+                and self.receipt["request_count"] == sum(counts.values())
+                and [item.get("ordinal") for item in intents if isinstance(item, dict)]
+                == list(range(1, self.receipt["request_count"] + 1))
+                and self.receipt.get("history_reads") == 1
+                and self.receipt.get("history_outcome") == "ONE_FIXED_JOB_RUN_CONFIRMED"
+                and not any(
+                    key in self.receipt
+                    for key in (
+                        "recover_from_run",
+                        "contract_sha256",
+                        "recovery_proof",
+                        "recovery_proof_sha256",
+                    )
+                ),
+                "PILOT_RECEIPT_SCOPE_CHANGED",
+            )
+
     def _classify(self, method: str, path: str, body: bytes | None) -> str:
-        if method == "GET" and path == JOB_PREFLIGHT_PATH:
+        self._check_latched_receipt()
+        if method == "GET" and path == _job_preflight_path(self.scope):
             return "job_preflight"
-        if method == "GET" and path == STATE_PREFLIGHT_PATH:
+        if method == "GET" and path == _state_preflight_path(self.scope):
             return "state_preflight"
-        rpc = next((name for name, rpc_path in RPC_PATHS.items() if path == rpc_path), None)
+        rpc = next(
+            (name for name, rpc_path in RPC_PATHS.items() if path == rpc_path), None
+        )
         if method != "POST" or rpc is None:
             raise PilotBlocked("PILOT_REQUEST_PATH_BLOCKED")
         value = _canonical_body(body)
         if rpc == "claim":
-            expected = {"target_job_id": JOB_ID, "target_runner_id": RUNNER_ID}
+            expected = {
+                "target_job_id": self.scope.job_id,
+                "target_runner_id": self.scope.runner_id,
+            }
             require(value == expected, "PILOT_REQUEST_BODY_BLOCKED")
         elif rpc == "heartbeat":
             require(self.actual_run_id is not None, "PILOT_HEARTBEAT_WITHOUT_CLAIM")
-            expected = {"target_job_id": JOB_ID, "target_runner_id": RUNNER_ID}
+            expected = {
+                "target_job_id": self.scope.job_id,
+                "target_runner_id": self.scope.runner_id,
+            }
             require(value == expected, "PILOT_REQUEST_BODY_BLOCKED")
         else:
             require(self.actual_run_id is not None, "PILOT_FINISH_WITHOUT_CLAIM")
             expected = {
                 "target_run_id": self.actual_run_id,
-                "target_runner_id": RUNNER_ID,
+                "target_runner_id": self.scope.runner_id,
                 "target_status": "succeeded",
                 "target_records_read": 0,
                 "target_error_code": None,
@@ -526,19 +866,21 @@ class WorkerApiTransport:
             return
         try:
             value = _unique_json(response.body)
-            require(isinstance(value, list) and len(value) == 1, "PILOT_RESPONSE_INVALID")
+            require(
+                isinstance(value, list) and len(value) == 1, "PILOT_RESPONSE_INVALID"
+            )
             row = value[0]
             require(isinstance(row, dict), "PILOT_RESPONSE_INVALID")
             if kind == "claim":
                 require(
                     row.get("claimed") is True
-                    and row.get("job_id") == JOB_ID
-                    and row.get("workspace_id") == WORKSPACE_ID
-                    and row.get("job_type") == JOB_TYPE
-                    and row.get("payload_json") == PAYLOAD
-                    and row.get("runner_id") == RUNNER_ID
+                    and row.get("job_id") == self.scope.job_id
+                    and row.get("workspace_id") == self.scope.workspace_id
+                    and row.get("job_type") == self.scope.job_type
+                    and row.get("payload_json") == self.scope.payload
+                    and row.get("runner_id") == self.scope.runner_id
                     and type(row.get("attempt")) is int
-                    and row["attempt"] == 1
+                    and row["attempt"] == self.scope.max_attempts
                     and _uuid(row.get("run_id"))
                     and _server_time(row.get("lease_expires_at")),
                     "PILOT_RESPONSE_INVALID",
@@ -546,28 +888,33 @@ class WorkerApiTransport:
                 self.actual_run_id = row["run_id"]
                 snapshot = {
                     "kind": kind,
-                    "job_id": JOB_ID,
+                    "job_id": self.scope.job_id,
                     "run_id": self.actual_run_id,
-                    "workspace_id": WORKSPACE_ID,
-                    "runner_id": RUNNER_ID,
-                    "attempt": 1,
+                    "workspace_id": self.scope.workspace_id,
+                    "runner_id": self.scope.runner_id,
+                    "attempt": self.scope.max_attempts,
                     "lease_expires_at": row["lease_expires_at"],
                 }
             elif kind == "heartbeat":
                 require(
                     self.actual_run_id is not None
-                    and
-                    row.get("job_id") == JOB_ID
-                    and row.get("runner_id") == RUNNER_ID
+                    and row.get("job_id") == self.scope.job_id
+                    and row.get("runner_id") == self.scope.runner_id
                     and _server_time(row.get("lease_expires_at")),
                     "PILOT_RESPONSE_INVALID",
                 )
+                if self.scope is operator.FRESH_R13_PROFILE:
+                    require(
+                        row.get("workspace_id") == self.scope.workspace_id
+                        and row.get("run_id", self.actual_run_id) == self.actual_run_id,
+                        "PILOT_RESPONSE_INVALID",
+                    )
                 snapshot = {
                     "kind": kind,
-                    "job_id": JOB_ID,
+                    "job_id": self.scope.job_id,
                     "run_id": self.actual_run_id,
-                    "workspace_id": WORKSPACE_ID,
-                    "runner_id": RUNNER_ID,
+                    "workspace_id": self.scope.workspace_id,
+                    "runner_id": self.scope.runner_id,
                     "lease_expires_at": row["lease_expires_at"],
                 }
             else:
@@ -577,6 +924,14 @@ class WorkerApiTransport:
                     and row.get("status") == "succeeded",
                     "PILOT_FINISH_STATUS_UNCONFIRMED",
                 )
+                if self.scope is operator.FRESH_R13_PROFILE:
+                    require(
+                        row.get("job_id", self.scope.job_id) == self.scope.job_id
+                        and row.get("workspace_id", self.scope.workspace_id)
+                        == self.scope.workspace_id
+                        and row.get("run_id", self.actual_run_id) == self.actual_run_id,
+                        "PILOT_FINISH_STATUS_UNCONFIRMED",
+                    )
                 self.receipt["finish_result"] = "succeeded"
                 snapshot = {
                     "kind": kind,
@@ -597,6 +952,7 @@ class WorkerApiTransport:
     def __call__(
         self, method: str, url: str, headers: dict[str, str], body: bytes | None
     ) -> HttpResponse:
+        self._check_latched_receipt()
         parsed = urlsplit(url)
         require(
             parsed.scheme == "https"
@@ -609,13 +965,20 @@ class WorkerApiTransport:
         )
         path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
         kind = self._classify(method.upper(), path, body)
-        require(kind in REQUEST_CAPS, "PILOT_REQUEST_PATH_BLOCKED")
+        caps = _request_caps(self.scope)
+        max_requests = _max_requests(self.scope)
+        require(kind in caps, "PILOT_REQUEST_PATH_BLOCKED")
         counts = self.receipt["counts"]
         intents = self.receipt["intents"]
         assert isinstance(counts, dict) and isinstance(intents, list)
+        if self.scope is operator.FRESH_R13_PROFILE:
+            require(
+                type(self.receipt.get("request_count")) is int
+                and type(counts.get(kind)) is int,
+                "PILOT_RECEIPT_SCOPE_CHANGED",
+            )
         require(
-            self.receipt["request_count"] < MAX_REQUESTS
-            and counts[kind] < REQUEST_CAPS[kind],
+            self.receipt["request_count"] < max_requests and counts[kind] < caps[kind],
             "PILOT_REQUEST_BUDGET_EXCEEDED",
         )
         counts[kind] += 1
@@ -653,23 +1016,32 @@ class WorkerApiTransport:
         return response
 
 
-def worker_preflight(client: SupabaseRunnerClient) -> dict[str, object]:
-    job_response = client._request("GET", JOB_PREFLIGHT_PATH, None)
-    require(job_response.status == 200 and len(job_response.body) <= MAX_RESPONSE_BYTES,
-            "PILOT_JOB_PREFLIGHT_FAILED")
+def worker_preflight(
+    client: SupabaseRunnerClient,
+    *,
+    scope: operator.TargetProfile = operator.LEGACY_PROFILE,
+) -> dict[str, object]:
+    scope = operator.require_target_profile(scope)
+    job_response = client._request("GET", _job_preflight_path(scope), None)
+    require(
+        job_response.status == 200 and len(job_response.body) <= MAX_RESPONSE_BYTES,
+        "PILOT_JOB_PREFLIGHT_FAILED",
+    )
     jobs = _unique_json(job_response.body)
-    require(isinstance(jobs, list) and len(jobs) == 1 and isinstance(jobs[0], dict),
-            "PILOT_JOB_SCOPE_BLOCKED")
+    require(
+        isinstance(jobs, list) and len(jobs) == 1 and isinstance(jobs[0], dict),
+        "PILOT_JOB_SCOPE_BLOCKED",
+    )
     row = jobs[0]
     require(
-        row.get("id") == JOB_ID
-        and row.get("workspace_id") == WORKSPACE_ID
-        and row.get("type") == JOB_TYPE
+        row.get("id") == scope.job_id
+        and row.get("workspace_id") == scope.workspace_id
+        and row.get("type") == scope.job_type
         and row.get("status") == "dispatched"
-        and row.get("idempotency_key") == IDEMPOTENCY_KEY
-        and row.get("payload_json") == PAYLOAD
+        and row.get("idempotency_key") == scope.idempotency_key
+        and row.get("payload_json") == scope.payload
         and type(row.get("max_attempts")) is int
-        and row["max_attempts"] == 1
+        and row["max_attempts"] == scope.max_attempts
         and type(row.get("attempt_count")) is int
         and row["attempt_count"] == 0
         and row.get("runner_id") is None
@@ -677,14 +1049,18 @@ def worker_preflight(client: SupabaseRunnerClient) -> dict[str, object]:
         and row.get("heartbeat_at") is None,
         "JOB_STATE_BLOCKED",
     )
-    state_response = client._request("GET", STATE_PREFLIGHT_PATH, None)
+    state_response = client._request("GET", _state_preflight_path(scope), None)
     require(
         state_response.status == 200
         and len(state_response.body) <= MAX_RESPONSE_BYTES
         and _unique_json(state_response.body) == [],
         "PILOT_BROWSER_STATE_PRESENT",
     )
-    return {"job_id": JOB_ID, "workspace_id": WORKSPACE_ID, "status": "dispatched"}
+    return {
+        "job_id": scope.job_id,
+        "workspace_id": scope.workspace_id,
+        "status": "dispatched",
+    }
 
 
 class PilotApiClient:
@@ -739,18 +1115,50 @@ def remove_profile(profile: Path, run_dir: Path, base_dir: Path) -> bool:
 
 def _worker_environment(environment: dict[str, str]) -> dict[str, str]:
     keep = {
-        "SYSTEMROOT", "WINDIR", "PATH", "TEMP", "TMP", "APPDATA", "LOCALAPPDATA",
-        "PROGRAMFILES", "PROGRAMFILES(X86)", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
-        "HOME", "LANG", "LC_ALL", "GITHUB_ACTIONS", "GITHUB_REPOSITORY",
-        "GITHUB_EVENT_NAME", "GITHUB_REF", "GITHUB_RUN_ATTEMPT", "GITHUB_RUN_ID",
-        "GITHUB_SHA", APPROVAL, "JOB_ID", "JOB_TYPE", "SUPABASE_SECRET_KEY",
+        "SYSTEMROOT",
+        "WINDIR",
+        "PATH",
+        "TEMP",
+        "TMP",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMFILES",
+        "PROGRAMFILES(X86)",
+        "USERPROFILE",
+        "HOMEDRIVE",
+        "HOMEPATH",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "GITHUB_ACTIONS",
+        "GITHUB_REPOSITORY",
+        "GITHUB_EVENT_NAME",
+        "GITHUB_REF",
+        "GITHUB_RUN_ATTEMPT",
+        "GITHUB_RUN_ID",
+        "GITHUB_SHA",
+        APPROVAL,
+        "JOB_ID",
+        "JOB_TYPE",
+        "SUPABASE_SECRET_KEY",
     }
     result = {key: value for key, value in environment.items() if key.upper() in keep}
-    result.update(ANONYMIZED_TELEMETRY="false", PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1")
+    result.update(
+        ANONYMIZED_TELEMETRY="false", PYTHONIOENCODING="utf-8", PYTHONUNBUFFERED="1"
+    )
     return result
 
 
-def _verify_worker(receipt: dict[str, object], exit_code: int) -> None:
+def _verify_worker(
+    receipt: dict[str, object],
+    exit_code: int,
+    *,
+    scope: operator.TargetProfile = operator.LEGACY_PROFILE,
+) -> None:
+    scope = operator.require_target_profile(scope)
+    _scope_fields(receipt, scope)
+    caps = _request_caps(scope)
+    max_requests = _max_requests(scope)
     counts = receipt.get("counts")
     snapshots = receipt.get("server_snapshots")
     outcome = receipt.get("cli_outcome")
@@ -758,18 +1166,19 @@ def _verify_worker(receipt: dict[str, object], exit_code: int) -> None:
     require(
         exit_code == 0
         and isinstance(counts, dict)
-        and all(type(counts.get(key)) is int for key in REQUEST_CAPS)
+        and all(type(counts.get(key)) is int for key in caps)
         and counts.get("job_preflight") == 1
         and counts.get("state_preflight") == 1
         and counts.get("claim") == 1
-        and 20 <= counts.get("heartbeat", 0) <= 22
+        and 20 <= counts.get("heartbeat", 0) <= caps["heartbeat"]
         and counts.get("finish") == 1
         and type(receipt.get("request_count")) is int
-        and receipt.get("request_count") <= MAX_REQUESTS
+        and receipt.get("request_count") <= max_requests
         and isinstance(snapshots, list)
         and all(isinstance(item, dict) for item in snapshots)
         and len([item for item in snapshots if item.get("kind") == "claim"]) == 1
         and len([item for item in snapshots if item.get("kind") == "heartbeat"]) >= 20
+        and len([item for item in snapshots if item.get("kind") == "finish"]) == 1
         and receipt.get("finish_result") == "succeeded"
         and isinstance(outcome, dict)
         and receipt.get("status") == "WORKER_RETURNED"
@@ -780,6 +1189,34 @@ def _verify_worker(receipt: dict[str, object], exit_code: int) -> None:
         and outcome.get("duration_ms", 0) >= HOLD_SECONDS * 1000,
         "PILOT_WORKER_RESULT_UNCONFIRMED",
     )
+    if scope is operator.FRESH_R13_PROFILE:
+        require(
+            isinstance(intents, list)
+            and len(intents) == receipt["request_count"]
+            and receipt["request_count"] == sum(counts.values())
+            and all(
+                isinstance(item, dict)
+                and item.get("kind") in caps
+                and type(item.get("ordinal")) is int
+                for item in intents
+            )
+            and [item["ordinal"] for item in intents]
+            == list(range(1, receipt["request_count"] + 1))
+            and {kind: sum(item["kind"] == kind for item in intents) for kind in caps}
+            == counts
+            and receipt.get("history_reads") == 1
+            and receipt.get("history_outcome") == "ONE_FIXED_JOB_RUN_CONFIRMED"
+            and not any(
+                key in receipt
+                for key in (
+                    "recover_from_run",
+                    "contract_sha256",
+                    "recovery_proof",
+                    "recovery_proof_sha256",
+                )
+            ),
+            "PILOT_FRESH_R13_RECEIPT_REPLAY_BLOCKED",
+        )
     claims = [item for item in snapshots if item.get("kind") == "claim"]
     heartbeats = [item for item in snapshots if item.get("kind") == "heartbeat"]
     finishes = [item for item in snapshots if item.get("kind") == "finish"]
@@ -787,17 +1224,17 @@ def _verify_worker(receipt: dict[str, object], exit_code: int) -> None:
     require(
         len(finishes) == 1
         and _uuid(claim.get("run_id"))
-        and claim.get("job_id") == JOB_ID
-        and claim.get("workspace_id") == WORKSPACE_ID
-        and claim.get("runner_id") == RUNNER_ID
+        and claim.get("job_id") == scope.job_id
+        and claim.get("workspace_id") == scope.workspace_id
+        and claim.get("runner_id") == scope.runner_id
         and type(claim.get("attempt")) is int
-        and claim.get("attempt") == 1
+        and claim.get("attempt") == scope.max_attempts
         and _server_time(claim.get("lease_expires_at"))
         and all(
-            item.get("job_id") == JOB_ID
+            item.get("job_id") == scope.job_id
             and item.get("run_id") == claim.get("run_id")
-            and item.get("workspace_id") == WORKSPACE_ID
-            and item.get("runner_id") == RUNNER_ID
+            and item.get("workspace_id") == scope.workspace_id
+            and item.get("runner_id") == scope.runner_id
             and _server_time(item.get("lease_expires_at"))
             for item in heartbeats
         )
@@ -805,8 +1242,10 @@ def _verify_worker(receipt: dict[str, object], exit_code: int) -> None:
         and finishes[0].get("status") == "succeeded",
         "PILOT_SERVER_METADATA_MISMATCH",
     )
-    require(isinstance(intents, list) and all(isinstance(item, dict) for item in intents),
-            "PILOT_RECEIPT_INVALID")
+    require(
+        isinstance(intents, list) and all(isinstance(item, dict) for item in intents),
+        "PILOT_RECEIPT_INVALID",
+    )
     heartbeat_intents = [item for item in intents if item.get("kind") == "heartbeat"]
     require(
         heartbeat_intents
@@ -817,8 +1256,11 @@ def _verify_worker(receipt: dict[str, object], exit_code: int) -> None:
     )
 
 
-def _worker(environment: dict[str, str], file: Path, chromium: str) -> dict[str, object]:
-    head, run_id = context(environment)
+def _worker(
+    environment: dict[str, str], file: Path, chromium: str
+) -> dict[str, object]:
+    scope = _scope_from_environment(environment)
+    head, run_id = context(environment, scope=scope)
     require(environment.get("GITHUB_ACTIONS") == "true", "PILOT_HOST_REQUIRED")
     require(Path(chromium).is_file(), "PILOT_CHROMIUM_REQUIRED")
     require(importlib.metadata.version("browser-use") == "0.13.6", "PILOT_SDK_CHANGED")
@@ -833,18 +1275,21 @@ def _worker(environment: dict[str, str], file: Path, chromium: str) -> dict[str,
     runner_environment = {
         "AUTOMATION_ENABLED": "true",
         "MVP_LMS_WRITE_ENABLED": "false",
-        "JOB_ID": JOB_ID,
-        "RUNNER_ID": RUNNER_ID,
-        "JOB_TYPE": JOB_TYPE,
+        "JOB_ID": scope.job_id,
+        "RUNNER_ID": scope.runner_id,
+        "JOB_TYPE": scope.job_type,
         "SUPABASE_URL": BASE_URL,
         "SUPABASE_SECRET_KEY": secret_key,
         "BROWSER_STATE_ENCRYPTION_KEY": fake_state_key,
     }
     receipt["worker_started_monotonic"] = time.monotonic()
     persist(file, receipt)
-    transport = WorkerApiTransport(receipt, file)
+    transport = WorkerApiTransport(receipt, file, scope=scope)
     client = transport.client(secret_key)
-    worker_preflight(client)
+    if scope is operator.LEGACY_PROFILE:
+        worker_preflight(client)
+    else:
+        worker_preflight(client, scope=scope)
     profile = file.parent / "profile"
     from browser_use.browser import BrowserSession
     from mindx_runner import cli
@@ -861,9 +1306,14 @@ def _worker(environment: dict[str, str], file: Path, chromium: str) -> dict[str,
             user_data_dir=str(profile),
             chromium_sandbox=os.environ.get("GITHUB_ACTIONS") != "true",
             args=[
-                "--disable-background-networking", "--disable-component-update",
-                "--disable-sync", "--no-first-run", "--disable-quic", "--no-pings",
-                "--proxy-server=http://127.0.0.1:9", "--proxy-bypass-list=<-loopback>",
+                "--disable-background-networking",
+                "--disable-component-update",
+                "--disable-sync",
+                "--no-first-run",
+                "--disable-quic",
+                "--no-pings",
+                "--proxy-server=http://127.0.0.1:9",
+                "--proxy-bypass-list=<-loopback>",
                 "--host-resolver-rules=MAP * ~NOTFOUND",
             ],
         )
@@ -875,11 +1325,11 @@ def _worker(environment: dict[str, str], file: Path, chromium: str) -> dict[str,
             session is not None
             and browser._session is session
             and not browser._guard_failed
-            and claimed.job_id == JOB_ID
-            and claimed.workspace_id == WORKSPACE_ID
-            and claimed.job_type == JOB_TYPE
-            and claimed.payload == PAYLOAD
-            and claimed.attempt == 1,
+            and claimed.job_id == scope.job_id
+            and claimed.workspace_id == scope.workspace_id
+            and claimed.job_type == scope.job_type
+            and claimed.payload == scope.payload
+            and claimed.attempt == scope.max_attempts,
             "PILOT_CLAIM_SCOPE_BLOCKED",
         )
         targets = session.session_manager.get_all_targets()
@@ -889,15 +1339,21 @@ def _worker(environment: dict[str, str], file: Path, chromium: str) -> dict[str,
             for target in targets.values()
             if getattr(target, "target_type", "page") in {"page", "tab"}
         ]
-        require(urls and all(url in {None, "", "about:blank", "chrome://newtab/"} for url in urls),
-                "PILOT_BLANK_BROWSER_REQUIRED")
+        require(
+            urls
+            and all(
+                url in {None, "", "about:blank", "chrome://newtab/"} for url in urls
+            ),
+            "PILOT_BLANK_BROWSER_REQUIRED",
+        )
         receipt["browser_target_count"] = len(urls)
         receipt["adapter_started_monotonic"] = time.monotonic()
         persist(file, receipt)
         await asyncio.sleep(HOLD_SECONDS)
         receipt["adapter_completed_monotonic"] = time.monotonic()
         receipt["adapter_hold_seconds"] = (
-            receipt["adapter_completed_monotonic"] - receipt["adapter_started_monotonic"]
+            receipt["adapter_completed_monotonic"]
+            - receipt["adapter_started_monotonic"]
         )
         persist(file, receipt)
         return 0
@@ -908,7 +1364,7 @@ def _worker(environment: dict[str, str], file: Path, chromium: str) -> dict[str,
         logging.disable(logging.CRITICAL)
         summary = asyncio.run(
             cli.run_job(
-                JOB_ID,
+                scope.job_id,
                 runner_environment,
                 client_factory=lambda _: PilotApiClient(client),
                 session_factory=browser_factory,
@@ -919,8 +1375,10 @@ def _worker(environment: dict[str, str], file: Path, chromium: str) -> dict[str,
             "status": summary.status,
             "records_read": summary.records_read,
             "duration_ms": int(
-                (receipt.get("adapter_completed_monotonic", 0)
-                 - receipt.get("adapter_started_monotonic", 0))
+                (
+                    receipt.get("adapter_completed_monotonic", 0)
+                    - receipt.get("adapter_started_monotonic", 0)
+                )
                 * 1000
             ),
         }
@@ -937,14 +1395,21 @@ def _worker(environment: dict[str, str], file: Path, chromium: str) -> dict[str,
 def cli_defaults_ok() -> bool:
     from mindx_runner import cli
 
-    return cli.RUN_TIMEOUT_SECONDS == WALL_SECONDS and cli.HEARTBEAT_INTERVAL_SECONDS == HEARTBEAT_SECONDS
+    return (
+        cli.RUN_TIMEOUT_SECONDS == WALL_SECONDS
+        and cli.HEARTBEAT_INTERVAL_SECONDS == HEARTBEAT_SECONDS
+    )
 
 
-def _cleanup_owned(parent: dict[str, object], owned: dict[int, dict[str, object]]) -> tuple[list, list]:
+def _cleanup_owned(
+    parent: dict[str, object], owned: dict[int, dict[str, object]]
+) -> tuple[list, list]:
     runtime_helpers.observe_children(parent, owned)
     for identity in list(owned.values()):
         runtime_helpers.observe_children(identity, owned)
-    residual = [identity for identity in owned.values() if runtime_helpers.running(identity)]
+    residual = [
+        identity for identity in owned.values() if runtime_helpers.running(identity)
+    ]
     zombies = runtime_helpers.zombie_pids(owned)
     return residual, zombies
 
@@ -955,7 +1420,9 @@ def _stop_owned_processes(
     """Stop only descendants previously identified by PID and creation time."""
     runtime_helpers.observe_children(parent, owned)
     if process is not None and process.poll() is None:
-        require(runtime_helpers.running(parent) is not None, "PILOT_WORKER_IDENTITY_UNKNOWN")
+        require(
+            runtime_helpers.running(parent) is not None, "PILOT_WORKER_IDENTITY_UNKNOWN"
+        )
         process.kill()
         process.wait(timeout=5)
     for identity in reversed(list(owned.values())):
@@ -964,22 +1431,35 @@ def _stop_owned_processes(
             child.kill()
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        residual = [identity for identity in owned.values() if runtime_helpers.running(identity)]
+        residual = [
+            identity for identity in owned.values() if runtime_helpers.running(identity)
+        ]
         if not residual:
             break
         time.sleep(0.1)
     return _cleanup_owned(parent, owned)
 
 
-def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[str, object]:
-    head, run_id = context(environment)
+def supervise(
+    environment: dict[str, str], file: Path, chromium: str
+) -> dict[str, object]:
+    scope = _scope_from_environment(environment)
+    head, run_id = context(environment, scope=scope)
     require(Path(chromium).is_file(), "PILOT_CHROMIUM_REQUIRED")
     require(importlib.metadata.version("browser-use") == "0.13.6", "PILOT_SDK_CHANGED")
     folder = file.parent
     profile = folder / "profile"
     require(not profile.exists(), "PILOT_PROFILE_PREEXISTS")
     receipt = consume_preflight(environment, file)
-    command = [sys.executable, str(Path(__file__).resolve()), "--worker", "--receipt", str(file), "--chromium", chromium]
+    command = [
+        sys.executable,
+        str(Path(__file__).resolve()),
+        "--worker",
+        "--receipt",
+        str(file),
+        "--chromium",
+        chromium,
+    ]
     env = _worker_environment(environment)
     started = time.monotonic()
     process = None
@@ -1004,11 +1484,17 @@ def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[st
         profile_owned = True
         import psutil
 
-        parent = {"pid": process.pid, "created": psutil.Process(process.pid).create_time()}
+        parent = {
+            "pid": process.pid,
+            "created": psutil.Process(process.pid).create_time(),
+        }
         while process.poll() is None:
             runtime_helpers.observe_children(parent, owned)
             if time.monotonic() - started > WALL_SECONDS:
-                require(runtime_helpers.running(parent) is not None, "PILOT_WORKER_IDENTITY_UNKNOWN")
+                require(
+                    runtime_helpers.running(parent) is not None,
+                    "PILOT_WORKER_IDENTITY_UNKNOWN",
+                )
                 process.kill()
                 killed = True
                 break
@@ -1022,7 +1508,10 @@ def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[st
         worker_receipt["owned_processes"] = list(owned.values())
         worker_receipt["wall_elapsed_seconds"] = time.monotonic() - started
         persist(file, worker_receipt)
-        _verify_worker(worker_receipt, process.returncode)
+        if scope is operator.LEGACY_PROFILE:
+            _verify_worker(worker_receipt, process.returncode)
+        else:
+            _verify_worker(worker_receipt, process.returncode, scope=scope)
         verified_worker_receipt = worker_receipt
         worker_verified = True
     except PilotBlocked as error:
@@ -1060,7 +1549,9 @@ def supervise(environment: dict[str, str], file: Path, chromium: str) -> dict[st
             except Exception:
                 final_receipt = dict(receipt)
                 worker_error = worker_error or "PILOT_RECEIPT_INVALID"
-        final_receipt["worker_exit_code"] = process.returncode if process is not None else None
+        final_receipt["worker_exit_code"] = (
+            process.returncode if process is not None else None
+        )
         final_receipt["worker_killed"] = killed
         final_receipt["owned_processes"] = list(owned.values())
         final_receipt["residual_processes"] = residual
@@ -1100,23 +1591,39 @@ def main(argv: list[str] | None = None) -> int:
     modes.add_argument("--worker", action="store_true")
     parser.add_argument("--receipt", type=Path, required=True)
     parser.add_argument("--chromium")
-    parser.add_argument("--recover-from-run", choices=["", str(RECOVERY_RUN_ID)], default="")
+    parser.add_argument(
+        "--recover-from-run", choices=["", str(RECOVERY_RUN_ID)], default=""
+    )
     args = parser.parse_args(argv)
     if args.recover_from_run and not args.preflight:
         parser.error("--recover-from-run requires --preflight")
     try:
         file = args.receipt.resolve()
         if args.preflight:
-            result = preflight(dict(os.environ), file, recover_from_run=args.recover_from_run or None)
-            print(json.dumps({"status": result["status"], "error_code": result.get("error_code")}))
+            result = preflight(
+                dict(os.environ), file, recover_from_run=args.recover_from_run or None
+            )
+            print(
+                json.dumps(
+                    {"status": result["status"], "error_code": result.get("error_code")}
+                )
+            )
             return 0 if result["status"] == "PREFLIGHT_PASS" else 1
         if args.worker:
             result = _worker(dict(os.environ), file, args.chromium or "")
-            print(json.dumps({"status": result["status"], "error_code": result.get("error_code")}))
+            print(
+                json.dumps(
+                    {"status": result["status"], "error_code": result.get("error_code")}
+                )
+            )
             return 0 if result["status"] == "WORKER_RETURNED" else 1
         require(args.chromium is not None, "PILOT_CHROMIUM_REQUIRED")
         result = supervise(dict(os.environ), file, args.chromium)
-        print(json.dumps({"status": result["status"], "error_code": result.get("error_code")}))
+        print(
+            json.dumps(
+                {"status": result["status"], "error_code": result.get("error_code")}
+            )
+        )
         return 0 if result["status"] == "PASS" else 1
     except PilotBlocked as error:
         print(json.dumps({"status": "BLOCKED", "error_code": str(error)}))

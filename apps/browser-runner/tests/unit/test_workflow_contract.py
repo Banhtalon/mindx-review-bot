@@ -4,6 +4,9 @@ from pathlib import Path
 WORKFLOW = (
     Path(__file__).resolve().parents[4] / ".github" / "workflows" / "browser-runner.yml"
 ).read_text(encoding="utf-8")
+SPIKE0_WORKFLOW = (
+    Path(__file__).resolve().parents[4] / ".github" / "workflows" / "spike0-dispatch-probe.yml"
+).read_text(encoding="utf-8")
 
 
 def test_live_workflow_is_manual_and_uses_minimal_permissions() -> None:
@@ -24,12 +27,10 @@ def test_live_workflow_scopes_credentials_by_job_type() -> None:
     teaching_preflight = WORKFLOW.split("name: Preflight Teaching", 1)[1].split(
         "name: Preflight LMS", 1
     )[0]
-    lms_preflight = WORKFLOW.split("name: Preflight LMS", 1)[1].split(
-        "name: Install Chromium", 1
-    )[0]
-    teaching_block = WORKFLOW.split("name: Execute Teaching", 1)[1].split(
-        "name: Execute LMS", 1
-    )[0]
+    lms_preflight = WORKFLOW.split("name: Preflight LMS", 1)[1].split("name: Install Chromium", 1)[
+        0
+    ]
+    teaching_block = WORKFLOW.split("name: Execute Teaching", 1)[1].split("name: Execute LMS", 1)[0]
     lms_block = WORKFLOW.split("name: Execute LMS", 1)[1]
 
     assert set(re.findall(r"secrets\.([A-Z][A-Z0-9_]*)", teaching_block)) == {
@@ -77,3 +78,20 @@ def test_live_workflow_uses_locked_project_and_safe_runner_command() -> None:
     assert "uv sync --locked --project apps/browser-runner" in WORKFLOW
     assert WORKFLOW.index("name: Install Chromium") > WORKFLOW.index("name: Preflight LMS")
     assert 'uv run --project apps/browser-runner mindx-runner run "$JOB_ID"' in WORKFLOW
+
+
+def test_spike0_runtime_keeps_legacy_guard_and_allows_only_fresh_empty_recovery() -> None:
+    runtime_guard = next(
+        line.strip() for line in SPIKE0_WORKFLOW.splitlines() if line.lstrip().startswith("if:")
+    )
+
+    assert "github.repository == 'Banhtalon/mindx-review-bot'" in runtime_guard
+    assert "spike0-dispatch-probe.yml@refs/heads/main" in runtime_guard
+    assert "github.ref == 'refs/heads/main'" in runtime_guard
+    assert "github.run_attempt == 1" in runtime_guard
+    assert "vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA == github.sha" in runtime_guard
+    assert "a3fed449-7fac-422f-a3a7-9b22be678c12" in runtime_guard
+    assert "c8841b3c-5740-5b0a-aeaf-9dad5f5f17a5" in runtime_guard
+    assert "inputs.job_type == 'sync_teaching'" in runtime_guard
+    assert "inputs.recover_from_run == ''" in runtime_guard
+    assert "schedule:" not in SPIKE0_WORKFLOW
