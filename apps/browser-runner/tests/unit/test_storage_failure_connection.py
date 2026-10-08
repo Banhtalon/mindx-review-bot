@@ -308,6 +308,7 @@ def test_localhost_permission_error_preserves_only_bounded_body():
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self):
+            assert self.rfile.read(int(self.headers["Content-Length"])) == b"{}"
             calls.append(self.path)
             self.send_response(403)
             self.end_headers()
