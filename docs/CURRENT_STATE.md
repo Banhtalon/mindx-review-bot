@@ -5,7 +5,11 @@ Bản sản phẩm làm gốc: `7cfaab350812cd1f01d9924a7c3364088f77d433` (#43).
 
 **Điểm chặn cũ đã xử lý:** hủy đúng một tác vụ thử; hậu kiểm máy chủ đạt
 0 tác vụ còn gây chặn và 0 lượt chưa kết thúc. Dữ liệu ngoài phạm vi giữ nguyên;
-đánh giá độc lập đạt. Chưa mở R13 mới hoặc xác nhận toàn chuỗi.
+đánh giá độc lập đạt. R13 mới đã gửi đúng một lượt; đăng nhập và kiểm quyền
+ứng dụng đạt trong phạm vi thử. GitHub dừng ở kiểm lịch sử trước khi chương trình
+nhận việc, nên chưa xác nhận toàn chuỗi. Quyền chạy tạm đã thu hồi; tác vụ thử
+đã hủy và dọn đúng mục tiêu, hậu kiểm đạt 0 dữ liệu thử còn lại; dữ liệu ngoài
+phạm vi và cấu trúc/quyền trên máy chủ giữ nguyên. Chưa có lượt chương trình chạy.
 
 Đây là bảng tiến độ hiện hành duy nhất trong bản tinh gọn. Hướng dẫn AI ở
 [AGENTS.md](../AGENTS.md). Owner đã duyệt nhập bản tinh gọn ngày 09/10/2026.
@@ -14,26 +18,41 @@ Các bản cũ trong bản làm việc khác là bằng chứng theo thời đi�
 ## Việc đang làm và việc tiếp theo
 
 1. Tinh gọn đã thực hiện: gỡ 59 tệp điều phối cũ, kiểm sản phẩm tại máy và
-   đánh giá độc lập đạt; Owner đã duyệt áp dụng ngày 09/10. Chưa chạy R13.
+   đánh giá độc lập đạt; Owner đã duyệt áp dụng ngày 09/10. R13 đã gửi một lượt.
    Kiểm tra tại máy: 141 bài web, 16 bài phiên và 735 bài Python đạt.
    Bản sửa tiếp nối đã thêm kiểm tra 16 bài phiên vào GitHub sau bước chuẩn bị
    Python; dùng đường dẫn phù hợp Windows/Linux. Quét toàn thư mục chính bằng
    bộ kiểm đã sửa đạt: chỉ nhận diện đúng giá trị giả trong một tệp lịch sử
    có dấu kiểm nội dung cố định, không bỏ quét thư mục hay sửa hồ sơ cũ.
-   Trước R13 mới phải đối chiếu lại nguồn đã thay đổi; chưa mở lượt thật.
-2. Sau tinh gọn, chuẩn bị một lượt R13 mới: tận dụng bằng chứng còn hiệu lực,
-   gom điều kiện/kiểm quyền/chạy/dọn và phương án khôi phục để Owner duyệt đúng phạm vi.
+   Nguồn R13 đã đối chiếu đúng bản `b5a709c99a01473363666732a71fccf9a7ebe2a4`.
+2. R13: đăng nhập, kiểm quyền và chuyển đúng tác vụ từ ứng dụng sang GitHub đã đạt.
+   Lượt [37907247747](https://github.com/Banhtalon/mindx-review-bot/actions/runs/37907247747)
+   dừng trước nhận việc. Nguyên nhân có khả năng cao là giới hạn đọc lịch sử:
+   phản hồi hiện dài 38.304 byte, vượt mức 32.768; dữ liệu giả tái hiện đúng lỗi
+   của bản đã chạy. Ngoại lệ chi tiết của lượt GitHub không được lưu. Bản sửa tại nhánh
+   `codex/r13-history-response-fix` cho lượt mới đọc tối đa 65.536 byte và báo
+   đúng mã lỗi; giữ giới hạn chương trình chạy và không thêm thử lại. 114 bài
+   kiểm liên quan, kiểm mã, chống lộ bí mật và chống ghi Teaching/LMS đạt;
+   Luna Max đánh giá độc lập đạt phạm vi sửa tại máy. Chưa áp dụng bản sửa lên GitHub.
+   Dọn và hậu kiểm đã đạt; bản sao khôi phục kiểm đủ năm tệp, thử phục hồi bằng
+   dữ liệu giả đạt. Luna Max chốt dọn đúng một lần; hồ sơ cũ giữ nguyên.
+   Còn chuẩn bị phạm vi xác nhận tiếp theo; không dùng lại lượt đã đóng.
 3. Kiểm toàn chuỗi, lưu kết quả, gia hạn, lỗi và PC-off (máy Owner tắt); nghiệm thu
    đủ điều kiện Phase 2 trước khi nối lưu lịch Teaching, LMS và các phần sau.
 
-Giữ bộ đếm cũ: sửa **13/13**, yêu cầu máy chủ **96 xác nhận / 100 bảo thủ**,
-SQL **41** trong trần **173/55**; bốn lượt Auth lịch sử chưa xác minh.
+Giữ bộ đếm gốc trước R13: sửa **13/13**, yêu cầu máy chủ **96 xác nhận / 100 bảo thủ**,
+SQL **41**; bốn lượt Auth lịch sử chưa xác minh. Quyền mở rộng của Owner được
+ghi nối tiếp, không đặt lại lịch sử. Sau R13: máy chủ **ít nhất 141 xác nhận /
+185 bảo thủ**, SQL **61**, GitHub **23 lượt dự trù**, gửi tác vụ dương tính **1**.
+Giữ cả 26 yêu cầu chương trình chạy và 11 yêu cầu bên trong đã dự trù dù chương
+trình bị bỏ qua; không coi số dự trù là số đã xác nhận gửi. Một bản sửa nguồn
+R13 tại máy được ghi riêng; giới hạn của lượt mới không thay lịch sử 13/13.
 Không đặt lại giới hạn hoặc dùng quyền của lượt đã đóng cho lượt mới.
 Owner chỉ quyết định phạm vi, thao tác tài khoản khi cần và dùng thử kết quả.
 
 ## Checklist sản phẩm
 
-24 mục: **13 đạt theo phạm vi, 11 còn mở**. Đây không phải phần trăm hoàn thành.
+24 mục: **14 đạt theo phạm vi, 10 còn mở**. Đây không phải phần trăm hoàn thành.
 Tại máy/dữ liệu giả không thay bằng chứng máy chủ; mỗi dòng giữ đúng phạm vi đã đạt.
 
 | Mục | Đã xác nhận và bằng chứng | Còn thiếu / điều kiện hoàn tất |
@@ -50,8 +69,8 @@ Tại máy/dữ liệu giả không thay bằng chứng máy chủ; mỗi dòng 
 | [x] P2-D2 — vòng đời phiên trong phạm vi phiên/dữ liệu giả | Năm nhóm vòng đời phiên/dữ liệu giả đã đối chiếu và Owner nghiệm thu 08/10. [Nghiệm thu 08/10](<C:/Users/QQ/.codex/worktrees/api-chain-session/MINDX-REVIEW-BOT/.workflow-local/post-tamper-owner-acceptance-20261008/OWNER_ACCEPTANCE.md>) | Đã đóng đúng phạm vi; không lặp phép tamper đã đạt. |
 | [x] P2-E1 — một lượt Teaching trực tiếp khi máy Owner tắt | Một lượt Teaching đúng mục tiêu thành công trong phạm vi PC-off đã ghi. [Hồ sơ GI34](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/teaching-post37-gi34-preparation/result-37190777967>) | Chỉ một mục tiêu; chưa chứng minh toàn chuỗi ứng dụng. |
 | [x] P2-E2-LOCAL — công cụ phiên ứng dụng đã chuẩn bị tại máy | #41 đã nhập 09/10; bản R12 kiểm tại máy, CI và nghiệm thu mẫu đạt. [Nguồn đã nhập #41](https://github.com/Banhtalon/mindx-review-bot/pull/41) | Đã đạt công cụ tại máy; quyền thật của lượt mới ở E2. |
-| [ ] P2-E2 — hoàn tất kênh đăng nhập ứng dụng, liên quan #41 | #41/#43 đã nhập; tác vụ thử cũ đã hủy và hậu kiểm không còn chặn. [Hậu kiểm 09/10](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/legacy-resolution-20261009/execution/OWNER_RESULT.md>) | Lượt R13 cũ đã đóng. Cần quyền riêng, xác thực và kiểm quyền ứng dụng của lượt mới. |
-| [ ] P2-E3 — một chuỗi ứng dụng → máy chủ → GitHub → chương trình chạy | Đã có công cụ chuỗi và sửa R13; hậu kiểm tác vụ cũ đạt 0/0, không còn writer cũ. [Hậu kiểm 09/10](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/legacy-resolution-20261009/execution/OWNER_RESULT.md>) | Chưa chạy toàn chuỗi mới: ứng dụng → máy chủ → GitHub → chương trình chạy → lưu kết quả → dọn. |
+| [x] P2-E2 — phiên ứng dụng và quyền vai trò trong không gian thử R13 | Phiên đúng tài khoản thử; người ngoài bị chặn, người xem không tạo việc, Owner tạo đúng một việc; 19 yêu cầu ứng dụng gồm một lượt gửi. Luna Max chốt đúng phạm vi phiên và vai trò trên máy chủ. [Biên nhận an toàn](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/r13-private-handoff-20261009/execution/SAFE_APP_DISPATCH_RESULT.json>) | Chỉ không gian dữ liệu thử; chưa thay bằng chứng toàn bộ hành trình đăng nhập giao diện hay toàn chuỗi E3/G. |
+| [ ] P2-E3 — một chuỗi ứng dụng → máy chủ → GitHub → chương trình chạy | R13 mới đã qua ứng dụng → máy chủ → GitHub. Lượt 37907247747 lỗi kiểm lịch sử; chương trình chạy bị bỏ qua và không nhận việc. [Biên nhận GitHub an toàn](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/r13-private-handoff-20261009/execution/SAFE_HOSTED_RECEIPT.json>) | Bản sửa giới hạn đọc mới đạt tại máy; còn chạy dài, lưu kết quả, đối soát và dọn trên toàn chuỗi mới. |
 | [ ] P2-F — nhánh lỗi của cả chuỗi | Đã kiểm lỗi từng phần; giữ lịch sử lỗi giao việc và dừng trước nhận việc. [Lượt đầu 07/10](<C:/Users/QQ/.codex/worktrees/api-chain-session/MINDX-REVIEW-BOT/.workflow-local/api-chain-session/execution.json>) | Chứng minh lỗi trước/giữa/cuối trên cả chuỗi, không chạy trùng và không thử lại khi chưa rõ. |
 | [ ] P2-G — quyền và dữ liệu riêng tư của chuỗi hoàn chỉnh | Một số kiểm quyền thật đã đạt; xử lý tác vụ cũ giữ nguyên dữ liệu ngoài phạm vi. [Hậu kiểm 09/10](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/legacy-resolution-20261009/execution/OWNER_RESULT.md>) | Kiểm quyền/đầu ra an toàn và đối soát dữ liệu của toàn chuỗi mới. |
 | [ ] P2-CLOSE — nghiệm thu toàn Phase 2 | Các phần B/C/D và thử tại máy đạt đúng phạm vi. [Chỉ mục Phase 2](evidence/phase-2/index.json) | Đối chiếu các mục A/E2/E3/F/G còn mở, đánh giá độc lập và Owner nghiệm thu tổng thể. |

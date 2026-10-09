@@ -27,7 +27,10 @@ for entry in (str(SCRIPTS), str(SOURCE)):
         sys.path.insert(0, entry)
 
 import runtime_synthetic_pilot as runtime_helpers  # noqa: E402
-from storage_synthetic_pilot import request_once  # noqa: E402
+from storage_synthetic_pilot import (  # noqa: E402
+    PilotBlocked as TransportBlocked,
+    request_once,
+)
 import api_chain_operator as operator  # noqa: E402
 from mindx_runner.supabase_client import HttpResponse, SupabaseRunnerClient  # noqa: E402
 
@@ -286,15 +289,33 @@ def context(
     return head, run_id
 
 
-def history_once(token: str, *, recovery: bool = False) -> HttpResponse:
-    return github_once(token, HISTORY_URL, recovery=recovery)
+def history_response_limit(scope: operator.TargetProfile, *, recovery: bool) -> int:
+    return (
+        RECOVERY_RESPONSE_BYTES
+        if recovery or scope is operator.FRESH_R13_PROFILE
+        else MAX_RESPONSE_BYTES
+    )
+
+
+def history_once(
+    token: str,
+    *,
+    recovery: bool = False,
+    scope: operator.TargetProfile = operator.LEGACY_PROFILE,
+) -> HttpResponse:
+    return github_once(
+        token, HISTORY_URL, recovery=recovery,
+        response_limit=history_response_limit(scope, recovery=recovery),
+    )
 
 
 def jobs_once(token: str) -> HttpResponse:
     return github_once(token, RECOVERY_JOBS_URL, recovery=True)
 
 
-def github_once(token: str, url: str, *, recovery: bool) -> HttpResponse:
+def github_once(
+    token: str, url: str, *, recovery: bool, response_limit: int | None = None
+) -> HttpResponse:
     return request_once(
         "GET",
         url,
@@ -304,7 +325,10 @@ def github_once(token: str, url: str, *, recovery: bool) -> HttpResponse:
             "X-GitHub-Api-Version": "2026-03-10",
         },
         None,
-        max_response_bytes=RECOVERY_RESPONSE_BYTES if recovery else MAX_RESPONSE_BYTES,
+        max_response_bytes=(
+            response_limit if response_limit is not None
+            else RECOVERY_RESPONSE_BYTES if recovery else MAX_RESPONSE_BYTES
+        ),
     )
 
 
@@ -450,9 +474,9 @@ def preflight(
         receipt["history_outcome"] = "UNKNOWN"
         persist(file, receipt)  # The read is consumed before its only send.
         response = (
-            transport or (lambda token: history_once(token, recovery=recovery))
+            transport or (lambda token: history_once(token, recovery=recovery, scope=scope))
         )(environment["GITHUB_TOKEN"])
-        limit = RECOVERY_RESPONSE_BYTES if recovery else MAX_RESPONSE_BYTES
+        limit = history_response_limit(scope, recovery=recovery)
         history = response_json(response, limit)
         require(isinstance(history, dict), "PILOT_HISTORY_INVALID")
         runs = history.get("workflow_runs")
@@ -554,6 +578,15 @@ def preflight(
         )
     except PilotBlocked as error:
         receipt.update(status="BLOCKED", error_code=str(error))
+    except TransportBlocked as error:
+        # Only fixed public codes may leave the transport; never exception details.
+        code = str(error)
+        receipt.update(
+            status="BLOCKED",
+            error_code=code if code in {
+                "PILOT_RESPONSE_TOO_LARGE", "PILOT_RESPONSE_LIMIT_BLOCKED"
+            } else "PILOT_HISTORY_TRANSPORT_BLOCKED",
+        )
     except Exception:
         receipt.update(status="BLOCKED", error_code="PILOT_HISTORY_UNKNOWN")
         if receipt["history_reads"]:
