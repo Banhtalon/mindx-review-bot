@@ -29,14 +29,21 @@ Các bản cũ trong bản làm việc khác là bằng chứng theo thời đi�
    Lượt [37907247747](https://github.com/Banhtalon/mindx-review-bot/actions/runs/37907247747)
    dừng trước nhận việc. Nguyên nhân có khả năng cao là giới hạn đọc lịch sử:
    phản hồi hiện dài 38.304 byte, vượt mức 32.768; dữ liệu giả tái hiện đúng lỗi
-   của bản đã chạy. Ngoại lệ chi tiết của lượt GitHub không được lưu. Bản sửa tại nhánh
-   `codex/r13-history-response-fix` cho lượt mới đọc tối đa 65.536 byte và báo
+   của bản đã chạy. Ngoại lệ chi tiết của lượt GitHub không được lưu. Bản sửa đã
+   nhập [#46](https://github.com/Banhtalon/mindx-review-bot/pull/46), nguồn `13f0bec`;
+   [kiểm GitHub 37914378511](https://github.com/Banhtalon/mindx-review-bot/actions/runs/37914378511) đạt.
+   Lượt mới đọc tối đa 65.536 byte và báo
    đúng mã lỗi; giữ giới hạn chương trình chạy và không thêm thử lại. 114 bài
    kiểm liên quan, kiểm mã, chống lộ bí mật và chống ghi Teaching/LMS đạt;
-   Luna Max đánh giá độc lập đạt phạm vi sửa tại máy. Chưa áp dụng bản sửa lên GitHub.
+   Luna Max đánh giá độc lập đạt phạm vi sửa; nguồn đã áp dụng giữ đúng nội dung kiểm.
    Dọn và hậu kiểm đã đạt; bản sao khôi phục kiểm đủ năm tệp, thử phục hồi bằng
    dữ liệu giả đạt. Luna Max chốt dọn đúng một lần; hồ sơ cũ giữ nguyên.
-   Còn chuẩn bị phạm vi xác nhận tiếp theo; không dùng lại lượt đã đóng.
+   R14 được chuẩn bị với danh tính thử riêng, một lượt gửi, không thử lại;
+   không dùng lại lượt R13 đã đóng. Chưa mở đăng nhập hoặc chạy máy chủ R14.
+   Đề nghị tối đa 79 yêu cầu máy chủ mới (20 SQL), cộng bảo thủ 264/SQL 81;
+   GitHub 16, một chương trình 650 giây. Chỉ chạy sau duyệt phạm vi mới,
+   kiểm đúng nguồn và đánh giá độc lập hồ sơ chuẩn bị. Bản sao phải được
+   kiểm chứng trước dọn; kết quả không rõ thì dừng và giữ dữ liệu thử.
 3. Kiểm toàn chuỗi, lưu kết quả, gia hạn, lỗi và PC-off (máy Owner tắt); nghiệm thu
    đủ điều kiện Phase 2 trước khi nối lưu lịch Teaching, LMS và các phần sau.
 
@@ -70,7 +77,7 @@ Tại máy/dữ liệu giả không thay bằng chứng máy chủ; mỗi dòng 
 | [x] P2-E1 — một lượt Teaching trực tiếp khi máy Owner tắt | Một lượt Teaching đúng mục tiêu thành công trong phạm vi PC-off đã ghi. [Hồ sơ GI34](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/teaching-post37-gi34-preparation/result-37190777967>) | Chỉ một mục tiêu; chưa chứng minh toàn chuỗi ứng dụng. |
 | [x] P2-E2-LOCAL — công cụ phiên ứng dụng đã chuẩn bị tại máy | #41 đã nhập 09/10; bản R12 kiểm tại máy, CI và nghiệm thu mẫu đạt. [Nguồn đã nhập #41](https://github.com/Banhtalon/mindx-review-bot/pull/41) | Đã đạt công cụ tại máy; quyền thật của lượt mới ở E2. |
 | [x] P2-E2 — phiên ứng dụng và quyền vai trò trong không gian thử R13 | Phiên đúng tài khoản thử; người ngoài bị chặn, người xem không tạo việc, Owner tạo đúng một việc; 19 yêu cầu ứng dụng gồm một lượt gửi. Luna Max chốt đúng phạm vi phiên và vai trò trên máy chủ. [Biên nhận an toàn](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/r13-private-handoff-20261009/execution/SAFE_APP_DISPATCH_RESULT.json>) | Chỉ không gian dữ liệu thử; chưa thay bằng chứng toàn bộ hành trình đăng nhập giao diện hay toàn chuỗi E3/G. |
-| [ ] P2-E3 — một chuỗi ứng dụng → máy chủ → GitHub → chương trình chạy | R13 mới đã qua ứng dụng → máy chủ → GitHub. Lượt 37907247747 lỗi kiểm lịch sử; chương trình chạy bị bỏ qua và không nhận việc. [Biên nhận GitHub an toàn](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/r13-private-handoff-20261009/execution/SAFE_HOSTED_RECEIPT.json>) | Bản sửa giới hạn đọc mới đạt tại máy; còn chạy dài, lưu kết quả, đối soát và dọn trên toàn chuỗi mới. |
+| [ ] P2-E3 — một chuỗi ứng dụng → máy chủ → GitHub → chương trình chạy | R13 đã qua ứng dụng → máy chủ → GitHub; lượt 37907247747 dừng trước nhận việc. Bản sửa đọc lịch sử đã nhập #46, kiểm GitHub đạt. [Biên nhận GitHub an toàn](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/r13-private-handoff-20261009/execution/SAFE_HOSTED_RECEIPT.json>) | R14 chuẩn bị riêng, chưa chạy; còn chạy dài, lưu kết quả, đối soát và dọn trên toàn chuỗi mới. |
 | [ ] P2-F — nhánh lỗi của cả chuỗi | Đã kiểm lỗi từng phần; giữ lịch sử lỗi giao việc và dừng trước nhận việc. [Lượt đầu 07/10](<C:/Users/QQ/.codex/worktrees/api-chain-session/MINDX-REVIEW-BOT/.workflow-local/api-chain-session/execution.json>) | Chứng minh lỗi trước/giữa/cuối trên cả chuỗi, không chạy trùng và không thử lại khi chưa rõ. |
 | [ ] P2-G — quyền và dữ liệu riêng tư của chuỗi hoàn chỉnh | Một số kiểm quyền thật đã đạt; xử lý tác vụ cũ giữ nguyên dữ liệu ngoài phạm vi. [Hậu kiểm 09/10](<F:/MINDX_project test/MINDX-REVIEW-BOT/.workflow-local/legacy-resolution-20261009/execution/OWNER_RESULT.md>) | Kiểm quyền/đầu ra an toàn và đối soát dữ liệu của toàn chuỗi mới. |
 | [ ] P2-CLOSE — nghiệm thu toàn Phase 2 | Các phần B/C/D và thử tại máy đạt đúng phạm vi. [Chỉ mục Phase 2](evidence/phase-2/index.json) | Đối chiếu các mục A/E2/E3/F/G còn mở, đánh giá độc lập và Owner nghiệm thu tổng thể. |

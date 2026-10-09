@@ -15,6 +15,7 @@ from app_session_receiver import MAX_INPUT_BYTES, process_input
 from api_chain_continuation import GIT, check_source_head
 from api_chain_operator import (
     FRESH_R13_PROFILE,
+    FRESH_R14_PROFILE,
     LEGACY_PROFILE,
     OperatorBlocked,
     OperatorLedger,
@@ -25,6 +26,7 @@ from api_chain_operator import (
     profile_budget_caps,
     profile_scope_digest,
     require_target_profile,
+    is_fresh_profile,
     target_scope_manifest,
     probe_edge_negative,
     run_role_probes,
@@ -37,6 +39,7 @@ FOLDER = ROOT / ".workflow-local" / "api-chain-session"
 WORKFLOW_HEAD = "1855c37a6f1347cd70d14f9b9eb6eec52596823a"
 PHASES = ("nonmember", "reviewer", "owner", "dispatch")
 R13_APPROVAL_SCHEMA = "mindx.api-chain-r13.approval.v1"
+R14_APPROVAL_SCHEMA = "mindx.api-chain-r14.approval.v1"
 LEGACY_SOURCE_PATHS = frozenset(
     {
         "scripts/app_session_host.mjs",
@@ -76,8 +79,8 @@ def _check_clean_head(root: Path, approved_head: str) -> None:
         raise ValueError("EXACT_HEAD_CHANGED")
 
 
-def _exact_budget_caps(value: object) -> bool:
-    expected = profile_budget_caps(FRESH_R13_PROFILE)
+def _exact_budget_caps(value: object, profile: TargetProfile = FRESH_R13_PROFILE) -> bool:
+    expected = profile_budget_caps(profile)
     if not isinstance(value, dict) or set(value) != set(expected):
         return False
     if any(
@@ -103,8 +106,14 @@ def _load_scope(folder=FOLDER, root=ROOT) -> SessionApproval:
     if not isinstance(scope, dict):
         raise ValueError("SCOPE_BLOCKED")
 
-    r13 = scope.get("schema_version") == R13_APPROVAL_SCHEMA
-    if r13:
+    schema = scope.get("schema_version")
+    if schema is not None and type(schema) is not str:
+        raise ValueError("SCOPE_BLOCKED")
+    fresh_profile = {
+        R13_APPROVAL_SCHEMA: FRESH_R13_PROFILE,
+        R14_APPROVAL_SCHEMA: FRESH_R14_PROFILE,
+    }.get(schema)
+    if fresh_profile is not None:
         required = {
             "schema_version",
             "profile",
@@ -120,17 +129,17 @@ def _load_scope(folder=FOLDER, root=ROOT) -> SessionApproval:
         }
         if (
             set(scope) != required
-            or scope.get("profile") != FRESH_R13_PROFILE.name
+            or scope.get("profile") != fresh_profile.name
             or not _valid_sha(scope.get("head"))
             or scope.get("workflow_head") != scope.get("head")
-            or scope.get("scope") != target_scope_manifest(FRESH_R13_PROFILE)
-            or scope.get("scope_digest") != profile_scope_digest(FRESH_R13_PROFILE)
+            or scope.get("scope") != target_scope_manifest(fresh_profile)
+            or scope.get("scope_digest") != profile_scope_digest(fresh_profile)
             or not isinstance(scope.get("actor_sha256"), str)
             or re.fullmatch(r"[a-f0-9]{64}", scope["actor_sha256"]) is None
-            or not _exact_budget_caps(scope.get("budget_caps"))
+            or not _exact_budget_caps(scope.get("budget_caps"), fresh_profile)
         ):
             raise ValueError("R13_SCOPE_BLOCKED")
-        profile = FRESH_R13_PROFILE
+        profile = fresh_profile
         workflow_head = scope["head"]
         actor_sha256 = scope["actor_sha256"]
         expected_sources = R13_SOURCE_PATHS
@@ -173,7 +182,7 @@ def _load_scope(folder=FOLDER, root=ROOT) -> SessionApproval:
             or hashlib.sha256((root / name).read_bytes()).hexdigest() != digest
         ):
             raise ValueError("SOURCE_BLOCKED")
-    if profile is FRESH_R13_PROFILE:
+    if is_fresh_profile(profile):
         _check_clean_head(root, scope.get("head"))
     else:
         check_source_head(root, scope.get("head"))
@@ -200,7 +209,7 @@ def _validate_session_context(
     current = time.time() if now is None else now
     if expires_at < current + 360:
         raise ValueError("SESSION_TOO_SHORT")
-    if approval.profile is FRESH_R13_PROFILE:
+    if is_fresh_profile(approval.profile):
         user_id = context.get("user_uuid")
         if (
             not isinstance(user_id, str)

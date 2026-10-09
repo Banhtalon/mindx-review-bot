@@ -180,7 +180,7 @@ def _scope_fields(receipt: object, scope: operator.TargetProfile) -> None:
         and receipt.get("job_type") == scope.job_type,
         "PILOT_PROFILE_MISMATCH",
     )
-    if scope is operator.FRESH_R13_PROFILE:
+    if operator.is_fresh_profile(scope):
         require(
             receipt.get("scope_profile") == scope.name
             and receipt.get("scope_digest") == operator.profile_scope_digest(scope)
@@ -200,7 +200,7 @@ def _scope_fields(receipt: object, scope: operator.TargetProfile) -> None:
 
 def _request_caps(scope: operator.TargetProfile) -> dict[str, int]:
     operator.require_target_profile(scope)
-    if scope is operator.FRESH_R13_PROFILE:
+    if operator.is_fresh_profile(scope):
         return dict(FRESH_R13_REQUEST_CAPS)
     return dict(REQUEST_CAPS)
 
@@ -208,7 +208,7 @@ def _request_caps(scope: operator.TargetProfile) -> dict[str, int]:
 def _max_requests(scope: operator.TargetProfile) -> int:
     operator.require_target_profile(scope)
     return (
-        FRESH_R13_MAX_REQUESTS if scope is operator.FRESH_R13_PROFILE else MAX_REQUESTS
+        FRESH_R13_MAX_REQUESTS if operator.is_fresh_profile(scope) else MAX_REQUESTS
     )
 
 
@@ -292,7 +292,7 @@ def context(
 def history_response_limit(scope: operator.TargetProfile, *, recovery: bool) -> int:
     return (
         RECOVERY_RESPONSE_BYTES
-        if recovery or scope is operator.FRESH_R13_PROFILE
+        if recovery or operator.is_fresh_profile(scope)
         else MAX_RESPONSE_BYTES
     )
 
@@ -441,7 +441,7 @@ def preflight(
     try:
         scope = _scope_from_environment(environment)
         head, run_id = context(environment, preflight=True, scope=scope)
-        if scope is operator.FRESH_R13_PROFILE:
+        if operator.is_fresh_profile(scope):
             require(recover_from_run is None, "PILOT_FRESH_R13_RECOVERY_BLOCKED")
         else:
             require(
@@ -458,7 +458,7 @@ def preflight(
             job_id=scope.job_id,
             job_type=scope.job_type,
         )
-        if scope is operator.FRESH_R13_PROFILE:
+        if operator.is_fresh_profile(scope):
             receipt.update(
                 scope_profile=scope.name,
                 scope_digest=operator.profile_scope_digest(scope),
@@ -609,7 +609,7 @@ def validate_preflight_receipt(
     )
     _scope_fields(receipt, scope)
     require(type(receipt.get("history_reads")) is int, "PILOT_PREFLIGHT_REQUIRED")
-    if scope is operator.FRESH_R13_PROFILE:
+    if operator.is_fresh_profile(scope):
         require(
             receipt.get("mode") is None
             and receipt.get("history_reads") == 1
@@ -726,7 +726,7 @@ def new_worker_receipt(
         "server_snapshots": [],
         "cli_outcome": {"status": "NOT_STARTED"},
     }
-    if scope is operator.FRESH_R13_PROFILE:
+    if operator.is_fresh_profile(scope):
         receipt.update(
             scope_profile=scope.name,
             scope_digest=operator.profile_scope_digest(scope),
@@ -759,7 +759,7 @@ class WorkerApiTransport:
             except operator.OperatorBlocked as error:
                 raise PilotBlocked("PILOT_PROFILE_MISMATCH") from error
         _scope_fields(receipt, scope)
-        if scope is operator.FRESH_R13_PROFILE:
+        if operator.is_fresh_profile(scope):
             counts = receipt.get("counts")
             require(
                 receipt.get("status") == "WORKER_STARTED"
@@ -809,7 +809,7 @@ class WorkerApiTransport:
         _scope_fields(self.receipt, self.scope)
         workflow_head_matches = (
             self.receipt.get("workflow_head") == self._workflow_head
-            if self.scope is operator.FRESH_R13_PROFILE
+            if operator.is_fresh_profile(self.scope)
             else "workflow_head" not in self.receipt
         )
         require(
@@ -818,7 +818,7 @@ class WorkerApiTransport:
             and self.receipt.get("run_id") == self._receipt_run_id,
             "PILOT_RECEIPT_SCOPE_CHANGED",
         )
-        if self.scope is operator.FRESH_R13_PROFILE:
+        if operator.is_fresh_profile(self.scope):
             counts = self.receipt.get("counts")
             intents = self.receipt.get("intents")
             require(
@@ -936,7 +936,7 @@ class WorkerApiTransport:
                     and _server_time(row.get("lease_expires_at")),
                     "PILOT_RESPONSE_INVALID",
                 )
-                if self.scope is operator.FRESH_R13_PROFILE:
+                if operator.is_fresh_profile(self.scope):
                     require(
                         row.get("workspace_id") == self.scope.workspace_id
                         and row.get("run_id", self.actual_run_id) == self.actual_run_id,
@@ -957,7 +957,7 @@ class WorkerApiTransport:
                     and row.get("status") == "succeeded",
                     "PILOT_FINISH_STATUS_UNCONFIRMED",
                 )
-                if self.scope is operator.FRESH_R13_PROFILE:
+                if operator.is_fresh_profile(self.scope):
                     require(
                         row.get("job_id", self.scope.job_id) == self.scope.job_id
                         and row.get("workspace_id", self.scope.workspace_id)
@@ -1004,7 +1004,7 @@ class WorkerApiTransport:
         counts = self.receipt["counts"]
         intents = self.receipt["intents"]
         assert isinstance(counts, dict) and isinstance(intents, list)
-        if self.scope is operator.FRESH_R13_PROFILE:
+        if operator.is_fresh_profile(self.scope):
             require(
                 type(self.receipt.get("request_count")) is int
                 and type(counts.get(kind)) is int,
@@ -1222,7 +1222,7 @@ def _verify_worker(
         and outcome.get("duration_ms", 0) >= HOLD_SECONDS * 1000,
         "PILOT_WORKER_RESULT_UNCONFIRMED",
     )
-    if scope is operator.FRESH_R13_PROFILE:
+    if operator.is_fresh_profile(scope):
         require(
             isinstance(intents, list)
             and len(intents) == receipt["request_count"]

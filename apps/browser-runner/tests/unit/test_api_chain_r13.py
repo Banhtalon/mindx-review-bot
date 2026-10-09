@@ -1,4 +1,4 @@
-"""R13 uses synthetic fixed identities and fake transports only."""
+"""Fresh R13/R14 use fixed synthetic identities and fake transports only."""
 
 import hashlib
 import importlib
@@ -24,6 +24,19 @@ PROFILE = operator.FRESH_R13_PROFILE
 HEAD = "b" * 40
 ACTOR = "20000000-0000-4000-8000-000000000001"
 WORKER_RUN_ID = "90000000-0000-4000-8000-000000000001"
+
+
+@pytest.fixture(autouse=True, params=[operator.FRESH_R13_PROFILE, operator.FRESH_R14_PROFILE])
+def fresh_profile(request, monkeypatch):
+    monkeypatch.setattr(sys.modules[__name__], "PROFILE", request.param)
+
+
+def approval_schema():
+    return (
+        session.R14_APPROVAL_SCHEMA
+        if PROFILE is operator.FRESH_R14_PROFILE
+        else session.R13_APPROVAL_SCHEMA
+    )
 
 
 def fresh_environment(*, preflight=False):
@@ -324,7 +337,7 @@ def _r13_approval_fixture(tmp_path):
         target.write_bytes(f"synthetic source: {name}".encode())
         sources[name] = hashlib.sha256(target.read_bytes()).hexdigest()
     approval = {
-        "schema_version": session.R13_APPROVAL_SCHEMA,
+        "schema_version": approval_schema(),
         "profile": PROFILE.name,
         "status": "EXACT_SCOPE_APPROVED",
         "head": HEAD,
@@ -393,7 +406,7 @@ def _real_git_r13_scope(tmp_path):
         for name in sorted(session.R13_SOURCE_PATHS)
     }
     approval = {
-        "schema_version": session.R13_APPROVAL_SCHEMA,
+        "schema_version": approval_schema(),
         "profile": PROFILE.name,
         "status": "EXACT_SCOPE_APPROVED",
         "head": head,
@@ -484,6 +497,34 @@ def test_fresh_session_approval_binds_exact_head_sources_actor_and_caps(tmp_path
     assert loaded.profile is PROFILE
     assert loaded.workflow_head == HEAD
     assert loaded.actor_sha256 == approval["actor_sha256"]
+
+
+@pytest.mark.parametrize("change", ["other_schema", "other_scope", "prepared", "list_schema"])
+def test_fresh_approval_rejects_cross_run_and_prepared_scope(tmp_path, monkeypatch, change):
+    folder, root, approval = _r13_approval_fixture(tmp_path)
+    checked = Mock()
+    monkeypatch.setattr(session, "_check_clean_head", checked)
+    other = (
+        operator.FRESH_R13_PROFILE
+        if PROFILE is operator.FRESH_R14_PROFILE
+        else operator.FRESH_R14_PROFILE
+    )
+    if change == "other_schema":
+        approval["schema_version"] = (
+            session.R13_APPROVAL_SCHEMA
+            if other is operator.FRESH_R13_PROFILE
+            else session.R14_APPROVAL_SCHEMA
+        )
+    elif change == "other_scope":
+        approval["scope"] = operator.target_scope_manifest(other)
+    elif change == "prepared":
+        approval["status"] = "PREPARED_NOT_AUTHORIZED"
+    else:
+        approval["schema_version"] = []
+    (folder / "approval.json").write_text(json.dumps(approval), encoding="utf-8")
+    with pytest.raises(ValueError, match="SCOPE_BLOCKED"):
+        session._load_scope(folder, root)
+    checked.assert_not_called()
 
 
 def test_fresh_session_runs_all_phases_against_clean_git_scope_and_actor(tmp_path):
