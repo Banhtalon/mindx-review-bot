@@ -1,3 +1,5 @@
+> Tài liệu lịch sử theo ngày ghi trong tên tệp. Quy trình hiện hành ở [AGENTS.md](../../../AGENTS.md); hồ sơ cũ không cấp quyền chạy mới.
+
 # Local Live Read-only Pilot Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task.

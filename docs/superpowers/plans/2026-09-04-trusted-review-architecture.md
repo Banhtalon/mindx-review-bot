@@ -1,3 +1,5 @@
+> Tài liệu lịch sử theo ngày ghi trong tên tệp. Quy trình hiện hành ở [AGENTS.md](../../../AGENTS.md); hồ sơ cũ không cấp quyền chạy mới.
+
 # Trusted Review Architecture — Scope Revision 3
 
 > **SUPERSEDED BY QQ AI WORKFLOW v9.** Historical audit record only.

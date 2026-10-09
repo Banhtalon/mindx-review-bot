@@ -1,3 +1,5 @@
+> Tài liệu lịch sử theo ngày ghi trong tên tệp. Quy trình hiện hành ở [AGENTS.md](../../../AGENTS.md); hồ sơ cũ không cấp quyền chạy mới.
+
 # Scope Revision 4 — GitHub-native manual trusted merge gate
 
 > **SUPERSEDED BY QQ AI WORKFLOW v9.** Protected-main safeguards remain; this
