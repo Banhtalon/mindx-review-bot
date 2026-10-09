@@ -3,6 +3,7 @@
 import hashlib
 import importlib
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -37,6 +38,40 @@ def approval_schema():
         if PROFILE is operator.FRESH_R14_PROFILE
         else session.R13_APPROVAL_SCHEMA
     )
+
+
+def test_workflow_only_opens_new_r14_and_keeps_head_attempt_and_recovery_gates():
+    workflow = (ROOT / ".github/workflows/spike0-dispatch-probe.yml").read_text()
+    expression = next(
+        line.strip()[4:] for line in workflow.splitlines() if line.strip().startswith("if: ")
+    )
+    context = {
+        "github.repository": "Banhtalon/mindx-review-bot",
+        "github.workflow_ref": (
+            "Banhtalon/mindx-review-bot/.github/workflows/"
+            "spike0-dispatch-probe.yml@refs/heads/main"
+        ),
+        "github.ref": "refs/heads/main", "github.run_attempt": 1,
+        "vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA": HEAD, "github.sha": HEAD,
+        "inputs.job_id": operator.FRESH_R14_PROFILE.job_id,
+        "inputs.job_type": "sync_teaching", "inputs.recover_from_run": "",
+    }
+    def accepted(**changes):
+        values = {**context, **changes}
+        code = re.sub(
+            r"\b(?:github|inputs|vars)\.[A-Za-z_]+\b",
+            lambda match: repr(values[match[0]]), expression,
+        )
+        return eval(code.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}})
+    assert accepted()
+    for old in (operator.LEGACY_PROFILE, operator.FRESH_R13_PROFILE):
+        assert not accepted(**{"inputs.job_id": old.job_id})
+    for key, value in (
+        ("github.sha", "a" * 40), ("github.run_attempt", 2),
+        ("github.ref", "refs/heads/codex/r14-confirmation"),
+        ("inputs.job_type", "read_lms_pending"), ("inputs.recover_from_run", "84"),
+    ):
+        assert not accepted(**{key: value})
 
 
 def fresh_environment(*, preflight=False):
