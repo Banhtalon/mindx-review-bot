@@ -5,6 +5,7 @@ export default tseslint.config(
   {
     ignores: [
       ".worktrees/**",
+      ".workflow-local/**",
       "dist/**",
       "node_modules/**",
       "coverage/**",
