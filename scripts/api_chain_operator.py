@@ -161,7 +161,22 @@ FRESH_R13_PROFILE = TargetProfile(
     1,
     1,
 )
-TARGET_PROFILES = (LEGACY_PROFILE, FRESH_R13_PROFILE)
+FRESH_R14_PROFILE = TargetProfile(
+    "FRESH_R14",
+    "9f08c165-eb2c-5b74-bac0-70c487723f23",
+    "phase2-api-chain-synthetic-20261009-r14",
+    "01a92fbb-6c31-5c39-b958-04b8a092472c",
+    "sync_teaching",
+    "phase2-api-chain-20261009-r14",
+    "api-chain-synthetic-r14",
+    "46ece5a3-7981-54a2-bb2a-3b8d292f5252",
+    (("anonymous", 2), ("nonmember", 2), ("reviewer", 5), ("owner", 6)),
+    15,
+    3,
+    1,
+    1,
+)
+TARGET_PROFILES = (LEGACY_PROFILE, FRESH_R13_PROFILE, FRESH_R14_PROFILE)
 
 
 class OperatorBlocked(RuntimeError):
@@ -169,17 +184,21 @@ class OperatorBlocked(RuntimeError):
 
 
 def require_target_profile(profile: object) -> TargetProfile:
-    if profile is LEGACY_PROFILE or profile is FRESH_R13_PROFILE:
-        return profile
+    for accepted in TARGET_PROFILES:
+        if profile is accepted:
+            return accepted
     raise OperatorBlocked("OPERATOR_PROFILE_OUT_OF_SCOPE")
+
+
+def is_fresh_profile(profile: object) -> bool:
+    return require_target_profile(profile) is not LEGACY_PROFILE
 
 
 def profile_for_job_id(job_id: object) -> TargetProfile:
     if type(job_id) is str:
-        if job_id == LEGACY_PROFILE.job_id:
-            return LEGACY_PROFILE
-        if job_id == FRESH_R13_PROFILE.job_id:
-            return FRESH_R13_PROFILE
+        for profile in TARGET_PROFILES:
+            if job_id == profile.job_id:
+                return profile
     raise OperatorBlocked("OPERATOR_PROFILE_OUT_OF_SCOPE")
 
 
@@ -465,7 +484,7 @@ class OperatorLedger:
             "owner_job_verified": False,
             "edge_child_requests": "INFERRED_FROM_REVIEWED_SHARED_SOURCE",
         }
-        if scope is FRESH_R13_PROFILE:
+        if is_fresh_profile(scope):
             self.data.update(
                 scope_profile=scope.name,
                 scope_digest=profile_scope_digest(scope),
@@ -484,7 +503,7 @@ class OperatorLedger:
         return self._scope
 
     def _check_scope_binding(self) -> None:
-        if self.scope is FRESH_R13_PROFILE:
+        if is_fresh_profile(self.scope):
             if self.data.get("scope_profile") != self.scope.name or self.data.get(
                 "scope_digest"
             ) != profile_scope_digest(self.scope):

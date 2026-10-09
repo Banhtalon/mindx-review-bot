@@ -63,7 +63,7 @@ jobs:
 
   runtime:
     needs: validate
-    if: github.repository == 'Banhtalon/mindx-review-bot' && github.workflow_ref == 'Banhtalon/mindx-review-bot/.github/workflows/spike0-dispatch-probe.yml@refs/heads/main' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA == github.sha && ((inputs.job_id == 'a3fed449-7fac-422f-a3a7-9b22be678c12' && inputs.job_type == 'sync_teaching') || (inputs.job_id == 'c8841b3c-5740-5b0a-aeaf-9dad5f5f17a5' && inputs.job_type == 'sync_teaching' && inputs.recover_from_run == ''))
+    if: github.repository == 'Banhtalon/mindx-review-bot' && github.workflow_ref == 'Banhtalon/mindx-review-bot/.github/workflows/spike0-dispatch-probe.yml@refs/heads/main' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA == github.sha && ((inputs.job_id == 'a3fed449-7fac-422f-a3a7-9b22be678c12' && inputs.job_type == 'sync_teaching') || (inputs.job_id == 'c8841b3c-5740-5b0a-aeaf-9dad5f5f17a5' && inputs.job_type == 'sync_teaching' && inputs.recover_from_run == '') || (inputs.job_id == '01a92fbb-6c31-5c39-b958-04b8a092472c' && inputs.job_type == 'sync_teaching' && inputs.recover_from_run == ''))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
