@@ -938,8 +938,7 @@ class WorkerApiTransport:
                 )
                 if operator.is_fresh_profile(self.scope):
                     require(
-                        row.get("workspace_id") == self.scope.workspace_id
-                        and row.get("run_id", self.actual_run_id) == self.actual_run_id,
+                        set(row) == {"job_id", "runner_id", "lease_expires_at"},
                         "PILOT_RESPONSE_INVALID",
                     )
                 snapshot = {
