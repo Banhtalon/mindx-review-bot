@@ -64,4 +64,15 @@ describe("phase 1 CI workflow contract", () => {
 
     expect(environment).toContain("GITHUB_WORKFLOW_ID=browser-runner.yml");
   });
+
+  it("requires session checks after the locked Python environment is installed", () => {
+    const verifyJob = workflowText(CI_WORKFLOW_PATH).split("  verify:")[1];
+    const steps = verifyJob.split(/ {6}- name: /);
+    const sessionStep = steps.find((step) => /run: npm run test:session\s*$/.test(step));
+    expect(sessionStep).toBeDefined();
+    expect(sessionStep).not.toMatch(/(?:if:|continue-on-error:)/);
+    expect(verifyJob.indexOf("run: npm run test:session")).toBeGreaterThan(
+      verifyJob.indexOf("run: uv sync --locked --project apps/browser-runner"),
+    );
+  });
 });

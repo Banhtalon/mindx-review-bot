@@ -3,9 +3,10 @@ import {spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
 import process from 'node:process';
 import test from 'node:test';
+import {SESSION_PYTHON} from '../scripts/app_session_host.mjs';
 
 test('same-job continuation retains prior counts and blocks mismatch, duplicate or unknown sends', () => {
-  const result = spawnSync('C:\\Users\\QQ\\AppData\\Local\\Programs\\Python\\Python312\\python.exe', ['-c', String.raw`
+  const result = spawnSync(SESSION_PYTHON, ['-c', String.raw`
 import hashlib, json, subprocess, tempfile
 from pathlib import Path
 import api_chain_continuation as c
@@ -98,7 +99,7 @@ with tempfile.TemporaryDirectory() as name:
     assert sent==[] and json.loads((folder/'stale.json').read_text())['cumulative_requests']==19
 print('CONTINUATION_SYNTHETIC_CHECKS_PASS')
 `], {cwd:resolve('scripts'), encoding:'utf8', timeout:15_000, windowsHide:true,
-      env:Object.fromEntries(['SystemRoot','WINDIR'].filter(name => process.env[name]).map(name => [name,process.env[name]]))});
+      env:Object.fromEntries(['PATH','SystemRoot','WINDIR'].filter(name => process.env[name]).map(name => [name,process.env[name]]))});
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'CONTINUATION_SYNTHETIC_CHECKS_PASS');
 });

@@ -4,7 +4,7 @@ import {resolve} from 'node:path';
 import process from 'node:process';
 /* global fetch */
 import test from 'node:test';
-import {startAppSessionHost} from '../scripts/app_session_host.mjs';
+import {startAppSessionHost, SESSION_PYTHON} from '../scripts/app_session_host.mjs';
 
 test('trusted callback must be callable; original preview remains safe', async () => {
   await assert.rejects(startAppSessionHost({capabilityCheck:true}));
@@ -16,7 +16,7 @@ test('trusted callback must be callable; original preview remains safe', async (
 });
 
 test('ordered commands, frozen sources, synthetic full matrix and exhausted allowance', () => {
-  const result = spawnSync('C:\\Users\\QQ\\AppData\\Local\\Programs\\Python\\Python312\\python.exe', ['-c', String.raw`
+  const result = spawnSync(SESSION_PYTHON, ['-c', String.raw`
 import hashlib, json, subprocess, tempfile
 from pathlib import Path
 import api_chain_session as s
@@ -47,7 +47,7 @@ with tempfile.TemporaryDirectory() as name:
         target.parent.mkdir(parents=True,exist_ok=True)
         target.write_bytes((s.ROOT/path).read_bytes())
     def git(*args):
-        return subprocess.run(['D:/Git/cmd/git.exe',*args],cwd=repo,capture_output=True,check=True).stdout.decode().strip()
+        return subprocess.run([s.GIT,*args],cwd=repo,capture_output=True,check=True).stdout.decode().strip()
     git('init')
     git('add','.')
     git('-c','user.name=Synthetic','-c','user.email=synthetic@example.invalid','commit','-m','synthetic')
@@ -153,7 +153,7 @@ with tempfile.TemporaryDirectory() as name:
         assert len(sent)==before+1
 print('SYNTHETIC_CONNECTION_CHECKS_PASS')
 `], {cwd:resolve('scripts'), encoding:'utf8', timeout:30_000, windowsHide:true,
-      env:Object.fromEntries(['SystemRoot','WINDIR'].filter(name => process.env[name]).map(name => [name,process.env[name]]))});
+      env:Object.fromEntries(['PATH','SystemRoot','WINDIR'].filter(name => process.env[name]).map(name => [name,process.env[name]]))});
   assert.equal(result.status, 0, result.stderr);
   assert.equal(result.stdout.trim(), 'SYNTHETIC_CONNECTION_CHECKS_PASS');
 });

@@ -53,6 +53,33 @@ describe("repository safety checks", () => {
     expect(result.status).toBe(0);
   });
 
+  it("does not exempt a copied fake assignment outside the frozen historical bytes", () => {
+    const assignment = ['SUPABASE_SECRET_KEY', '="synthetic-unused-local-value"'].join("");
+    for (const path of [
+      ".workflow-local/phase2-api-chain-implementation/local_chromium_check.py",
+      ".workflow-local/other/local_chromium_check.py",
+      "src/copied.py",
+    ]) {
+      const result = runScript("verify_no_secrets.mjs", { [path]: assignment });
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain("[secret-env-value]");
+      expect(result.stderr).not.toContain("synthetic-unused-local-value");
+    }
+  });
+
+  it("still detects secret assignments and private keys at the historical path", () => {
+    const result = runScript("verify_no_secrets.mjs", {
+      ".workflow-local/phase2-api-chain-implementation/local_chromium_check.py": [
+        ['SUPABASE_SECRET_KEY', '=synthetic-changed-secret'].join(""),
+        ['-----BEGIN PRIVATE', ' KEY-----'].join(""),
+      ].join("\n"),
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("[secret-env-value]");
+    expect(result.stderr).toContain("[private-key]");
+    expect(result.stderr).not.toContain("synthetic-changed-secret");
+  });
+
   it("rejects a save action in production source", () => {
     const result = runScript("verify_no_live_write.mjs", {
       "src/navigation.ts": "await page.getByRole('button', { name: 'Save' }).click();",

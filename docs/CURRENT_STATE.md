@@ -16,6 +16,11 @@ Các bản cũ trong bản làm việc khác là bằng chứng theo thời đi�
 1. Tinh gọn đã thực hiện: gỡ 59 tệp điều phối cũ, kiểm sản phẩm tại máy và
    đánh giá độc lập đạt; Owner đã duyệt áp dụng ngày 09/10. Chưa chạy R13.
    Kiểm tra tại máy: 141 bài web, 16 bài phiên và 735 bài Python đạt.
+   Bản sửa tiếp nối đã thêm kiểm tra 16 bài phiên vào GitHub sau bước chuẩn bị
+   Python; dùng đường dẫn phù hợp Windows/Linux. Quét toàn thư mục chính bằng
+   bộ kiểm đã sửa đạt: chỉ nhận diện đúng giá trị giả trong một tệp lịch sử
+   có dấu kiểm nội dung cố định, không bỏ quét thư mục hay sửa hồ sơ cũ.
+   Trước R13 mới phải đối chiếu lại nguồn đã thay đổi; chưa mở lượt thật.
 2. Sau tinh gọn, chuẩn bị một lượt R13 mới: tận dụng bằng chứng còn hiệu lực,
    gom điều kiện/kiểm quyền/chạy/dọn và phương án khôi phục để Owner duyệt đúng phạm vi.
 3. Kiểm toàn chuỗi, lưu kết quả, gia hạn, lỗi và PC-off (máy Owner tắt); nghiệm thu
