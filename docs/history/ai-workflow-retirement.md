@@ -89,3 +89,4 @@ Các liên kết sau trỏ đúng bản lịch sử, không phải quy tắc hi�
 - `docs/AGENT_WORKFLOW_OWNER_SETUP.md`
 - `docs/WORKFLOW_V10_LOCAL_AUTO.md`
 - `test/source-review-policy.test.ts`
+- `.gitattributes` (only retired task line-ending rule)
