@@ -11,7 +11,7 @@ Teaching/LMS chỉ đọc; không tự ghi nhận xét hoặc gửi Zalo. Dữ l
 - [Hướng dẫn AI](AGENTS.md): AI tự xử lý mã, kiểm tra và nhật ký; Owner nêu mục tiêu,
   quyết định sản phẩm/dữ liệu/chi phí, thao tác tài khoản khi cần và dùng thử.
 - Điểm chặn tác vụ thử cũ đã xử lý theo hồ sơ 09/10. Toàn chuỗi và Phase 2 còn mở.
-  Bản tinh gọn này đang chờ duyệt nhập bản chính; chưa chạy R13 mới.
+  Owner đã duyệt áp dụng bản tinh gọn ngày 09/10/2026; chưa chạy R13 mới.
 
 ## Chạy và kiểm tra — dành cho AI
 

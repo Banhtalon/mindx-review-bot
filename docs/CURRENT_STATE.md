@@ -8,13 +8,14 @@ Bản sản phẩm làm gốc: `7cfaab350812cd1f01d9924a7c3364088f77d433` (#43).
 đánh giá độc lập đạt. Chưa mở R13 mới hoặc xác nhận toàn chuỗi.
 
 Đây là bảng tiến độ hiện hành duy nhất trong bản tinh gọn. Hướng dẫn AI ở
-[AGENTS.md](../AGENTS.md). Bản tinh gọn đang trên nhánh riêng, chưa nhập main.
+[AGENTS.md](../AGENTS.md). Owner đã duyệt nhập bản tinh gọn ngày 09/10/2026.
 Các bản cũ trong bản làm việc khác là bằng chứng theo thời điểm.
 
 ## Việc đang làm và việc tiếp theo
 
-1. Hoàn tất tinh gọn: gỡ bộ điều phối AI cũ, kiểm sản phẩm và đánh giá độc lập;
-   trình Owner duyệt nhập bản chính. Chưa chạy R13 hoặc gọi máy chủ.
+1. Tinh gọn đã thực hiện: gỡ 59 tệp điều phối cũ, kiểm sản phẩm tại máy và
+   đánh giá độc lập đạt; Owner đã duyệt áp dụng ngày 09/10. Chưa chạy R13.
+   Kiểm tra tại máy: 141 bài web, 16 bài phiên và 735 bài Python đạt.
 2. Sau tinh gọn, chuẩn bị một lượt R13 mới: tận dụng bằng chứng còn hiệu lực,
    gom điều kiện/kiểm quyền/chạy/dọn và phương án khôi phục để Owner duyệt đúng phạm vi.
 3. Kiểm toàn chuỗi, lưu kết quả, gia hạn, lỗi và PC-off (máy Owner tắt); nghiệm thu
