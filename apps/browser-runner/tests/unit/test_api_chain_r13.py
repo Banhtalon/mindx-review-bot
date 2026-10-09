@@ -838,8 +838,6 @@ def test_fresh_worker_latches_scope_and_verifies_bounded_lease_cycle(
                     [
                         {
                             "job_id": PROFILE.job_id,
-                            "workspace_id": PROFILE.workspace_id,
-                            "run_id": WORKER_RUN_ID,
                             "runner_id": PROFILE.runner_id,
                             "lease_expires_at": "2030-01-01T00:10:30+00:00",
                         }
@@ -1023,8 +1021,6 @@ def test_fresh_worker_runs_async_hold_and_keeps_profile_when_cleanup_is_uncertai
                     [
                         {
                             "job_id": PROFILE.job_id,
-                            "workspace_id": PROFILE.workspace_id,
-                            "run_id": WORKER_RUN_ID,
                             "runner_id": PROFILE.runner_id,
                             "lease_expires_at": "2030-01-01T00:10:30+00:00",
                         }
@@ -1132,3 +1128,79 @@ def test_fresh_worker_runs_async_hold_and_keeps_profile_when_cleanup_is_uncertai
     assert result["residual_processes"] == [{"pid": 4343, "created": 12.0, "name": "chrome"}]
     assert profile.exists()
     assert (profile / "managed-profile.marker").read_text(encoding="utf-8") == "synthetic profile"
+
+
+def test_heartbeat_fake_response_matches_sql_return_contract():
+    migration = (
+        ROOT / "supabase/migrations/20260814000000_phase12_lease_retry.sql"
+    ).read_text()
+    signature = re.search(
+        r"create or replace function public\.heartbeat_automation_job\([\s\S]*?"
+        r"returns table\s*\(([^)]+)\)",
+        migration,
+    )
+    assert signature is not None
+    declared = {column.strip().split()[0] for column in signature[1].split(",")}
+    assert declared == {"job_id", "runner_id", "lease_expires_at"}
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "valid", "no_claim", "missing_job", "missing_runner", "missing_lease",
+        "wrong_job", "wrong_runner", "bad_lease", "extra_workspace", "extra_run",
+    ],
+)
+def test_fresh_heartbeat_uses_real_rpc_shape_and_rejects_wrong_metadata(tmp_path, case):
+    receipt = pilot.new_worker_receipt(HEAD, "84", scope=PROFILE)
+    claim_row = {
+        "claimed": True, "run_id": WORKER_RUN_ID, "job_id": PROFILE.job_id,
+        "workspace_id": PROFILE.workspace_id, "job_type": PROFILE.job_type,
+        "payload_json": PROFILE.payload, "attempt": 1, "runner_id": PROFILE.runner_id,
+        "lease_expires_at": "2030-01-01T00:10:00+00:00",
+    }
+    heartbeat = {
+        "job_id": PROFILE.job_id, "runner_id": PROFILE.runner_id,
+        "lease_expires_at": "2030-01-01T00:10:30+00:00",
+    }
+    changes = {
+        "wrong_job": ("job_id", WORKER_RUN_ID),
+        "wrong_runner": ("runner_id", "other-runner"),
+        "bad_lease": ("lease_expires_at", "not-a-server-time"),
+        "extra_workspace": ("workspace_id", PROFILE.workspace_id),
+        "extra_run": ("run_id", WORKER_RUN_ID),
+    }
+    if case in changes:
+        key, value = changes[case]
+        heartbeat[key] = value
+    missing = {
+        "missing_job": "job_id", "missing_runner": "runner_id",
+        "missing_lease": "lease_expires_at",
+    }
+    if case in missing:
+        heartbeat.pop(missing[case])
+    calls = []
+
+    def sender(method, url, _headers, _body):
+        calls.append((method, url))
+        row = claim_row if url.endswith("/claim_automation_job_run") else heartbeat
+        return HttpResponse(200, json.dumps([row]).encode())
+
+    transport = pilot.WorkerApiTransport(
+        receipt, tmp_path / "heartbeat.json", sender, scope=PROFILE
+    )
+    client = pilot.PilotApiClient(transport.client("synthetic-service-key"))
+    if case != "no_claim":
+        client.claim_job_run(PROFILE.job_id, PROFILE.runner_id)
+    if case == "valid":
+        client.heartbeat_job(PROFILE.job_id, PROFILE.runner_id)
+        snapshot = receipt["server_snapshots"][-1]
+        assert snapshot["workspace_id"] == PROFILE.workspace_id
+        assert snapshot["run_id"] == WORKER_RUN_ID
+        assert receipt["counts"]["heartbeat"] == 1
+    else:
+        code = "HEARTBEAT_WITHOUT_CLAIM" if case == "no_claim" else "RESPONSE_INVALID"
+        with pytest.raises(pilot.PilotBlocked, match=code):
+            client.heartbeat_job(PROFILE.job_id, PROFILE.runner_id)
+        assert len(calls) == (0 if case == "no_claim" else 2)
+        assert receipt["counts"]["finish"] == 0
