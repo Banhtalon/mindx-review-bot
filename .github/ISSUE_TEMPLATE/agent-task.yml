@@ -1,47 +1,22 @@
-name: QQ workflow v9 task
-description: Evidence-gated task with manual actor routing.
-title: "[v9] "
-labels: [needs-plan]
+name: Công việc cho AI
+description: Nêu kết quả cần có; AI tự điều tra và kiểm tra kỹ thuật.
+title: "[Công việc] "
 body:
   - type: textarea
     id: outcome
-    attributes: { label: Owner-visible outcome }
-    validations: { required: true }
-  - type: textarea
-    id: scope
-    attributes: { label: In scope and explicitly out of scope }
+    attributes:
+      label: Bạn muốn đạt kết quả gì?
+      description: Mô tả bằng ngôn ngữ thường dùng; không cần biết mã hoặc công nghệ.
     validations: { required: true }
   - type: textarea
     id: acceptance
-    attributes: { label: Criteria to freeze before implementation }
-    validations: { required: true }
-  - type: dropdown
-    id: risk
-    attributes: { label: Declared risk, options: [GREEN, YELLOW, RED] }
-    validations: { required: true }
-  - type: dropdown
-    id: complexity
-    attributes: { label: Complexity independent of risk, options: [S, M, L, XL] }
-    validations: { required: true }
-  - type: input
-    id: manifest
-    attributes: { label: Frozen manifest path and anchored SHA-256, placeholder: pending before READY }
-    validations: { required: true }
-  - type: textarea
-    id: control
     attributes:
-      label: v9 control record
-      value: |
-        task_id: TASK-REPLACE
-        state: INTAKE
-        scope_revision: 1
-        approved_base_sha: pending
-        effective_risk: GREEN
-        complexity: S
-        attempt_number: 0
-        routing_mode: MANUAL
-    validations: { required: true }
+      label: Khi nào bạn thấy công việc đã xong?
+      description: Ví dụ thao tác và kết quả bạn muốn thấy.
+    validations: { required: false }
   - type: textarea
-    id: owner_action
-    attributes: { label: Owner action or blocker, description: Never request secrets or technical review. }
+    id: limits
+    attributes:
+      label: Giới hạn cần giữ
+      description: Dữ liệu, chi phí hoặc hành vi không được thay đổi. Không nhập mật khẩu hoặc khóa.
     validations: { required: false }
