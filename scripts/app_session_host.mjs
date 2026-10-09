@@ -10,7 +10,10 @@ import {fileURLToPath, URL, URLSearchParams} from 'node:url';
 import {createAppSession, APP_PROJECT_REF, APP_PROJECT_URL} from './lib/app_session.mjs';
 
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
-const PYTHON = 'C:\\Users\\QQ\\AppData\\Local\\Programs\\Python\\Python312\\python.exe';
+// Fixed runtimes only: preserve Windows behavior, use locked project Python on CI.
+export const SESSION_PYTHON = process.platform === 'win32'
+  ? 'C:\\Users\\QQ\\AppData\\Local\\Programs\\Python\\Python312\\python.exe'
+  : resolve(SCRIPT_DIR, '../apps/browser-runner/.venv/bin/python');
 const RECEIVER = resolve(SCRIPT_DIR, 'app_session_receiver.py');
 const MAX_FORM_BYTES = 8 * 1024;
 const MAX_CHILD_OUTPUT = 4096;
@@ -57,9 +60,9 @@ function safePrincipal(value) {
 
 export async function runCapabilityCheck(principal, {children} = {}) {
   const context = safePrincipal(principal);
-  if (!context || !existsSync(PYTHON) || !existsSync(RECEIVER)) return {status: 'WAITING_AUTH_CAPABILITY'};
+  if (!context || !existsSync(SESSION_PYTHON) || !existsSync(RECEIVER)) return {status: 'WAITING_AUTH_CAPABILITY'};
   return new Promise(resolvePromise => {
-    const child = spawn(PYTHON, [RECEIVER], {
+    const child = spawn(SESSION_PYTHON, [RECEIVER], {
       cwd: SCRIPT_DIR,
       env: Object.fromEntries(['SystemRoot', 'WINDIR'].filter(name => process.env[name]).map(name => [name, process.env[name]])),
       shell: false,
