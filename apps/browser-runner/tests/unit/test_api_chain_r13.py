@@ -70,6 +70,59 @@ def history_bytes(*runs, total=None):
     ).encode()
 
 
+@pytest.mark.parametrize("case, expected", [
+    ("valid", "PREFLIGHT_PASS"),
+    ("wrong_head", "PILOT_HISTORY_CONTEXT_MISMATCH"),
+    ("incomplete", "PILOT_HISTORY_INCOMPLETE"),
+    ("duplicate", "PILOT_HISTORY_AMBIGUOUS"),
+    ("oversized", "PILOT_RESPONSE_TOO_LARGE"),
+])
+def test_fresh_real_transport_accepts_large_history_and_keeps_guards(
+    tmp_path, monkeypatch, case, expected
+):
+    import storage_synthetic_pilot as transport
+
+    run = fresh_run(head_sha="a" * 40) if case == "wrong_head" else fresh_run()
+    runs = [run, fresh_run()] if case == "duplicate" else [run]
+    raw = history_bytes(*runs, total=2 if case == "incomplete" else None)
+    # Mirrors the hosted failure: a valid response beyond the old 32 KiB cap.
+    raw += b" " * ((65537 if case == "oversized" else 38304) - len(raw))
+    response = Mock()
+    response.status = 200
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
+    response.read = Mock(side_effect=lambda count: raw[:count])
+    opener = Mock()
+    opener.open.return_value = response
+    monkeypatch.setattr(transport, "build_opener", lambda *_: opener)
+
+    result = pilot.preflight(
+        fresh_environment(preflight=True), tmp_path / "receipt.json"
+    )
+
+    assert result["history_reads"] == 1
+    if expected == "PREFLIGHT_PASS":
+        assert result["status"] == expected
+    else:
+        assert result["status"] == "BLOCKED"
+        assert result["error_code"] == expected
+    opener.open.assert_called_once()
+    response.read.assert_called_once_with(65537)
+    assert pilot.MAX_RESPONSE_BYTES == 32768
+    assert pilot.MAX_REQUESTS == 26 and pilot.REQUEST_CAPS["claim"] == 1
+
+
+def test_transport_error_details_never_enter_the_receipt(tmp_path, monkeypatch):
+    def private_error(*_args, **_kwargs):
+        raise pilot.TransportBlocked("synthetic-private-error-do-not-persist")
+
+    monkeypatch.setattr(pilot, "request_once", private_error)
+    path = tmp_path / "receipt.json"
+    result = pilot.preflight(fresh_environment(preflight=True), path)
+    assert result["error_code"] == "PILOT_HISTORY_TRANSPORT_BLOCKED"
+    assert "synthetic-private-error" not in path.read_text()
+
+
 def test_profiles_are_fixed_and_sql_is_bound_to_the_selected_profile():
     assert operator.profile_for_job_id(PROFILE.job_id) is PROFILE
     assert operator.profile_for_job_id(operator.JOB_ID) is operator.LEGACY_PROFILE
