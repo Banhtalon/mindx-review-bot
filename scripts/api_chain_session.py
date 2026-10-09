@@ -18,6 +18,7 @@ from api_chain_operator import (
     FRESH_R14_PROFILE,
     FRESH_R15_PROFILE,
     FRESH_R16_PROFILE,
+    FRESH_R17_PROFILE,
     LEGACY_PROFILE,
     OperatorBlocked,
     OperatorLedger,
@@ -44,6 +45,7 @@ R13_APPROVAL_SCHEMA = "mindx.api-chain-r13.approval.v1"
 R14_APPROVAL_SCHEMA = "mindx.api-chain-r14.approval.v1"
 R15_APPROVAL_SCHEMA = "mindx.api-chain-r15.approval.v1"
 R16_APPROVAL_SCHEMA = "mindx.api-chain-r16.approval.v1"
+R17_APPROVAL_SCHEMA = "mindx.api-chain-r17.approval.v1"
 LEGACY_SOURCE_PATHS = frozenset(
     {
         "scripts/app_session_host.mjs",
@@ -118,6 +120,7 @@ def _load_scope(folder=FOLDER, root=ROOT) -> SessionApproval:
         R14_APPROVAL_SCHEMA: FRESH_R14_PROFILE,
         R15_APPROVAL_SCHEMA: FRESH_R15_PROFILE,
         R16_APPROVAL_SCHEMA: FRESH_R16_PROFILE,
+        R17_APPROVAL_SCHEMA: FRESH_R17_PROFILE,
     }.get(schema)
     if fresh_profile is not None:
         required = {
