@@ -191,7 +191,24 @@ FRESH_R15_PROFILE = TargetProfile(
     1,
     1,
 )
-TARGET_PROFILES = (LEGACY_PROFILE, FRESH_R13_PROFILE, FRESH_R14_PROFILE, FRESH_R15_PROFILE)
+FRESH_R16_PROFILE = TargetProfile(
+    "FRESH_R16",
+    "653e679d-ccef-51a7-82a9-7b94bba4ed58",
+    "phase2-api-chain-synthetic-20261009-r16",
+    "5f7fef62-f57c-5563-a611-cb2b104d32ae",
+    "sync_teaching",
+    "phase2-api-chain-20261009-r16",
+    "api-chain-synthetic-r16",
+    "893e9e2b-26b9-5747-91b1-07ea95272557",
+    (("anonymous", 2), ("nonmember", 2), ("reviewer", 5), ("owner", 6)),
+    15,
+    3,
+    1,
+    1,
+)
+TARGET_PROFILES = (
+    LEGACY_PROFILE, FRESH_R13_PROFILE, FRESH_R14_PROFILE, FRESH_R15_PROFILE, FRESH_R16_PROFILE
+)
 
 
 class OperatorBlocked(RuntimeError):
