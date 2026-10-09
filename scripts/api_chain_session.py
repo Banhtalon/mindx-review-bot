@@ -16,6 +16,7 @@ from api_chain_continuation import GIT, check_source_head
 from api_chain_operator import (
     FRESH_R13_PROFILE,
     FRESH_R14_PROFILE,
+    FRESH_R15_PROFILE,
     LEGACY_PROFILE,
     OperatorBlocked,
     OperatorLedger,
@@ -40,6 +41,7 @@ WORKFLOW_HEAD = "1855c37a6f1347cd70d14f9b9eb6eec52596823a"
 PHASES = ("nonmember", "reviewer", "owner", "dispatch")
 R13_APPROVAL_SCHEMA = "mindx.api-chain-r13.approval.v1"
 R14_APPROVAL_SCHEMA = "mindx.api-chain-r14.approval.v1"
+R15_APPROVAL_SCHEMA = "mindx.api-chain-r15.approval.v1"
 LEGACY_SOURCE_PATHS = frozenset(
     {
         "scripts/app_session_host.mjs",
@@ -112,6 +114,7 @@ def _load_scope(folder=FOLDER, root=ROOT) -> SessionApproval:
     fresh_profile = {
         R13_APPROVAL_SCHEMA: FRESH_R13_PROFILE,
         R14_APPROVAL_SCHEMA: FRESH_R14_PROFILE,
+        R15_APPROVAL_SCHEMA: FRESH_R15_PROFILE,
     }.get(schema)
     if fresh_profile is not None:
         required = {
