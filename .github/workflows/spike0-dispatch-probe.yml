@@ -63,7 +63,7 @@ jobs:
 
   runtime:
     needs: validate
-    if: github.repository == 'Banhtalon/mindx-review-bot' && github.workflow_ref == 'Banhtalon/mindx-review-bot/.github/workflows/spike0-dispatch-probe.yml@refs/heads/main' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA == github.sha && inputs.job_id == '5f7fef62-f57c-5563-a611-cb2b104d32ae' && inputs.job_type == 'sync_teaching' && inputs.recover_from_run == ''
+    if: github.repository == 'Banhtalon/mindx-review-bot' && github.workflow_ref == 'Banhtalon/mindx-review-bot/.github/workflows/spike0-dispatch-probe.yml@refs/heads/main' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA == github.sha && inputs.job_id == 'afdf701c-0efe-54d7-b7dc-8c989eab574a' && inputs.job_type == 'sync_teaching' && inputs.recover_from_run == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

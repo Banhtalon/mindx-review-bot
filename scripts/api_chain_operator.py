@@ -206,8 +206,24 @@ FRESH_R16_PROFILE = TargetProfile(
     1,
     1,
 )
+FRESH_R17_PROFILE = TargetProfile(
+    "FRESH_R17",
+    "f4e68490-2a11-5767-9086-945897809823",
+    "phase2-api-chain-synthetic-20261009-r17",
+    "afdf701c-0efe-54d7-b7dc-8c989eab574a",
+    "sync_teaching",
+    "phase2-api-chain-20261009-r17",
+    "api-chain-synthetic-r17",
+    "d1cbb800-eb88-5367-8ab6-4431a2d6c04d",
+    (("anonymous", 2), ("nonmember", 2), ("reviewer", 5), ("owner", 6)),
+    15,
+    3,
+    1,
+    1,
+)
 TARGET_PROFILES = (
-    LEGACY_PROFILE, FRESH_R13_PROFILE, FRESH_R14_PROFILE, FRESH_R15_PROFILE, FRESH_R16_PROFILE
+    LEGACY_PROFILE, FRESH_R13_PROFILE, FRESH_R14_PROFILE, FRESH_R15_PROFILE,
+    FRESH_R16_PROFILE, FRESH_R17_PROFILE,
 )
 
 
