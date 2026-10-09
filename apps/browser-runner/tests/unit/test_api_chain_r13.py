@@ -27,7 +27,10 @@ ACTOR = "20000000-0000-4000-8000-000000000001"
 WORKER_RUN_ID = "90000000-0000-4000-8000-000000000001"
 
 
-@pytest.fixture(autouse=True, params=[operator.FRESH_R13_PROFILE, operator.FRESH_R14_PROFILE, operator.FRESH_R15_PROFILE])
+@pytest.fixture(
+    autouse=True,
+    params=[operator.FRESH_R13_PROFILE, operator.FRESH_R14_PROFILE, operator.FRESH_R15_PROFILE],
+)
 def fresh_profile(request, monkeypatch):
     monkeypatch.setattr(sys.modules[__name__], "PROFILE", request.param)
 
