@@ -1,4 +1,4 @@
-"""Fresh R13/R14 use fixed synthetic identities and fake transports only."""
+"""Fresh R13/R14/R15 use fixed synthetic identities and fake transports only."""
 
 import hashlib
 import importlib
@@ -27,12 +27,14 @@ ACTOR = "20000000-0000-4000-8000-000000000001"
 WORKER_RUN_ID = "90000000-0000-4000-8000-000000000001"
 
 
-@pytest.fixture(autouse=True, params=[operator.FRESH_R13_PROFILE, operator.FRESH_R14_PROFILE])
+@pytest.fixture(autouse=True, params=[operator.FRESH_R13_PROFILE, operator.FRESH_R14_PROFILE, operator.FRESH_R15_PROFILE])
 def fresh_profile(request, monkeypatch):
     monkeypatch.setattr(sys.modules[__name__], "PROFILE", request.param)
 
 
 def approval_schema():
+    if PROFILE is operator.FRESH_R15_PROFILE:
+        return session.R15_APPROVAL_SCHEMA
     return (
         session.R14_APPROVAL_SCHEMA
         if PROFILE is operator.FRESH_R14_PROFILE
@@ -40,7 +42,7 @@ def approval_schema():
     )
 
 
-def test_workflow_only_opens_new_r14_and_keeps_head_attempt_and_recovery_gates():
+def test_workflow_only_opens_new_r15_and_keeps_head_attempt_and_recovery_gates():
     workflow = (ROOT / ".github/workflows/spike0-dispatch-probe.yml").read_text()
     expression = next(
         line.strip()[4:] for line in workflow.splitlines() if line.strip().startswith("if: ")
@@ -53,7 +55,7 @@ def test_workflow_only_opens_new_r14_and_keeps_head_attempt_and_recovery_gates()
         ),
         "github.ref": "refs/heads/main", "github.run_attempt": 1,
         "vars.MINDX_API_CHAIN_PILOT_APPROVAL_SHA": HEAD, "github.sha": HEAD,
-        "inputs.job_id": operator.FRESH_R14_PROFILE.job_id,
+        "inputs.job_id": operator.FRESH_R15_PROFILE.job_id,
         "inputs.job_type": "sync_teaching", "inputs.recover_from_run": "",
     }
     def accepted(**changes):
@@ -64,7 +66,7 @@ def test_workflow_only_opens_new_r14_and_keeps_head_attempt_and_recovery_gates()
         )
         return eval(code.replace("&&", " and ").replace("||", " or "), {"__builtins__": {}})
     assert accepted()
-    for old in (operator.LEGACY_PROFILE, operator.FRESH_R13_PROFILE):
+    for old in (operator.LEGACY_PROFILE, operator.FRESH_R13_PROFILE, operator.FRESH_R14_PROFILE):
         assert not accepted(**{"inputs.job_id": old.job_id})
     for key, value in (
         ("github.sha", "a" * 40), ("github.run_attempt", 2),
