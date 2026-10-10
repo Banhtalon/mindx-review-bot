@@ -1017,6 +1017,161 @@ async def test_close_browser_with_bound_skips_when_wall_deadline_expired() -> No
     assert elapsed < 0.05
 
 
+@pytest.mark.parametrize(
+    ("fault", "server_status"),
+    [
+        ("adapter_error", "failed"),
+        ("finish_rejected", "running"),
+        ("finish_reply_lost_before_commit", "running"),
+        ("finish_reply_lost_after_commit", "succeeded"),
+        ("finish_empty_ack", "succeeded"),
+        ("finish_wrong_ack", "failed"),
+    ],
+)
+def test_local_failure_chain_never_retries_or_reports_unconfirmed_success(
+    fault: str,
+    server_status: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Real CLI, RPC codec and browser guard; transport/browser are offline fakes.
+
+    Two scenarios: failure after claim; rejection/uncertainty during finish.
+    No hosted state, dispatch, real credentials, external network or Chromium.
+    """
+    import socket
+    import threading
+
+    import mindx_runner.cli as cli
+    from mindx_runner.supabase_client import (
+        HttpResponse,
+        SupabaseClientError,
+        SupabaseRunnerClient,
+    )
+
+    sentinel = "LOCAL_ONLY_PRIVATE_SENTINEL"
+    calls: list[tuple[str, dict[str, object]]] = []
+    state = {"status": "queued", "outside_target": "unchanged"}
+    heartbeat_seen = threading.Event()
+    session = FakeSession()
+    adapter_calls = 0
+
+    def no_network(*_: object, **__: object) -> Any:
+        pytest.fail("local failure preparation must never open a socket")
+
+    def transport(method: str, url: str, headers: Any, body: bytes | None) -> HttpResponse:
+        assert method == "POST"
+        prefix = "https://example.supabase.co/rest/v1/rpc/"
+        assert url.startswith(prefix)
+        assert headers["apikey"] == ENVIRONMENT["SUPABASE_SECRET_KEY"]
+        assert body is not None
+        rpc = url.removeprefix(prefix)
+        payload = json.loads(body)
+        calls.append((rpc, payload))
+        assert len(calls) <= 10, "unexpected retry or heartbeat loop"
+        if rpc == "claim_automation_job_run":
+            assert payload == {"target_job_id": JOB_ID, "target_runner_id": RUNNER_ID}
+            assert state["status"] == "queued"
+            state["status"] = "running"
+            result = [{
+                "claimed": True, "run_id": RUN_ID, "job_id": JOB_ID,
+                "workspace_id": WORKSPACE_ID, "job_type": "sync_teaching",
+                "payload_json": {}, "attempt": 1,
+            }]
+        elif rpc == "heartbeat_automation_job":
+            assert payload == {"target_job_id": JOB_ID, "target_runner_id": RUNNER_ID}
+            assert state["status"] == "running"
+            result = [{"job_id": JOB_ID, "runner_id": RUNNER_ID,
+                       "lease_expires_at": "2099-01-01T00:00:00+00:00"}]
+            heartbeat_seen.set()
+        elif rpc == "finish_automation_job_run":
+            assert payload["target_run_id"] == RUN_ID
+            assert payload["target_runner_id"] == RUNNER_ID
+            assert payload["target_records_read"] == 0
+            assert type(payload["target_duration_ms"]) is int
+            assert payload["target_duration_ms"] >= 0
+            assert state["status"] == "running"
+            if fault == "finish_rejected":
+                return HttpResponse(409, sentinel.encode())
+            if fault == "finish_reply_lost_before_commit":
+                raise SupabaseClientError("SUPABASE_UNAVAILABLE") from OSError(sentinel)
+            state["status"] = str(payload["target_status"])
+            if fault == "finish_reply_lost_after_commit":
+                raise SupabaseClientError("SUPABASE_UNAVAILABLE") from OSError(sentinel)
+            if fault == "finish_empty_ack":
+                result = [{}]
+            elif fault == "finish_wrong_ack":
+                state["status"] = "failed"
+                result = [{"status": "failed"}]
+            else:
+                result = [{"status": state["status"]}]
+        else:
+            pytest.fail("escaped the local claim/heartbeat/finish allowlist")
+        return HttpResponse(200, json.dumps(result).encode())
+
+    real_client = SupabaseRunnerClient(
+        ENVIRONMENT["SUPABASE_URL"], ENVIRONMENT["SUPABASE_SECRET_KEY"],
+        transport=transport,
+    )
+    # Test-only synthetic client: deliberately exposes no real stored-session loader.
+    client = SimpleNamespace(
+        claim_job_run=real_client.claim_job_run,
+        heartbeat_job=real_client.heartbeat_job,
+        finish_job_run=real_client.finish_job_run,
+    )
+    readonly_browser_class = cli.ReadonlyBrowserSession
+    def client_factory(*_: object) -> Any:
+        # Windows asyncio creates its internal loopback socketpair first.
+        # Block all connections before the first claim, not loop creation.
+        monkeypatch.setattr(socket.socket, "connect", no_network)
+        monkeypatch.setattr(socket.socket, "connect_ex", no_network)
+        monkeypatch.setattr(socket, "create_connection", no_network)
+        return client
+
+    monkeypatch.setattr(cli, "SupabaseRunnerClient", client_factory)
+    monkeypatch.setattr(
+        cli, "ReadonlyBrowserSession",
+        lambda **options: readonly_browser_class(
+            **options, session_factory=lambda **_: session,
+        ),
+    )
+    monkeypatch.setattr(cli.os, "environ", dict(ENVIRONMENT))
+    monkeypatch.setattr(cli, "HEARTBEAT_INTERVAL_SECONDS", 0.01)
+
+    async def adapter(*_: object) -> int:
+        nonlocal adapter_calls
+        adapter_calls += 1
+        # Cross at least one real heartbeat codec before injecting the failure.
+        async with asyncio.timeout(2):
+            while not heartbeat_seen.is_set():
+                await asyncio.sleep(0.001)
+        if fault == "adapter_error":
+            raise RuntimeError(sentinel)
+        return 0
+
+    monkeypatch.setattr(cli, "load_configured_adapter", lambda _: adapter)
+    assert cli.main(["run", JOB_ID]) == 1
+    output = capsys.readouterr()
+    expected_code = "RUNNER_FAILED" if fault == "adapter_error" else "SUPABASE_UNAVAILABLE"
+    assert json.loads(output.out) == {"status": "failed", "error_code": expected_code}
+    assert output.err == ""
+    assert sentinel not in output.out
+    assert ENVIRONMENT["SUPABASE_SECRET_KEY"] not in output.out
+    names = [name for name, _ in calls]
+    assert names[0] == "claim_automation_job_run"
+    assert names.count("claim_automation_job_run") == 1
+    assert names.count("heartbeat_automation_job") >= 1
+    assert names.count("finish_automation_job_run") == 1
+    assert names[-1] == "finish_automation_job_run"
+    terminal = calls[-1][1]
+    assert terminal["target_status"] == ("failed" if fault == "adapter_error" else "succeeded")
+    assert terminal["target_error_code"] == ("RUNNER_FAILED" if fault == "adapter_error" else None)
+    assert sentinel not in json.dumps(calls)
+    assert state == {"status": server_status, "outside_target": "unchanged"}
+    assert adapter_calls == 1
+    assert session.closed and session.stop_calls == 1
+
+
 @pytest.mark.asyncio
 async def test_adapter_cooperative_cancellation_finishes_before_finalization(
     monkeypatch: pytest.MonkeyPatch,
