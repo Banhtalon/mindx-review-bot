@@ -382,6 +382,8 @@ class SupabaseRunnerClient:
         )
         if not isinstance(raw, list) or len(raw) != 1 or not isinstance(raw[0], dict):
             raise SupabaseClientError(SUPABASE_UNAVAILABLE)
+        if raw[0].get("status") != status:
+            raise SupabaseClientError(SUPABASE_UNAVAILABLE)
 
     def heartbeat_job(self, job_id: str, runner_id: str) -> None:
         target_job_id = _uuid(job_id, "job_id")
